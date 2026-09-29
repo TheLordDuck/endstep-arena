@@ -4,12 +4,13 @@
 
 import type { CardView } from "../../game/GameState";
 
-export type ImageVersion = "normal" | "large";
+export type ImageVersion = "normal" | "large" | "art_crop";
 
 /** Same endpoints Endstep uses (same-origin, 302 → Scryfall CDN). */
 export function imageUrl(c: Pick<CardView, "name" | "faceDown" | "isToken" | "setCode" | "collectorNumber" | "power" | "toughness"
-  | "isCopyOfRealCard" | "backFace" | "tokenSetCode" | "tokenCollectorNumber" | "color" | "basePower" | "baseToughness">, version: ImageVersion = "normal"): string | null {
-  if (c.faceDown || !c.name || c.name === "Unknown card") return null;
+  | "isCopyOfRealCard" | "backFace" | "tokenSetCode" | "tokenCollectorNumber" | "color" | "basePower" | "baseToughness"> & { peeked?: boolean }, version: ImageVersion = "normal"): string | null {
+  // A face-down card shows its front only to a viewer allowed to see it.
+  if ((c.faceDown && !c.peeked) || !c.name || c.name === "Unknown card") return null;
   const p = new URLSearchParams({ name: c.name });
   // Token copies of real cards use that card's image.
   if (c.isToken && !c.isCopyOfRealCard) {
@@ -49,6 +50,7 @@ export function createCardEl(id: string): HTMLElement {
       <div class="fallback"><b class="fname"></b><span class="fcost"></span><span class="ftype"></span><span class="ftext"></span></div>
       <img class="img" alt="" draggable="false" decoding="async">
     </div>
+    <div class="kws"></div>
     <div class="badges"></div>
     <span class="fx-mark"></span>`;
   const img = el.querySelector("img")!;
@@ -70,16 +72,19 @@ const escText = (el: Element, text: string) => {
 };
 
 export function updateCardEl(el: HTMLElement, c: CardView, showStats: boolean): void {
-  const sig = JSON.stringify([c.name, c.faceDown, c.isToken, c.setCode, c.collectorNumber, c.power, c.toughness,
+  const sig = JSON.stringify([c.name, c.faceDown, c.peeked, c.isToken, c.setCode, c.collectorNumber, c.power, c.toughness,
     c.isCopyOfRealCard, c.backFace, c.tokenSetCode, c.tokenCollectorNumber, c.color, c.basePower, c.baseToughness,
-    c.loyalty, c.damage, c.classLevel, c.counters, c.types, c.typeLine, c.manaCost, showStats]);
+    c.loyalty, c.damage, c.classLevel, c.counters, c.types, c.typeLine, c.manaCost, c.keywordsGranted, c.keywordsLost, showStats]);
   const ce = el as CardElement;
   if (ce._sig === sig) return;
   ce._sig = sig;
 
   const saga = !c.faceDown && hasSubtype(c, "saga");
   const klass = !c.faceDown && hasSubtype(c, "class");
-  el.classList.toggle("facedown", c.faceDown);
+  // Face down but known to the viewer: its front, dimmed, with an eye mark.
+  const peeked = c.faceDown && !!c.peeked;
+  el.classList.toggle("facedown", c.faceDown && !peeked);
+  el.classList.toggle("peeked", peeked);
   el.classList.toggle("token", c.isToken);
   // The whole card on the battlefield, so chapters, levels and loyalty abilities stay readable.
   el.classList.toggle("full", isFullCard(c));
@@ -93,7 +98,7 @@ export function updateCardEl(el: HTMLElement, c: CardView, showStats: boolean): 
     el.classList.remove("has-img");
     img.src = url;
   }
-  escText(el.querySelector(".fname")!, c.faceDown ? "" : c.name);
+  escText(el.querySelector(".fname")!, c.faceDown && !peeked ? "" : c.name);
   escText(el.querySelector(".fcost")!, c.manaCost ?? "");
   escText(el.querySelector(".ftype")!, c.typeLine ?? "");
   escText(el.querySelector(".ftext")!, c.oracleText ?? "");
@@ -115,12 +120,38 @@ export function updateCardEl(el: HTMLElement, c: CardView, showStats: boolean): 
     if (c.damage) badges.push(`<span class="b dmg" title="Damage">${c.damage}</span>`);
     // Endstep sends 0/0 (and loyalty 0) for every card, so stats follow the card's type.
     if (c.loyalty !== undefined && hasType(c, "planeswalker")) badges.push(`<span class="b loy">${attr(c.loyalty)}</span>`);
-    if (c.power !== undefined && c.toughness !== undefined && isFrontRow(c)) badges.push(`<span class="b pt">${attr(c.power)}/${attr(c.toughness)}</span>`);
+    // Power/toughness above the printed value is green, below it red, as in Arena.
+    if (c.power !== undefined && c.toughness !== undefined && isFrontRow(c)) {
+      badges.push(`<span class="b pt">${stat(c.power, c.basePower)}/${stat(c.toughness, c.baseToughness)}</span>`);
+    }
   }
   el.querySelector(".badges")!.innerHTML = badges.join("");
+  // Keywords an effect added (or took away), on the permanent itself.
+  const kws = showStats ? [
+    ...(c.keywordsGranted ?? []).map((k) => `<span class="k gain" title="Gained ${attr(k)}">${attr(k)}</span>`),
+    ...lostKeywords(c).map((k) => `<span class="k lost" title="Lost ${attr(k)}">${attr(k)}</span>`),
+  ] : [];
+  el.querySelector(".kws")!.innerHTML = kws.join("");
+  el.classList.toggle("modified", kws.length > 0);
 }
 
 const attr = (v: unknown) => String(v).replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+
+/**
+ * Keywords an effect took away. A card that transformed (a flipped planeswalker, say) "loses"
+ * its other face's keywords, which no effect did: only a keyword the current face actually
+ * prints counts. Without the card's text, a transformed card shows none.
+ */
+export function lostKeywords(c: Pick<CardView, "keywordsLost" | "oracleText" | "backFace">): string[] {
+  const lost = c.keywordsLost ?? [];
+  if (!c.oracleText) return c.backFace ? [] : lost;
+  return lost.filter((k) => new RegExp(`\\b${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(c.oracleText!));
+}
+
+function stat(value: number | string, base: number | undefined): string {
+  const cls = typeof value === "number" && base !== undefined && value !== base ? (value > base ? "up" : "down") : "";
+  return cls ? `<i class="${cls}">${attr(value)}</i>` : attr(value);
+}
 
 function counterLabel(kind: string, n: number): string {
   const k = kind.toUpperCase();

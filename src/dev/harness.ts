@@ -6,7 +6,8 @@ import overlayCss from "../styles/overlay.css";
 import boardCss from "../styles/board.css";
 import { Board } from "../ui/board/Board";
 import { GameController } from "../game/GameController";
-import { normalize, type Raw } from "../game/endstep/normalize";
+import { normalize, toReveal, type Raw } from "../game/endstep/normalize";
+import type { RevealView } from "../game/GameState";
 import { loadStops, saveStops } from "../game/endstep/phaseStops";
 
 let nextId = 100;
@@ -24,7 +25,7 @@ function baseState(): Raw {
     hand: [bolt, card("Llanowar Elves", { typeLine: "Creature" }), counterspell, card("Island", { typeLine: "Basic Land — Island" }), card("Serra Angel", { typeLine: "Creature" })],
     battlefield: [
       land("Mountain"), land("Mountain", { tapped: true }), land("Island"), land("Island"), land("Forest", { tapped: true }),
-      creature("Grizzly Bears", 2, 2),
+      creature("Grizzly Bears", 3, 3, { basePower: 2, baseToughness: 2, keywordsGranted: ["Flying", "Trample"] }),
       creature("Goblin Guide", 2, 2, { tapped: true }),
       creature("Llanowar Elves", 1, 1, { hasSummoningSickness: true }),
       creature("Tarmogoyf", 3, 4, { counters: { P1P1: 1 } }),
@@ -40,11 +41,14 @@ function baseState(): Raw {
     displayName: "Opponent", name: "Opponent", life: 12, poisonCounters: 2, librarySize: 41, handSize: 4,
     battlefield: [
       land("Swamp"), land("Swamp"), land("Plains", { tapped: true }), land("Plains"),
-      creature("Serra Angel", 4, 4),
+      creature("Serra Angel", 4, 4, { keywordsLost: ["Flying"] }),
       creature("Vampire Nighthawk", 2, 3, { damage: 1 }),
       card("Pacifism", { typeLine: "Enchantment — Aura" }),
     ],
-    graveyard: [card("Swords to Plowshares")], exile: [card("Path to Exile")], commandZone: [card("Angel's Grace", { types: ["Effect"], effectSourceName: "Serra Angel", oracleText: "You can't lose the game this turn." })],
+    graveyard: [card("Swords to Plowshares")], exile: [card("Path to Exile")], commandZone: [
+      card("Atraxa, Praetors' Voice", { isCommander: true, typeLine: "Legendary Creature — Phyrexian Angel Horror" }),
+      card("Angel's Grace", { types: ["Effect"], effectSourceName: "Serra Angel", oracleText: "You can't lose the game this turn." }),
+    ],
   };
   // The opponent's Pacifism enchants our Grizzly Bears (as Endstep sends it: the host lists
   // `attachedCards`, the aura names its host in `attachedTo`).
@@ -63,7 +67,8 @@ function baseState(): Raw {
   };
 }
 
-type Scenario = (s: Raw) => void;
+/** Sets up the state; may return a second step, shown as the next update (for transitions). */
+type Scenario = (s: Raw) => void | ((s: Raw) => void);
 const players = (s: Raw) => s.players as Raw[];
 const bf = (p: Raw) => p.battlefield as Raw[];
 const byName = (p: Raw, n: string) => bf(p).find((c) => c.name === n)!;
@@ -121,6 +126,116 @@ const scenarios: Record<string, Scenario> = {
         { index: 3, description: "Kolaghan's Command deals 2 damage to any target." },
       ] };
   },
+  // Portable Hole's trigger resolves: the opponent's creature goes under the Hole.
+  exile: (s) => {
+    const [me, opp] = players(s);
+    const hole = card("Portable Hole", { typeLine: "Artifact", controllerId: "0",
+      oracleText: "When Portable Hole enters the battlefield, exile target nonland permanent an opponent controls with mana value 2 or less until Portable Hole leaves the battlefield." });
+    const victim = creature("Dark Confidant", 2, 1);
+    bf(me!).push(hole);
+    bf(opp!).push(victim);
+    s.stack = [{ stackTargetId: 960, isAbility: true, abilityDescription: "Exile target nonland permanent an opponent controls with mana value 2 or less until Portable Hole leaves the battlefield.",
+      sourceCard: hole, targets: [{ id: victim.id, zone: "Battlefield" }] }];
+    return (t) => {
+      t.stack = [];
+      bf(opp!).splice(bf(opp!).indexOf(victim), 1);
+      (opp!.exile as Raw[]).push(victim);
+    };
+  },
+  surveil: (s) => {
+    s.pendingAction = { type: "ARRANGE_CARDS", contextType: "surveil", promptVersion: 12, sourceCardName: "Consider", message: "Surveil 2",
+      cardOptions: [{ id: 970, name: "Breeding Pool", typeLine: "Land — Forest Island" }, { id: 971, name: "Lightning Bolt", typeLine: "Instant" }] };
+  },
+  scry: (s) => {
+    s.pendingAction = { type: "ARRANGE_CARDS", contextType: "scry", promptVersion: 13, sourceCardName: "Opt", message: "Scry 1",
+      cardOptions: [{ id: 972, name: "Counterspell", typeLine: "Instant" }] };
+  },
+  // Overgrown Tomb tapped for mana: black or green.
+  mana: (s) => {
+    const [me] = players(s);
+    const tomb = land("Overgrown Tomb", { typeLine: "Land — Swamp Forest" });
+    bf(me!).push(tomb);
+    s.pendingAction = { type: "CHOOSE_MANA", promptVersion: 14, sourceCardId: tomb.id, sourceCardName: "Overgrown Tomb", message: "Choose mana", stringOptions: ["B", "G"], cancellable: true };
+  },
+  // Lands with several mana abilities: click Starting Town (ability cards) or Overgrown Tomb (wheel).
+  abilities: (s) => {
+    const [me] = players(s);
+    const town = land("Starting Town", { typeLine: "Land" });
+    const tomb = land("Overgrown Tomb", { typeLine: "Land — Swamp Forest" });
+    bf(me!).push(town, tomb);
+    s.pendingAction = { type: "PRIORITY", promptVersion: 15, cardOptions: [
+      { id: town.id, zone: "BATTLEFIELD", playableAbilities: [{ index: 0, description: "{T}: Add {C}." }, { index: 1, description: "{T}, Pay 1 life: Add one mana of any color." }] },
+      { id: tomb.id, zone: "BATTLEFIELD", playableAbilities: [{ index: 0, description: "{T}: Add {B}." }, { index: 1, description: "{T}: Add {G}." }] },
+    ] };
+  },
+  // Scapeshift: search the library for up to 6 lands (a fan of cards with a slider).
+  search: (s) => {
+    const names = ["Otawara, Soaring City", "Lotus Field", "Lotus Field", "Hedge Maze", "Hedge Maze", "Breeding Pool", "Forest", "Island",
+      "Steam Vents", "Valakut, the Molten Pinnacle", "Mountain", "Mountain", "Stomping Ground", "Misty Rainforest"];
+    s.pendingAction = { type: "CHOOSE_CARDS", promptVersion: 16, sourceCardName: "Scapeshift", message: "Search for land cards.", min: 0, max: 6,
+      cardOptions: names.map((n, i) => ({ id: 980 + i, name: n, typeLine: "Land", zone: "LIBRARY" })) };
+  },
+  // A long graveyard, to browse (click the pile).
+  graveyard: (s) => {
+    const [me] = players(s);
+    const names = ["Opt", "Brainstorm", "Consider", "Lightning Bolt", "Counterspell", "Thoughtseize", "Fatal Push", "Llanowar Elves",
+      "Tarmogoyf", "Snapcaster Mage", "Path to Exile", "Faithless Looting"];
+    me!.graveyard = names.map((n) => card(n));
+  },
+  // A crowded board: creatures and lands shrink to fit their line, artifacts go in two rows,
+  // planeswalkers/Sagas in a 3×2 grid, both paged with arrows.
+  crowded: (s) => {
+    const [me] = players(s);
+    const creatures = ["Llanowar Elves", "Elvish Mystic", "Fyndhorn Elves", "Tarmogoyf", "Scavenging Ooze", "Grizzly Bears", "Goblin Guide",
+      "Monastery Swiftspear", "Dark Confidant", "Snapcaster Mage", "Thalia, Guardian of Thraben", "Noble Hierarch", "Birds of Paradise", "Walking Ballista"];
+    const lands = ["Forest", "Island", "Mountain", "Swamp", "Plains", "Breeding Pool", "Steam Vents", "Stomping Ground", "Overgrown Tomb",
+      "Hallowed Fountain", "Godless Shrine", "Sacred Foundry", "Temple Garden", "Watery Grave", "Blood Crypt", "Misty Rainforest"];
+    const artifacts = ["Sol Ring", "Mind Stone", "Arcane Signet", "Chromatic Star", "Aether Vial", "Chalice of the Void", "Ensnaring Bridge",
+      "Oblivion Ring", "Rest in Peace", "Leyline of the Void", "Sylvan Library", "Phyrexian Arena", "Smothering Tithe", "Rhystic Study",
+      "Mox Opal", "Springleaf Drum"];
+    const walkers = ["Jace, the Mind Sculptor", "Liliana of the Veil", "Karn Liberated", "Teferi, Hero of Dominaria", "Garruk, Curse Breaker",
+      "Chandra, Torch of Defiance"];
+    me!.battlefield = [
+      ...creatures.map((n, i) => creature(n, 2, 2, { tapped: i % 5 === 0 })),
+      ...lands.map((n, i) => land(n, { typeLine: `Land — ${n}`, tapped: i % 3 === 0 })),
+      ...artifacts.map((n) => card(n, { typeLine: "Artifact" })),
+      ...walkers.map((n) => card(n, { typeLine: "Legendary Planeswalker", loyalty: 4 })),
+      card("The Eldest Reborn", { typeLine: "Enchantment — Saga", counters: { LORE: 1 } }),
+      card("Fable of the Mirror-Breaker", { typeLine: "Enchantment — Saga", counters: { LORE: 2 } }),
+    ];
+    s.pendingAction = { type: "PRIORITY", promptVersion: 17, cardOptions: [] };
+  },
+  // The opponent revealed two cards from hand (they stay known there), then a card from their
+  // library; our face-down morph shows its front to us (battlefieldPeek).
+  reveal: (s) => {
+    const [me, opp] = players(s);
+    // As a real game sends it: their hand is placeholders ("Hidden card", ids by position); a
+    // Thoughtseize revealed it (real ids), and made them discard the Bolt (now in their graveyard).
+    opp!.hand = Array.from({ length: 6 }, (_, i) => ({ id: 1010000028 + i, name: "Hidden card", zone: "Hand", faceDown: true }));
+    opp!.handSize = 6;
+    (opp!.graveyard as Raw[]).push({ id: 996, name: "Lightning Bolt", typeLine: "Instant" });
+    const morph = card("", { faceDown: true, typeLine: "Creature", power: 2, toughness: 2 });
+    bf(me!).push(morph);
+    me!.battlefieldPeek = [{ id: morph.id, name: "Exalted Angel", typeLine: "Creature — Angel" }];
+    const now = Date.now();
+    s.__events = [
+      { type: "CARD_REVEALED", sequenceNumber: 501, playerName: "Opponent", toZone: "HAND", cardNames: ["Thoughtseize", "Counterspell", "Lightning Bolt"], cardIds: [991, 993, 996], _t: now },
+      { type: "CARD_REVEALED", sequenceNumber: 502, playerName: "Opponent", toZone: "LIBRARY", cardName: "Emrakul, the Aeons Torn", cardId: 994 },
+    ];
+  },
+  // Casting Indomitable Creativity: X, as Endstep asks it (minValue/maxValue).
+  x: (s) => {
+    s.pendingAction = { type: "CHOOSE_NUMBER", promptVersion: 18, sourceCardName: "Indomitable Creativity", message: "Choose a value for X",
+      minValue: 0, maxValue: 4, canUndo: true };
+  },
+  pw: (s) => {
+    s.pendingAction = { type: "CHOOSE_ABILITY", promptVersion: 11, sourceCardName: "Garruk, Curse Breaker", min: 1, max: 1,
+      modeOptions: [
+        { index: 0, description: "+2: Untap up to two target lands." },
+        { index: 1, description: "−3: Create a 4/4 green Beast creature token with trample." },
+        { index: 2, description: "−4: Until your next turn, whenever one or more creatures attack one of your opponents, those creatures get +2/+2 and gain trample until end of turn." },
+      ] };
+  },
   pay: (s) => {
     s.pendingAction = { type: "PAY_MANA", promptVersion: 10, message: "Pay {2}{R}{G} for Bloodbraid Elf", sourceCardName: "Bloodbraid Elf",
       cardOptions: [{ id: 100 }, { id: 101 }, { id: 102 }, { id: 103 }] };
@@ -137,9 +252,14 @@ const scenarios: Record<string, Scenario> = {
 
 const name = location.hash.slice(1) || "priority";
 const raw = baseState();
-scenarios[name]?.(raw);
+const nextStep = scenarios[name]?.(raw);
 let seq = 1;
-let state = normalize(raw, { matchId: "harness", viewerSeat: 0, seq: 1, desynced: false });
+// The adapter adds reveals from game events; scenarios list those events in raw.__events.
+const build = (meta: { viewerSeat?: number; seq: number }) => ({
+  ...normalize(raw, { matchId: "harness", viewerSeat: meta.viewerSeat ?? 0, seq: meta.seq, desynced: false }),
+  reveals: ((raw.__events as Raw[] | undefined) ?? []).map((e) => toReveal(e)).filter((r): r is RevealView => !!r),
+});
+let state = build({ seq: 1 });
 
 const host = document.createElement("div");
 const root = host.attachShadow({ mode: "open" });
@@ -151,7 +271,7 @@ const controller = new GameController(() => state, (matchId, action) => {
   // Stand in for the server: an answer closes the prompt and hands priority back.
   if (action.type !== "SET_PHASE_STOPS" && action.type !== "SET_AUTO_YIELDS") {
     raw.pendingAction = { type: "PRIORITY", promptVersion: 100 + seq, cardOptions: [] };
-    state = normalize(raw, { matchId: "harness", viewerSeat: 0, seq: ++seq, desynced: false });
+    state = build({ seq: ++seq });
     setTimeout(() => board.update(state), 150);
   }
 });
@@ -161,14 +281,24 @@ const board = new Board(controller, {
   onToggleDebug: () => {}, onHide: () => {},
   phaseStops: () => stops,
   togglePhaseStop: (side, step) => { if (!stops[side].delete(step)) stops[side].add(step); saveStops(stops); },
+  // Endstep's table menu, as its best-of-three board offers it.
+  tableMenu: async () => ["Show decklist", "Auto-yields", "Settings", "Keyboard shortcuts", "Report a problem", "Reload", "Concede game", "Concede match"],
+  runTableItem: (label) => console.log("TABLE ITEM", label),
 });
 root.querySelector(".layer")!.appendChild(board.el);
 board.update(state);
+if (nextStep) {
+  nextStep(raw);
+  state = build({ seq: ++seq });
+  board.update(state);
+}
 
+// Dev hook: the current raw state, to build a follow-up state from in a test script.
+(window as unknown as { __raw: Raw }).__raw = raw;
 // Dev hook: load a real state copied from the debug panel ({ matchId, viewerSeat, seq, state }).
 (window as unknown as { __load: (frame: { viewerSeat?: number; seq?: number; state: Raw }) => void }).__load = (frame) => {
   Object.keys(raw).forEach((k) => delete (raw as Raw)[k]);
   Object.assign(raw, frame.state);
-  state = normalize(raw, { matchId: "harness", viewerSeat: frame.viewerSeat ?? 0, seq: ++seq, desynced: false });
+  state = build({ viewerSeat: frame.viewerSeat, seq: ++seq });
   board.update(state);
 };

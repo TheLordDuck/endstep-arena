@@ -7,6 +7,8 @@ export interface CardView {
   id: string;
   name: string;
   ownerId?: PlayerId;
+  /** The owner's account name, as prompt options (cardOptions) name it instead of an id. */
+  ownerName?: string;
   controllerId?: PlayerId;
   tapped: boolean;
   /** Came under its controller's control this turn (can't attack or {T} without haste). */
@@ -17,6 +19,9 @@ export interface CardView {
   isCopyOfRealCard?: boolean;
   /** Showing its back face (transformed or a back-face DFC). */
   backFace?: boolean;
+  /** Face down, but the viewer may see what it is (a morph they control, a card revealed from a
+      hand…): name and printing are the real card's. */
+  peeked?: boolean;
   /** Token image lookup, as Endstep does it: its printing, color and printed (base) stats. */
   tokenSetCode?: string;
   tokenCollectorNumber?: string;
@@ -33,6 +38,9 @@ export interface CardView {
   /** Class level, when Endstep sends it (Classes start at level 1). */
   classLevel?: number;
   counters: Record<string, number>;
+  /** Keywords an effect gave this permanent, and printed ones it lost (as Endstep sends them). */
+  keywordsGranted?: string[];
+  keywordsLost?: string[];
   attachmentIds: string[];
   /** The permanent this aura/equipment is attached to. */
   attachedToId?: string;
@@ -56,7 +64,7 @@ export interface PlayerView {
   name: string;
   /** Endstep's `player.name`, which prompts use to offer players as targets. */
   targetName?: string;
-  /** Account name, used to look up the avatar. */
+  /** Account name (Endstep's `player.name`, as its player popup uses it), used to look up the avatar. */
   username?: string;
   isViewer: boolean;
   life?: number;
@@ -151,6 +159,28 @@ export interface PendingActionView {
   blockerEligibility: Record<string, string[]>;
   /** Endstep offers UNDO for the last action (e.g. an untap or a cast before paying). */
   canUndo: boolean;
+  /** CHOOSE_MANA: the choice can be backed out of (DECLINE). */
+  cancellable: boolean;
+  /** CHOOSE_NUMBER (X costs, "choose a number"): the range, and the only values allowed when
+      Endstep lists them (minValue / maxValue / allowedValues). */
+  numberMin: number;
+  numberMax: number;
+  allowedNumbers: number[];
+}
+
+/** Cards someone revealed (from a hand, a library…), from Endstep's CARD_REVEALED events. */
+export interface RevealView {
+  id: string;
+  playerName?: string;
+  /** Where they were revealed from ("HAND", "LIBRARY"…), when Endstep says. */
+  zone?: string;
+  /** Revealed on the way to a hand (CARD_REVEALED_TO_HAND). */
+  toHand: boolean;
+  message?: string;
+  /** Display copies (ids "reveal:…"); `cardIds` holds the real ids when Endstep sends them. */
+  cards: CardView[];
+  cardIds: (string | undefined)[];
+  at: number;
 }
 
 export interface CombatLink {
@@ -174,6 +204,8 @@ export interface GameState {
   stack: StackItemView[];
   pending: PendingActionView | null;
   combat: { attacks: CombatLink[]; blocks: CombatLink[] };
+  /** Recent reveals, oldest first (kept by the adapter across states). */
+  reveals: RevealView[];
   /** Top-level keys the parser doesn't know yet, surfaced for discovery. */
   unrecognizedKeys: string[];
   /** True when a delta arrived that couldn't be applied; waiting for a fresh full state. */

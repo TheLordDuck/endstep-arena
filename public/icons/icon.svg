@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Endstep Arena UI: two fanned cards on a dark tile, a gold gem on the front one. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a1f13"/>
+      <stop offset="1" stop-color="#0b0906"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe3a1"/>
+      <stop offset="0.55" stop-color="#e8c678"/>
+      <stop offset="1" stop-color="#b98f3e"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a2c1c"/>
+      <stop offset="1" stop-color="#15100b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.42" r="0.55">
+      <stop offset="0" stop-color="#e8c678" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#e8c678" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#bg)"/>
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#glow)"/>
+  <rect x="7" y="7" width="114" height="114" rx="23" fill="none" stroke="url(#gold)" stroke-width="3" opacity="0.9"/>
+  <!-- back card, tilted left -->
+  <g transform="rotate(-14 64 70)">
+    <rect x="36" y="28" width="44" height="62" rx="6" fill="url(#card)" stroke="url(#gold)" stroke-width="3.5" opacity="0.8"/>
+  </g>
+  <!-- front card, tilted right -->
+  <g transform="rotate(10 64 70)">
+    <rect x="50" y="32" width="44" height="62" rx="6" fill="url(#card)" stroke="url(#gold)" stroke-width="4"/>
+    <path d="M72 46 L84 63 L72 80 L60 63 Z" fill="none" stroke="url(#gold)" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M72 55 L78 63 L72 71 L66 63 Z" fill="url(#gold)"/>
+  </g>
+</svg>

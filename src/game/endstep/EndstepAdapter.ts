@@ -2,9 +2,12 @@
 // deltas exactly the way Endstep's client does, and exposes a normalized
 // GameState. This folder is the only Endstep-specific code.
 
-import type { GameEventEntry, GameState } from "../GameState";
+import type { GameEventEntry, GameState, RevealView } from "../GameState";
 import { RingBuffer } from "../../shared/RingBuffer";
-import { normalize, type Raw } from "./normalize";
+import { normalize, toReveal, type Raw } from "./normalize";
+
+/** How many recent reveals are kept (for the popups and for cards known in a hand). */
+const MAX_REVEALS = 20;
 
 interface Frame {
   type: string;
@@ -33,6 +36,7 @@ export class EndstepAdapter {
   private routeMatchId: string | null = null;
   private listeners = new Set<Listener>();
   readonly events = new RingBuffer<GameEventEntry>(200);
+  private reveals: RevealView[] = [];
 
   getGameState(): GameState | null {
     return this.state;
@@ -73,6 +77,12 @@ export class EndstepAdapter {
       case "GAME_EVENT":
         if (this.accepts(f.matchId) && isObj(f.payload)) {
           this.events.push({ t: Date.now(), type: String(f.payload.type ?? "?"), payload: f.payload });
+          // Revealed cards stay listed (the last few) so the board can show them.
+          const reveal = toReveal(f.payload);
+          if (reveal && !this.reveals.some((r) => r.id === reveal.id)) {
+            this.reveals = [...this.reveals, reveal].slice(-MAX_REVEALS);
+            this.publish();
+          }
         }
         return;
       case "GAME_GONE":
@@ -122,17 +132,21 @@ export class EndstepAdapter {
     this.seq = undefined;
     this.desynced = false;
     this.state = null;
+    this.reveals = [];
     for (const cb of this.listeners) cb(null);
   }
 
   private publish(): void {
     if (!this.raw || !this.matchId) return;
-    this.state = normalize(this.raw, {
-      matchId: this.matchId,
-      viewerSeat: this.viewerSeat,
-      seq: this.seq,
-      desynced: this.desynced,
-    });
+    this.state = {
+      ...normalize(this.raw, {
+        matchId: this.matchId,
+        viewerSeat: this.viewerSeat,
+        seq: this.seq,
+        desynced: this.desynced,
+      }),
+      reveals: this.reveals,
+    };
     for (const cb of this.listeners) cb(this.state);
   }
 }

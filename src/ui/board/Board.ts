@@ -4,16 +4,23 @@
 // All game actions go through GameController; this file never talks to
 // Endstep directly.
 
-import type { CardView, GameState, PendingActionView, PlayerView, StackItemView } from "../../game/GameState";
+import type { AbilityOption, CardView, GameState, PendingActionView, PlayerView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
-import { createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, updateCardEl } from "./cards";
-import { canConfirm, clickInMode, defenderForKey, deriveMode, humanize, promptKey, type Mode } from "./modes";
+import { createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
+import { arrangeMove, canConfirm, clickInMode, defenderForKey, deriveMode, humanize, promptKey, stepNumber, type Mode } from "./modes";
+import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
 import { currentStep, stepIndex, stepLabel, TURN_STEPS } from "./phases";
 import type { PhaseStops, StopSide } from "../../game/endstep/phaseStops";
-import { avatarUrl } from "../../game/endstep/avatars";
+import { avatarPicture } from "../../game/endstep/avatars";
+import { ExileLinks } from "../../game/exileLinks";
+import { HandKnowledge } from "../../game/handKnowledge";
 
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+/** How long a reveal stays on screen (ms), unless closed sooner. */
+const REVEAL_MS = 12_000;
+/** Endstep's logo (the site's own icon), for a player without an avatar picture. */
+const ENDSTEP_LOGO = `<img class="logo" src="/favicon.svg" alt="" draggable="false">`;
 /** Clear space (px) kept around each player's avatar, so no card sits under it. */
 const AVATAR_CLEARANCE = 16;
 
@@ -28,6 +35,10 @@ export interface BoardHooks {
   onHide(): void;
   phaseStops(): PhaseStops;
   togglePhaseStop(side: StopSide, step: string): void;
+  /** The items of Endstep's own table menu (decklist, settings, concede…), or null without one. */
+  tableMenu(): Promise<string[] | null>;
+  /** Runs one of those items through Endstep's menu (its window shows while the board steps aside). */
+  runTableItem(label: string): void;
 }
 
 export class Board {
@@ -57,6 +68,16 @@ export class Board {
   private effectsByCard = new Map<string, CardView[]>();
   /** Effects whose source card isn't on the table: shown on the player's plate. */
   private looseEffects = new Map<string, CardView[]>();
+  /** Cards exiled "until this leaves the battlefield", drawn under the permanent holding them. */
+  private exileLinks = new ExileLinks();
+  private linked: ReadonlyMap<string, string> = new Map();
+  /** Holding permanent → the exiled cards under it. */
+  private held = new Map<string, CardView[]>();
+  /** What you've seen of other players' hands (revealed, or offered in your choices). */
+  private handKnowledge = new HandKnowledge();
+  private knownHands: ReadonlyMap<string, CardView[]> = new Map();
+  /** "View battlefield": a choice to make is set aside to look at the table. */
+  private peeking = false;
   private pileTops = new Map<string, HTMLElement>();
   /** Stack card element id → its stack item (for source/target arrows). */
   private stackEls = new Map<string, StackItemView>();
@@ -72,6 +93,25 @@ export class Board {
   } | null = null;
   private suppressClickUntil = 0;
   private zoomPinned = false;
+  /** Clicked a permanent with several abilities: plain mana ones open the color wheel, the
+      rest an Arena "Choose One". Both are local until an ability is picked. */
+  private localWheel: { cardId: string; options: WheelOption[] } | null = null;
+  private abilityPick: { cardId: string; abilities: AbilityOption[] } | null = null;
+  /** Crowded zones shown a page at a time: the page shown, by zone ("me:others", "opp:full"…). */
+  private pages = new Map<string, number>();
+  /** Zones laid out in pages this time, for their arrows. */
+  private pageNavs = new Map<HTMLElement, { key: string; page: number; pages: number }>();
+  /** Reveals closed with ✕, and the timer that closes the rest. */
+  private dismissedReveals = new Set<string>();
+  /** Reveals kept up longer because they were being looked at when their time ran out. */
+  private revealUntil = new Map<string, number>();
+  private revealTimer = 0;
+  /** Scroll position (card index at the center) of each card fan, by fan key. */
+  private fanPos = new Map<string, number>();
+  /** Your hand's order, left to right, as you arranged it. */
+  private handOrder: string[] = [];
+  /** Scry/surveil: a card being dragged between the piles. */
+  private arrDrag: { id: string; startX: number; startY: number; el: HTMLElement; active: boolean } | null = null;
   private arrowsTimer = 0;
 
   constructor(private readonly controller: GameController, private readonly hooks: BoardHooks) {
@@ -118,8 +158,11 @@ export class Board {
         <button class="ghost" data-ui="debug" title="Debug panel (Alt+Shift+D)">Debug</button>
         <button class="ghost" data-ui="hide" title="Show Endstep's classic UI (Alt+Shift+A)">Classic UI</button>
       </div>
+      <div class="mana-wheel"></div>
       <div class="zoom" aria-hidden="true"></div>
+      <div class="reveals" aria-live="polite"></div>
       <div class="menu" role="menu"></div>
+      <div class="confirm" role="dialog"></div>
       <div class="viewer"></div>
       <div class="banner"></div>
       <div class="toast"></div>
@@ -139,11 +182,16 @@ export class Board {
     }
     this.el.classList.add("live");
     if (prev?.seq !== state.seq) this.setAwaiting(false);
+    this.linked = this.exileLinks.update(prev, state);
+    this.knownHands = this.handKnowledge.update(state);
 
     const key = promptKey(state);
     if (key !== this.modeKey) {
       this.modeKey = key;
       this.mode = deriveMode(state);
+      this.peeking = false;
+      this.localWheel = null;
+      this.abilityPick = null;
       this.hideMenu();
     }
     this.render(prev);
@@ -188,7 +236,7 @@ export class Board {
     // FLIP "first": where every card is before this update.
     const first = new Map<string, DOMRect>();
     if (!reducedMotion()) {
-      for (const [id, el] of this.cardEls) if (el.isConnected) first.set(id, el.getBoundingClientRect());
+      for (const [id, el] of this.cardEls) if (el.isConnected && el.getClientRects().length) first.set(id, el.getBoundingClientRect());
     }
 
     this.used.clear();
@@ -201,6 +249,11 @@ export class Board {
     for (const c of state.pending?.optionCards ?? []) if (!this.cardData.has(c.id)) this.cardData.set(c.id, c);
 
     this.linkEffects(state);
+    this.held.clear();
+    for (const [id, host] of this.linked) {
+      const c = this.cardData.get(id);
+      if (c) this.held.set(host, [...(this.held.get(host) ?? []), c]);
+    }
 
     // Auras/equipment render tucked behind their host, whoever controls them.
     // The link can come from either side, so fill in the host's list from `attachedToId` too.
@@ -235,7 +288,9 @@ export class Board {
     this.renderPhase(state, prev);
     this.renderPrompt(state);
     this.renderDock(state);
+    this.renderReveals(state);
     this.layout();
+    this.renderManaWheel(state);
 
     // FLIP "last/invert/play" for cards that moved.
     if (first.size) {
@@ -245,6 +300,7 @@ export class Board {
           if (prev) el.animate([{ opacity: 0, scale: "0.85" }, { opacity: 1, scale: "1" }], { duration: 220, easing: "ease-out" });
           continue;
         }
+        if (!el.getClientRects().length) continue;
         const b = el.getBoundingClientRect();
         const dx = a.left + a.width / 2 - (b.left + b.width / 2);
         const dy = a.top + a.height / 2 - (b.top + b.height / 2);
@@ -279,7 +335,7 @@ export class Board {
     const units = new Map<string, CardView[]>();
     for (const c of cards) {
       if (attachedTo.has(c.id)) continue;
-      const key = groupKey(c, this.localState(c.id), this.effectsByCard.get(c.id)?.length ?? 0) ?? c.id;
+      const key = (this.held.has(c.id) ? null : groupKey(c, this.localState(c.id), this.effectsByCard.get(c.id)?.length ?? 0)) ?? c.id;
       const unit = units.get(key);
       if (unit) unit.push(c);
       else units.set(key, [c]);
@@ -301,6 +357,8 @@ export class Board {
         slot.dataset.count = `×${unit.length}`;
         slot.style.setProperty("--gn", String(unit.length));
         slot.style.setProperty("--atts", "0");
+        slot.style.setProperty("--held", "0");
+        slot.classList.remove("holds");
         // Stacked vertically: each card behind shows its bottom strip (with its power/toughness).
         const els = unit.map((u, i) => {
           const el = this.card(u, true);
@@ -313,12 +371,22 @@ export class Board {
         delete slot.dataset.count;
         slot.style.removeProperty("--gn");
         const attached = c.attachmentIds.map((a) => this.cardData.get(a)).filter((a): a is CardView => !!a);
+        // Exiled cards it holds lie under everything, turned sideways and greyed (see .linked).
+        const held = (this.held.get(c.id) ?? []).map((h, i) => {
+          const el = this.card(h, false);
+          el.classList.add("linked");
+          el.style.setProperty("--li", String(i));
+          el.style.removeProperty("--att");
+          return el;
+        });
         const children = [...attached.map((a) => this.card(a, true)), this.card(c, true)];
         for (const el of children) el.style.removeProperty("--gi");
         attached.forEach((_, i) => children[i]!.style.setProperty("--att", String(attached.length - i)));
         children[children.length - 1]!.style.removeProperty("--att");
         slot.style.setProperty("--atts", String(attached.length));
-        reconcile(slot, children);
+        slot.style.setProperty("--held", String(held.length));
+        slot.classList.toggle("holds", held.length > 0);
+        reconcile(slot, [...held, ...children]);
       }
       // Creature wins over everything (land creatures, enchantment creatures, creature Sagas…),
       // then land, then Sagas/Classes/planeswalkers, then the rest.
@@ -339,7 +407,10 @@ export class Board {
 
   private renderHand(me: PlayerView | null): void {
     const hand = me?.hand ?? [];
-    const els = hand.map((c) => this.card(c, false));
+    // The player's own order (cards dragged sideways within the hand); new cards join on the right.
+    const byId = new Map(hand.map((c) => [c.id, c]));
+    this.handOrder = [...this.handOrder.filter((id) => byId.has(id)), ...hand.map((c) => c.id).filter((id) => !this.handOrder.includes(id))];
+    const els = this.handOrder.map((id) => this.card(byId.get(id)!, false));
     reconcile(this.q(".my-hand"), els);
   }
 
@@ -414,25 +485,81 @@ export class Board {
     return null;
   }
 
+  /**
+   * The opponent's hand: a back for each card you don't know, and the ones you've seen face up
+   * with an eye mark, for as long as they're still there (see HandKnowledge). Endstep lists their
+   * hand as placeholders (or just a size); a known card that Endstep lists by its id keeps its
+   * place, the others take the place of backs from the right.
+   */
   private renderOppHand(opp: PlayerView | null): void {
     const box = this.q(".opp-hand");
-    if (opp?.hand) {
-      reconcile(box, opp.hand.map((c) => this.card(c, false)));
-      return;
-    }
-    const n = Math.min(opp?.handSize ?? 0, 30);
-    const els: HTMLElement[] = [];
-    for (let i = 0; i < n; i++) {
-      const key = `${opp!.id}:${i}`;
-      let el = this.backEls.get(key);
-      if (!el) {
-        el = createBackEl(key);
-        this.backEls.set(key, el);
+    const hand = opp?.hand ?? [];
+    const size = Math.min(Math.max(opp?.handSize ?? hand.length, hand.length), 30);
+    const known = new Map((opp ? this.knownHands.get(opp.id) ?? [] : []).map((c) => [c.id, c]));
+    // Each place in the hand: a card shown face up, or null for a back.
+    const places: (CardView | null)[] = hand.map((c) => (!c.faceDown ? c : known.get(c.id) ?? null));
+    for (const c of places) if (c) known.delete(c.id);
+    while (places.length < size) places.push(null);
+    const rest = [...known.values()];
+    for (let i = places.length - 1; i >= 0 && rest.length; i--) if (!places[i]) places[i] = rest.shift()!;
+
+    let backs = 0;
+    const els = places.map((c) => {
+      if (!c) {
+        const key = `${opp!.id}:${backs++}`;
+        let el = this.backEls.get(key);
+        if (!el) {
+          el = createBackEl(key);
+          this.backEls.set(key, el);
+        }
+        return el;
       }
-      els.push(el);
-    }
+      this.cardData.set(c.id, c);
+      const el = this.card(c, false);
+      el.classList.add("known");
+      return el;
+    });
     for (const [key, el] of this.backEls) if (!els.includes(el)) { el.remove(); this.backEls.delete(key); }
     reconcile(box, els);
+  }
+
+  /** Recent reveals, Arena style: a panel of the revealed cards (big, right-click to enlarge),
+      closing with ✕ or on its own after a while (not while the pointer is over it). */
+  private renderReveals(state: GameState): void {
+    const box = this.q(".reveals");
+    const now = Date.now();
+    const me = state.players.find((p) => p.isViewer);
+    const until = (r: { id: string; at: number }) => this.revealUntil.get(r.id) ?? r.at + REVEAL_MS;
+    const shown = state.reveals.filter((r) => !this.dismissedReveals.has(r.id) && now < until(r)).slice(-3);
+    const html = shown.map((r) => {
+      for (const c of r.cards) this.cardData.set(c.id, c);
+      const mine = !!r.playerName && (r.playerName === me?.targetName || r.playerName === me?.name);
+      const who = mine ? "You" : r.playerName ?? "A player";
+      const n = r.cards.length;
+      const what = n === 1 ? r.cards[0]!.name : `${n} cards`;
+      const from = r.zone ? ` from ${mine ? "your" : "their"} ${r.zone.toLowerCase().replace(/_/g, " ")}` : "";
+      const title = r.toHand ? `${who} revealed ${what}${from}, into ${mine ? "your" : "their"} hand` : `${who} revealed ${what}${from}`;
+      return `<section class="reveal" data-reveal="${esc(r.id)}">
+        <header><span class="eye" aria-hidden="true">◉</span><b>${esc(title)}</b><button class="x" data-reveal-close="${esc(r.id)}" title="Close">✕</button></header>
+        <div class="rcards">${r.cards.map((c) => {
+          const url = imageUrl(c, "large");
+          return `<div class="rcard" data-zoom="${esc(c.id)}" title="${esc(c.name)}">${url ? `<img src="${esc(url)}" alt="${esc(c.name)}" draggable="false">` : `<span>${esc(c.name)}</span>`}</div>`;
+        }).join("")}</div>
+      </section>`;
+    }).join("");
+    if (box.dataset.sig !== html) {
+      box.dataset.sig = html;
+      box.innerHTML = html;
+    }
+    // Close each one when its time is up, unless it's being looked at.
+    clearTimeout(this.revealTimer);
+    if (shown.length) {
+      const next = Math.min(...shown.map((r) => until(r) - now));
+      this.revealTimer = window.setTimeout(() => {
+        if (box.matches(":hover")) for (const r of shown) this.revealUntil.set(r.id, Date.now() + 3000);
+        if (this.state) this.render(this.state);
+      }, Math.max(200, next));
+    }
   }
 
   private renderStack(stack: StackItemView[], meId: string | undefined): void {
@@ -488,18 +615,38 @@ export class Board {
         el = document.createElement("button");
         el.className = "pile";
         el.dataset.zone = zone;
-        // Exile is a vortex the card sinks into, as in Arena.
-        const holder = zone === "exile" ? '<div class="vortex"><div class="swirl"></div><div class="pile-card"></div></div>' : '<div class="pile-card"></div>';
+        // Exile is a dark void that draws mist in, the last card lying at its heart. The
+        // graveyard shows the cards under its top one lying askew.
+        const holder = zone === "exile" ? '<div class="vortex"><div class="mist"></div><div class="mist m2"></div><div class="mist m3"></div><div class="pile-card"></div></div>'
+          : zone === "graveyard" ? '<div class="pile-under"></div><div class="pile-card"></div>' : '<div class="pile-card"></div>';
         el.innerHTML = `${holder}<span class="pile-label"></span><span class="pile-count"></span>`;
       }
       el.dataset.player = player.id;
       el.querySelector(".pile-label")!.textContent = label;
       el.querySelector(".pile-count")!.textContent = count === undefined ? "?" : String(count);
       el.classList.toggle("empty", !count);
-      // Pile thickness, like a real stack of cards.
-      el.style.setProperty("--thick", `${Math.min(14, Math.ceil((count ?? 0) / 4))}px`);
+      // Pile thickness, like a real stack of cards: one fine layer per few cards.
+      const thick = Math.min(16, Math.ceil((count ?? 0) / 3));
+      el.style.setProperty("--thick", `${thick}px`);
+      el.style.setProperty("--edge", pileEdge(thick));
+      const under = el.querySelector<HTMLElement>(".pile-under");
+      if (under) {
+        const below = player.graveyard.slice(-3, -1).reverse();
+        const sig = below.map((c) => c.id).join(",");
+        if (under.dataset.sig !== sig) {
+          under.dataset.sig = sig;
+          under.innerHTML = below.map((c, i) => {
+            const url = imageUrl(c);
+            // A steady tilt per card, so the pile doesn't reshuffle on every update.
+            const seed = [...c.id].reduce((s, ch) => s + ch.charCodeAt(0), 0);
+            const rot = ((seed % 9) - 4) * (i + 1.4);
+            return url ? `<img src="${esc(url)}" alt="" draggable="false" style="--rot: ${rot}deg; --dx: ${(seed % 7) - 3}px; --dy: ${-2 - i * 2}px">` : "";
+          }).join("");
+        }
+      }
       const holder = el.querySelector<HTMLElement>(".pile-card")!;
-      if (top && this.sideIds.has(top.id)) reconcile(holder, [this.pileCopy(`${player.id}:${zone}`, top)]);
+      // A card shown elsewhere (side hand, or under the permanent holding it) gets a copy here.
+      if (top && (this.sideIds.has(top.id) || this.linked.has(top.id))) reconcile(holder, [this.pileCopy(`${player.id}:${zone}`, top)]);
       else if (top) reconcile(holder, [this.card(top, false)]);
       else if (zone === "library") holder.innerHTML = count ? '<div class="card back"><div class="face"></div></div>' : "";
       else holder.replaceChildren();
@@ -529,11 +676,15 @@ export class Board {
     const playable = new Map((state.pending?.type === "PRIORITY" ? state.pending.playable : []).map((p) => [p.cardId, p]));
     const attackingAssigned = mode.kind === "attackers" ? mode.assignments : null;
     const blockAssigned = mode.kind === "blockers" ? mode.assignments : null;
+    this.el.classList.toggle("declaring-attacks", mode.kind === "attackers");
     for (const [id, el] of this.cardEls) {
       const c = this.cardData.get(id);
       const selectable = this.isSelectable(id);
-      el.classList.toggle("tapped", !!c?.tapped && !!el.closest(".side"));
-      el.classList.toggle("sick", !!c?.summoningSick && !c.tapped && isFrontRow(c) && !!el.closest(".side"));
+      const linked = this.linked.has(id) && !!el.closest(".slot");
+      el.classList.toggle("linked", linked);
+      if (!linked) el.style.removeProperty("--li");
+      el.classList.toggle("tapped", !!c?.tapped && !linked && !!el.closest(".side"));
+      el.classList.toggle("sick", !!c?.summoningSick && !c.tapped && !linked && isFrontRow(c) && !!el.closest(".side"));
       this.markEffects(el, this.effectsByCard.get(id) ?? []);
       el.classList.toggle("playable", playable.has(id) && !this.awaiting);
       el.classList.toggle("selectable", selectable);
@@ -611,13 +762,18 @@ export class Board {
     orb.dataset.player = p.id;
     orb.classList.toggle("priority", hasPrio);
     orb.classList.toggle("out", p.hasLost || p.hasConceded);
-    const avatar = avatarUrl(p.username, () => this.state && this.render(this.state));
-    const avatarSig = JSON.stringify([avatar, p.name]);
+    // The player's Endstep avatar (framed as they chose); without one, their commander's art; and
+    // under either, Endstep's logo, which shows if there's no picture or it can't load.
+    const avatar = avatarPicture(p.username, () => this.state && this.render(this.state));
+    const commander = p.commandZone[0];
+    const art = commander ? imageUrl(commander, "art_crop") : null;
+    const pic = avatar ?? (art ? { url: art, size: "cover", position: "50% 30%" } : null);
+    const avatarSig = JSON.stringify([pic, p.name]);
     if (orb.dataset.avatar !== avatarSig) {
       orb.dataset.avatar = avatarSig;
       orb.querySelector(".avatar")?.remove();
-      orb.insertAdjacentHTML("afterbegin", `<div class="avatar" title="${esc(p.name)}">${avatar ? `<img src="${esc(avatar)}" alt="" draggable="false">` : `<span>${esc(p.name.slice(0, 1).toUpperCase())}</span>`}</div>`);
-      orb.querySelector(".avatar img")?.addEventListener("error", (e) => (e.target as HTMLElement).remove());
+      const style = pic ? `background-image: url(&quot;${esc(pic.url)}&quot;); background-size: ${esc(pic.size)}; background-position: ${esc(pic.position)}` : "";
+      orb.insertAdjacentHTML("afterbegin", `<div class="avatar" title="${esc(p.name)}">${ENDSTEP_LOGO}${pic ? `<div class="pic" style="${style}"></div>` : ""}</div>`);
     }
     const life = String(p.life ?? "–");
     if (orb.dataset.life !== life) {
@@ -737,27 +893,53 @@ export class Board {
     const m = this.mode;
     let html = "";
     let controls = "";
-    if (p && p.type !== "PRIORITY") {
+    // Choices (mulligan, modes, trigger order, yes/no, cards to pick…) take the whole screen,
+    // Arena style: a title, the options, and big buttons. Attack defenders stay a small box.
+    let arena = false;
+    const pick = this.abilityPick;
+    if (pick && (!p || p.type === "PRIORITY")) {
+      // A permanent's abilities, one card each (Arena's Choose One); picking one activates it.
+      const src = this.cardData.get(pick.cardId);
+      controls = `<div class="acards" style="--n: ${pick.abilities.length}">${pick.abilities.map((a) => {
+        const text = a.cost && !a.description.includes(a.cost) ? `${a.cost}: ${a.description}` : a.description;
+        return this.abilityCard(src, src?.name ?? "", text, `data-ability="${a.index}"`, false);
+      }).join("")}</div>
+        <div class="choices big"><button class="opt primary" data-ui="ability-cancel">Cancel</button></div>`;
+      arena = true;
+      html = `<div class="phead"><h2>Choose One</h2><p>Click an option below to select it.</p></div>${controls}
+        <button class="peek-btn" data-ui="peek"><span class="p-view">View battlefield</span><span class="p-back">Back to choice</span></button>`;
+    } else if (p && p.type !== "PRIORITY") {
       const source = p.sourceCardName ? `<span class="src">${esc(p.sourceCardName)}</span>` : "";
       controls = this.choiceControls(state);
-      const body = `<div class="msg">${source}${esc(p.message ?? defaultMessage(p.type, m))}</div>` + controls;
-      // A question from a card (a trigger's yes/no, modes, a color…) shows that card beside it.
-      const srcCard = controls && m.kind !== "order"
-        ? (p.sourceCardId ? this.cardData.get(p.sourceCardId) : undefined) ?? (p.sourceCardName ? blankCard(`src:${p.sourceCardName}`, p.sourceCardName) : undefined)
-        : undefined;
-      const url = srcCard ? imageUrl(srcCard) : null;
-      if (srcCard && url) {
-        if (!this.cardData.has(srcCard.id)) this.cardData.set(srcCard.id, srcCard);
-        html += `<div class="pwrap"><div class="pcard" data-zoom="${esc(srcCard.id)}"><img src="${esc(url)}" alt="${esc(srcCard.name)}" draggable="false"></div><div class="pbody">${body}</div></div>`;
+      arena = !!controls && m.kind !== "attackers";
+      if (!arena) {
+        // The status line: costs drawn as mana symbols, and a small picture of the card it's
+        // about (the spell being paid for, the trigger choosing targets…) on its left.
+        const src = p.sourceCardId || p.sourceCardName ? this.sourceCard(p) : undefined;
+        const url = src ? imageUrl(src) : null;
+        const thumb = src && url ? `<div class="pthumb" data-zoom="${esc(src.id)}" title="${esc(src.name)}"><img src="${esc(url)}" alt="" draggable="false"></div>` : "";
+        // With the card's picture there, its name label above the message is redundant.
+        html = `<div class="pline">${thumb}<div class="msg">${thumb ? "" : source}${withSymbols(esc(p.message ?? defaultMessage(p.type, m)))}</div></div>` + controls;
       } else {
-        html += body;
+        const { title, sub } = promptTitle(state, m);
+        // A question from a card (a trigger's yes/no, a color, a number…) shows that card beside
+        // the options. Modes, orders and pickers show their own cards.
+        const own = m.kind === "order" || p.type === "MULLIGAN" || p.type === "CHOOSE_MODE" || p.type === "CHOOSE_ABILITY";
+        const srcCard = own ? undefined : this.sourceCard(p);
+        const url = srcCard ? imageUrl(srcCard) : null;
+        // Scry/surveil show the card that did it on the right, as Arena does.
+        const body = srcCard && url
+          ? `<div class="pwrap${m.kind === "arrange" || controls.startsWith('<div class="fan') ? " src-right" : ""}"><div class="pcard" data-zoom="${esc(srcCard.id)}"><img src="${esc(url)}" alt="${esc(srcCard.name)}" draggable="false"></div><div class="pbody">${controls}</div></div>`
+          : controls;
+        html = `<div class="phead"><h2>${esc(title)}</h2>${sub ? `<p>${esc(sub)}</p>` : ""}</div>${body}
+          <button class="peek-btn" data-ui="peek"><span class="p-view">View battlefield</span><span class="p-back">Back to choice</span></button>`;
       }
     } else if (!p && state.status !== "COMPLETE") {
       html = `<div class="msg dim">Waiting for opponent…</div>`;
     }
     // Never rebuild the order box under a tile being dragged. Reordering the same box only
     // moves its tiles, so the list doesn't jump (or replay its entrance) on every move.
-    if (box.dataset.sig !== html && !this.orderDrag?.active) {
+    if (box.dataset.sig !== html && !this.orderDrag?.active && !this.arrDrag?.active) {
       box.dataset.sig = html;
       const sameBox = m.kind === "order" && box.dataset.orderKey === this.modeKey && this.patchOrderBox(box, m);
       if (!sameBox) box.innerHTML = html;
@@ -766,6 +948,162 @@ export class Board {
     }
     box.classList.toggle("show", html !== "");
     box.classList.toggle("center", controls !== "");
+    box.classList.toggle("arena", arena);
+    box.classList.toggle("peek", arena && this.peeking);
+    // The action buttons (Done, Cancel for a card picker) stay above a full-screen choice.
+    this.el.classList.toggle("arena-open", arena && !this.peeking);
+  }
+
+  /** One option as an Arena ability card: the source card's art, an "Ability" band, the text (mana
+      symbols drawn), and a loyalty cost in a shield at the bottom, as on a planeswalker. */
+  private abilityCard(src: CardView | undefined, name: string, description: string, attrs: string, on: boolean): string {
+    const url = src ? imageUrl(src, "large") : null;
+    const cost = /^\s*([+−–-]?\s*(?:\d+|X))\s*:\s*/.exec(description);
+    const text = cost ? description.slice(cost[0].length) : description;
+    return `<button class="acard${on ? " on" : ""}" ${attrs}>
+      <div class="aart">${url ? `<img src="${esc(url)}" alt="" draggable="false">` : ""}</div>
+      <div class="aname">${esc(name)}</div>
+      <div class="aband">Ability</div>
+      <div class="atext">${withSymbols(esc(text))}</div>
+      ${cost ? `<b class="acost">${esc(cost[1]!.replace(/\s|−|–/g, (ch) => (ch.trim() ? "-" : "")))}</b>` : ""}
+    </button>`;
+  }
+
+  /** Scry/surveil in two piles, Arena style: the other pile (graveyard or bottom) on the left,
+      the top of the library on the right (leftmost = next card). Click a card to move it
+      across, or drag it (also to reorder). Other arrangements are one ordered row. */
+  private arrangeBox(m: Extract<Mode, { kind: "arrange" }>): string {
+    const tile = (id: string, i: number, top: boolean) => {
+      const c = this.cardData.get(id);
+      const url = c ? imageUrl(c, "large") : null;
+      const tag = top ? (i === 0 ? "Next" : String(i + 1)) : "";
+      return `<button class="arr-card" data-arr="${esc(id)}" data-zoom="${esc(id)}" style="--i: ${i}">
+        ${url ? `<img src="${esc(url)}" alt="${esc(c?.name ?? "")}" draggable="false">` : `<span>${esc(c?.name ?? id)}</span>`}
+        ${tag ? `<b class="arr-tag">${tag}</b>` : ""}</button>`;
+    };
+    const zone = (key: "top" | "tray", label: string, ids: string[]) => `<section class="arr-zone" data-zone="${key}">
+      <h3>${esc(label)}</h3>
+      <div class="arr-row" style="--n: ${Math.max(1, ids.length)}">${ids.map((id, i) => tile(id, i, key === "top")).join("") || '<div class="arr-empty">Drag cards here</div>'}</div>
+    </section>`;
+    const trayLabel = m.context === "surveil" ? "Graveyard" : "Bottom of Library";
+    const topLabel = m.hasTray ? (m.context === "surveil" ? "Library" : "Top of Library") : m.context === "library_top" ? "Top of Library" : "Order";
+    return `<div class="arrange${m.hasTray ? " two" : ""}">
+        ${m.hasTray ? zone("tray", trayLabel, m.tray) : ""}${zone("top", topLabel, m.top)}
+      </div>
+      <div class="choices big"><button class="opt primary" data-arrange-done>Done</button></div>`;
+  }
+
+  /** Arena's card fan: cards spread in an arc, with a slider under it when they don't all fit.
+      `key` keeps the scroll position across redraws. Laid out by layoutFans(). */
+  private fanHtml(key: string, cards: CardView[], attrs: (c: CardView) => string, cls: (c: CardView) => string): string {
+    for (const c of cards) if (!this.cardData.has(c.id)) this.cardData.set(c.id, c);
+    const tiles = cards.map((c, i) => {
+      const url = imageUrl(c, "large");
+      return `<button class="fcard ${cls(c)}" data-fi="${i}" data-zoom="${esc(c.id)}" ${attrs(c)}>
+        <div class="fimg">${url ? `<img src="${esc(url)}" alt="${esc(c.name)}" draggable="false">` : `<span>${esc(c.name)}</span>`}</div></button>`;
+    }).join("");
+    return `<div class="fan" data-fan="${esc(key)}" data-n="${cards.length}">
+      <div class="fan-cards">${tiles || '<p class="muted">No cards</p>'}</div>
+      <div class="fan-slider" data-fan-slider><div class="fan-thumb">◂ ▸</div></div>
+    </div>`;
+  }
+
+  /** Places every fan's cards along its arc around the scroll position, and its slider thumb. */
+  private layoutFans(): void {
+    for (const fan of this.el.querySelectorAll<HTMLElement>(".fan[data-fan]")) {
+      const cards = [...fan.querySelectorAll<HTMLElement>(".fcard")];
+      const n = cards.length;
+      const width = fan.clientWidth;
+      const cw = cards[0]?.offsetWidth ?? 0;
+      if (!n || !width || !cw) continue;
+      // Cards overlap to ~62% of their width; as many as fit are shown, the rest scroll in.
+      const step = cw * 0.62;
+      const half = Math.max(1, Math.floor((width - cw) / 2 / step));
+      const scrolls = n > half * 2 + 1;
+      const min = scrolls ? half : (n - 1) / 2;
+      const max = scrolls ? n - 1 - half : (n - 1) / 2;
+      const key = fan.dataset.fan!;
+      const pos = Math.max(min, Math.min(max, this.fanPos.get(key) ?? min));
+      this.fanPos.set(key, pos);
+      fan.classList.toggle("static", !scrolls);
+      cards.forEach((c, i) => {
+        const d = i - pos;
+        const out = Math.abs(d) > half + 0.5;
+        c.style.transform = `translateX(${(d * step).toFixed(1)}px) translateY(${(d * d * cw * 0.03).toFixed(1)}px) rotate(${(d * 3.2).toFixed(2)}deg)`;
+        // Each card lies on the one to its left, so every name (top left) stays readable.
+        c.style.zIndex = String(i + 1);
+        c.style.opacity = out ? "0" : "1";
+        c.style.pointerEvents = out ? "none" : "";
+      });
+      fan.dataset.min = String(min);
+      fan.dataset.max = String(max);
+      const track = fan.querySelector<HTMLElement>(".fan-slider");
+      const thumb = fan.querySelector<HTMLElement>(".fan-thumb");
+      if (track && thumb && scrolls) thumb.style.left = `${((pos - min) / (max - min)) * (track.clientWidth - thumb.offsetWidth)}px`;
+    }
+  }
+
+  /** Moves a fan so its slider thumb is centered at `x`. */
+  private slideFanTo(fan: HTMLElement, x: number): void {
+    const track = fan.querySelector<HTMLElement>(".fan-slider");
+    const thumb = fan.querySelector<HTMLElement>(".fan-thumb");
+    if (!track || !thumb) return;
+    const r = track.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (x - r.left - thumb.offsetWidth / 2) / Math.max(1, r.width - thumb.offsetWidth)));
+    const min = Number(fan.dataset.min ?? 0);
+    const max = Number(fan.dataset.max ?? 0);
+    this.scrollFan(fan, 0, min + frac * (max - min));
+  }
+
+  /** Scrolls a fan by `delta` cards (or to `to`), then lays it out again. */
+  private scrollFan(fan: HTMLElement, delta: number, to?: number): void {
+    const key = fan.dataset.fan!;
+    this.fanPos.set(key, to ?? (this.fanPos.get(key) ?? 0) + delta);
+    this.layoutFans();
+  }
+
+  /** The color wheel on the card making mana: for a CHOOSE_MANA prompt, or a dual land clicked. */
+  private renderManaWheel(state: GameState): void {
+    const box = this.q(".mana-wheel");
+    const p = state.pending;
+    const fromPrompt = !this.localWheel && p?.type === "CHOOSE_MANA" && !this.awaiting ? wheelFromStrings(p.stringOptions) : null;
+    const options = this.localWheel?.options ?? fromPrompt;
+    const cardId = this.localWheel?.cardId ?? p?.sourceCardId;
+    if (!options) {
+      box.classList.remove("show");
+      delete box.dataset.sig;
+      return;
+    }
+    const sig = JSON.stringify([cardId, options.map((o) => o.key)]);
+    if (box.dataset.sig !== sig) {
+      box.dataset.sig = sig;
+      box.innerHTML = wheelSvg(options);
+    }
+    box.dataset.card = cardId ?? "";
+    box.classList.add("show");
+    this.placeManaWheel();
+  }
+
+  /** Centers the wheel on its card (or the middle of the table when the card isn't on it), kept
+      on screen. Runs again whenever the table is laid out, as the card may have moved. */
+  private placeManaWheel(): void {
+    const box = this.q(".mana-wheel");
+    if (!box.classList.contains("show")) return;
+    const b = this.el.getBoundingClientRect();
+    const anchor = box.dataset.card ? this.cardEls.get(box.dataset.card) : undefined;
+    const r = anchor?.isConnected ? anchor.getBoundingClientRect() : null;
+    const w = box.offsetWidth || 164;
+    const cx = r ? r.left + r.width / 2 - b.left : b.width / 2;
+    const cy = r ? r.top + r.height / 2 - b.top : b.height / 2;
+    box.style.left = `${Math.round(Math.max(8, Math.min(b.width - w - 8, cx - w / 2)))}px`;
+    box.style.top = `${Math.round(Math.max(8, Math.min(b.height - w - 8, cy - w / 2)))}px`;
+  }
+
+  /** The card a prompt comes from (on the table, or just by name). */
+  private sourceCard(p: PendingActionView): CardView | undefined {
+    const c = (p.sourceCardId ? this.cardData.get(p.sourceCardId) : undefined) ?? (p.sourceCardName ? blankCard(`src:${p.sourceCardName}`, p.sourceCardName) : undefined);
+    if (c && !this.cardData.has(c.id)) this.cardData.set(c.id, c);
+    return c;
   }
 
   /** Arena-style box for putting triggers (or attackers/blockers) in order: a row of tiles,
@@ -779,11 +1117,12 @@ export class Board {
       const declined = m.declined.includes(id);
       // The art comes from the card that triggered (or the attacker/blocker itself).
       const card = this.cardData.get(o?.sourceCardId ?? id) ?? (o ? blankCard(`src:${o.name}`, o.name) : undefined);
-      const url = card ? imageUrl(card) : null;
+      const url = card ? imageUrl(card, "large") : null;
       return `<div class="otile${declined ? " declined" : ""}" data-order-id="${esc(id)}">
         <div class="oart">${url ? `<img src="${esc(url)}" alt="" draggable="false">` : ""}</div>
         <b class="onum">${declined ? "–" : i + 1}</b>
         <div class="oname">${esc(o?.name ?? card?.name ?? id)}</div>
+        ${abilities ? `<div class="aband">${o?.declinable ? "Optional" : "Ability"}</div>` : ""}
         ${o?.description ? `<div class="otext">${esc(o.description)}</div>` : ""}
         <div class="omove">
           <button class="ghost" data-order-move="-1" data-order-for="${esc(id)}" ${i === 0 ? "disabled" : ""} title="Earlier">◂</button>
@@ -795,9 +1134,9 @@ export class Board {
     return `<div class="order-box">
       <div class="order-row" style="--n: ${m.order.length}">${tiles}</div>
       <div class="order-legend"><span>◂ ${abilities ? "Resolves first" : "First"}</span><span>drag to reorder</span><span>${abilities ? "Resolves last" : "Last"} ▸</span></div>
-      <div class="choices">
-        ${allDeclinable ? '<button class="opt" data-order-skip>Skip all</button>' : ""}
-        <button class="opt primary" data-order-confirm>OK</button>
+      <div class="choices big">
+        ${allDeclinable ? '<button class="opt alt" data-order-skip>Skip all</button>' : ""}
+        <button class="opt primary" data-order-confirm>Done</button>
       </div>
     </div>`;
   }
@@ -834,14 +1173,18 @@ export class Board {
       return `<div class="choices">${m.defenders.map((d) => `<button class="opt${d.index === m.currentDefender ? " on" : ""}" data-defender="${d.index}">${esc(d.description)}</button>`).join("")}</div>`;
     }
     if ((m.kind === "cards" && m.offBoard) || (m.kind === "targets" && p.optionCardIds.some((id) => !isPlayerId(id) &&!this.cardEls.get(id)?.isConnected))) {
+      // Cards from a library, graveyard or exile: an Arena fan to pick from (orange = picked).
+      // Cancel (when the choice can be declined) goes under the fan; Submit stays bottom right.
       const sel = m.kind === "cards" || m.kind === "targets" ? m.selected : [];
-      return `<div class="picker">${p.optionCards.filter((c) => !isPlayerId(c.id)).map((c) => {
-        const url = imageUrl(c);
-        return `<button class="pick${sel.includes(c.id) ? " on" : ""}" data-pick="${esc(c.id)}" data-zoom="${esc(c.id)}">
-          ${url ? `<img src="${esc(url)}" alt="${esc(c.name)}" draggable="false">` : `<span>${esc(c.name)}</span>`}</button>`;
-      }).join("")}</div>`;
+      const cancel = (m.kind === "cards" || m.kind === "targets") && !m.mandatory
+        ? `<div class="choices big"><button class="opt primary" data-act="decline" ${this.awaiting ? "disabled" : ""}>Cancel</button></div>` : "";
+      return this.fanHtml(`pick:${this.modeKey}`, p.optionCards.filter((c) => !isPlayerId(c.id)),
+        (c) => `data-pick="${esc(c.id)}"`, (c) => (sel.includes(c.id) ? "on" : "selectable")) + cancel;
     }
     if (m.kind === "order") return this.orderBox(p, m);
+    if (m.kind === "arrange") return this.arrangeBox(m);
+    // A color of mana is picked on the wheel over its card; the corner just says so.
+    if (p.type === "CHOOSE_MANA" && wheelFromStrings(p.stringOptions)) return "";
     if (m.kind !== "choice") return "";
     switch (p.type) {
       case "YES_NO": {
@@ -849,20 +1192,51 @@ export class Board {
         return `<div class="choices"><button class="opt primary" data-yes="1">${esc(labels[0])}</button><button class="opt" data-yes="0">${esc(labels[1])}</button></div>`;
       }
       case "MULLIGAN": {
-        const labels = p.stringOptions.length >= 2 ? [p.stringOptions[0]!, p.stringOptions[1]!] : ["Keep", "Mulligan"];
+        // The opening hand, big and fanned in the middle; Mulligan on the left, Keep on the right.
+        const labels: [string, string] = p.stringOptions.length >= 2 ? [p.stringOptions[0]!, p.stringOptions[1]!] : ["Keep", "Mulligan"];
         const special = p.stringOptions[2];
-        return `<div class="choices"><button class="opt primary" data-mull="keep">${esc(labels[0])}</button><button class="opt" data-mull="mull">${esc(labels[1])}</button>${special ? `<button class="opt" data-mull-special="${esc(special)}">${esc(special)}</button>` : ""}</div>`;
+        const hand = state.players.find((pl) => pl.isViewer)?.hand ?? [];
+        const keep = /^keep$/i.test(labels[0]) && hand.length ? `${labels[0]} ${hand.length}` : labels[0];
+        const n = hand.length;
+        const cards = hand.map((c, i) => {
+          const url = imageUrl(c, "large");
+          const t = i - (n - 1) / 2;
+          return `<div class="mcard" data-zoom="${esc(c.id)}" style="--t: ${t}; --a: ${Math.abs(t)}">${url ? `<img src="${esc(url)}" alt="${esc(c.name)}" draggable="false">` : `<span>${esc(c.name)}</span>`}</div>`;
+        }).join("");
+        return `${n ? `<div class="mull-hand" style="--n: ${n}">${cards}</div>` : ""}
+          <div class="choices big"><button class="opt alt" data-mull="mull">${esc(labels[1])}</button><button class="opt primary" data-mull="keep">${esc(keep)}</button>${special ? `<button class="opt alt" data-mull-special="${esc(special)}">${esc(special)}</button>` : ""}</div>`;
       }
       case "CHOOSE_MODE":
       case "CHOOSE_ABILITY": {
+        // One ability card per option: the source card's art and name, then the option's text
+        // (a loyalty cost goes in a shield at the bottom, as on a planeswalker).
         const multi = p.max > 1;
-        return `<div class="choices col">${p.modeOptions.map((o) => `<button class="opt${m.selectedModes.includes(o.index) ? " on" : ""}" data-mode="${o.index}">${esc(o.description)}</button>`).join("")}
-          ${multi ? `<button class="opt primary" data-mode-confirm ${m.selectedModes.length < p.min ? "disabled" : ""}>Confirm (${m.selectedModes.length}/${p.max})</button>` : ""}
-          ${!p.mandatory ? '<button class="opt dim" data-mode-cancel>Cancel</button>' : ""}</div>`;
+        const tiles = p.modeOptions.map((o) => {
+          const src = (o.cardId ? this.cardData.get(o.cardId) : undefined) ?? this.sourceCard(p);
+          return this.abilityCard(src, src?.name ?? p.sourceCardName ?? "", o.description, `data-mode="${o.index}"`, m.selectedModes.includes(o.index));
+        }).join("");
+        return `<div class="acards" style="--n: ${p.modeOptions.length}">${tiles}</div>
+          <div class="choices big">${multi ? `<button class="opt primary" data-mode-confirm ${m.selectedModes.length < p.min ? "disabled" : ""}>Confirm ${m.selectedModes.length}/${p.max}</button>` : ""}
+          ${!p.mandatory ? `<button class="opt ${multi ? "alt" : "primary"}" data-mode-cancel>Cancel</button>` : ""}</div>`;
       }
       case "CHOOSE_NUMBER": {
-        return `<div class="choices"><button class="opt" data-num="-1">−</button><span class="num">${m.number}</span><button class="opt" data-num="1">+</button>
-          <button class="opt primary" data-num-confirm>Choose ${m.number}</button></div>`;
+        // X and other numbers: a big dial with − / + (↑/↓, Shift for 5), and every value as a
+        // quick pick when there are few (digit keys pick them); Enter or the button confirms.
+        const x = /\bX\b/.test(p.message ?? "") || /\{X\}/.test(this.sourceCard(p)?.manaCost ?? "");
+        const quick = quickNumbers(p);
+        const atMin = stepNumber(p, m.number, -1) === m.number;
+        const atMax = stepNumber(p, m.number, 1) === m.number;
+        return `<div class="numpick">
+            <button class="opt round" data-num="-1" ${atMin ? "disabled" : ""} title="Less (↓)">−</button>
+            <div class="numval">${x ? '<small>X =</small>' : ""}<b>${m.number}</b></div>
+            <button class="opt round" data-num="1" ${atMax ? "disabled" : ""} title="More (↑)">+</button>
+          </div>
+          ${quick.length > 1 && quick.length <= 12 ? `<div class="numquick">${quick.map((n, i) => `<button class="${n === m.number ? "on" : ""}" data-num-set="${n}" title="${i < 9 ? `Key ${i + 1}` : ""}">${n}</button>`).join("")}</div>` : ""}
+          <div class="numrange">${p.allowedNumbers.length ? `Allowed: ${p.allowedNumbers.join(", ")}` : `From ${p.numberMin} to ${p.numberMax}`}</div>
+          <div class="choices big">
+            ${p.canUndo ? '<button class="opt" data-act="undo">Undo</button>' : ""}
+            <button class="opt primary" data-num-confirm>${x ? `Choose X = ${m.number}` : `Choose ${m.number}`}</button>
+          </div>`;
       }
       case "CHOOSE_COLOR":
         return `<div class="choices">${(p.stringOptions.length ? p.stringOptions : ["White", "Blue", "Black", "Red", "Green"])
@@ -905,8 +1279,11 @@ export class Board {
       buttons.push({ id: "cancel", label: "Cancel" });
       buttons.push({ id: "auto-pay", label: "Auto pay", primary: true });
     } else if (m.kind === "targets" || m.kind === "cards") {
-      if (!m.mandatory) buttons.push({ id: "decline", label: "Cancel" });
-      buttons.push({ id: "confirm", label: `Done · ${m.selected.length}${m.max > 1 && m.max < 99 ? `/${m.max}` : ""}`, primary: true, disabled: !canConfirm(m) });
+      // Picking from a fan of cards: "Submit N", as in Arena, with Cancel under the fan instead.
+      const fan = !!this.q(".prompt .fan");
+      if (!m.mandatory && !fan) buttons.push({ id: "decline", label: "Cancel" });
+      const count = `${m.selected.length}${m.max > 1 && m.max < 99 ? `/${m.max}` : ""}`;
+      buttons.push({ id: "confirm", label: fan ? `Submit ${count}` : `Done · ${count}`, primary: true, disabled: !canConfirm(m) });
     }
     // Endstep says when the last action can be taken back.
     if (p?.canUndo && buttons.length) buttons.push({ id: "undo", label: "↶ Undo" });
@@ -931,29 +1308,75 @@ export class Board {
 
   // ---------------------------------------------------------------- layout
 
-  /** Fits rows and hands to the available width (overlap when crowded). */
+  /** Fits rows and hands to the available width (smaller cards, then overlap or pages, when crowded). */
   private layout(): void {
-    const fit = (box: HTMLElement, avail: number) => {
-      const items = [...box.children] as HTMLElement[];
-      const total = items.reduce((s, it) => s + it.offsetWidth, 0);
-      const gap = items.length > 1 ? Math.min(10, (avail - total) / (items.length - 1)) : 0;
-      box.style.setProperty("--gap", `${Math.floor(gap)}px`);
+    // --bf-w: min(8vw, 12.6vh), the full size of a battlefield card.
+    const bfw = Math.min(window.innerWidth * 0.08, window.innerHeight * 0.126);
+    // A slot's width in card widths: a pile of identical permanents fans out, a tapped card
+    // needs a little more. Computed rather than measured: slots animate their width.
+    const unitsOf = (slot: Element) => {
+      const s = slot as HTMLElement;
+      if (s.classList.contains("group")) return 1 + (Number(s.style.getPropertyValue("--gn")) - 1) * 0.3;
+      return s.classList.contains("tapped") ? 1.1 : 1;
     };
-    const natural = (box: HTMLElement) => {
-      const items = [...box.children] as HTMLElement[];
-      return items.reduce((s, it) => s + it.offsetWidth, 0) + 10 * Math.max(0, items.length - 1);
+    // A zone's cards at a scale of their full size (set as its own --bf-w, which every card and
+    // slot size inside follows).
+    const scaleBox = (box: HTMLElement, s: number) => {
+      if (s >= 0.999) {
+        box.style.removeProperty("--bf-w");
+        box.style.removeProperty("--bf-h");
+      } else {
+        box.style.setProperty("--bf-w", `${(bfw * s).toFixed(2)}px`);
+        box.style.setProperty("--bf-h", `${(bfw * s * 0.8).toFixed(2)}px`);
+      }
     };
-    // Stack first: its size decides how far the rows on the right can reach. Each item under
-    // the top shows the same strip on its left, narrowing evenly so the tray stays under ~45%
-    // of the table.
-    const stack = this.q(".stack");
-    const n = stack.children.length;
-    if (n > 1) {
-      const cw = (stack.lastElementChild as HTMLElement).offsetWidth;
-      const maxW = this.el.clientWidth * 0.45 - 28;
-      const band = Math.max(cw * 0.14, Math.min(cw * 0.34, (maxW - cw) / (n - 1)));
-      stack.style.setProperty("--band", `${Math.floor(band)}px`);
-    }
+    const lineWidth = (box: HTMLElement) => {
+      const items = [...box.children];
+      return items.reduce((w, it) => w + unitsOf(it), 0) * bfw + 10 * Math.max(0, items.length - 1);
+    };
+    // One line of permanents in `avail` px: full size if they fit, else smaller down to `min` of
+    // full size, and past that they overlap. `fits` says whether they fit without overlapping.
+    const line = (box: HTMLElement, avail: number, min: number) => {
+      const items = [...box.children] as HTMLElement[];
+      for (const it of items) it.classList.remove("off-page");
+      box.classList.remove("two-rows", "grid");
+      box.style.removeProperty("margin-top");
+      box.style.removeProperty("margin-bottom");
+      const n = items.length;
+      const units = items.reduce((w, it) => w + unitsOf(it), 0);
+      const gaps = 10 * Math.max(0, n - 1);
+      const want = n ? (avail - gaps) / (units * bfw) : 1;
+      const s = Math.max(min, Math.min(1, want));
+      scaleBox(box, s);
+      const cards = units * bfw * s;
+      box.style.setProperty("--gap", `${Math.floor(n > 1 ? Math.min(10, (avail - cards) / (n - 1)) : 0)}px`);
+      this.pageNavs.delete(box);
+      return { fits: want >= min - 1e-6, width: n ? Math.min(cards + gaps, Math.max(avail, bfw * s)) : 0 };
+    };
+    // A grid of small cards (`rows` high, at most `maxCols` wide), filled column by column; what
+    // doesn't fit in `avail` goes on further pages, turned with arrows. Returns its width.
+    const grid = (box: HTMLElement, avail: number, s: number, rows: number, maxCols: number, key: string, cls: string) => {
+      const items = [...box.children] as HTMLElement[];
+      box.classList.add(cls);
+      scaleBox(box, s);
+      const GAP = 6;
+      const NAV = 40;
+      const colW = Math.max(...items.map(unitsOf)) * bfw * s;
+      const colsFor = (w: number) => Math.max(1, Math.min(maxCols, Math.floor((w + GAP) / (colW + GAP))));
+      const allCols = Math.ceil(items.length / rows);
+      const paged = allCols > colsFor(avail);
+      const cols = paged ? colsFor(avail - NAV) : allCols;
+      const perPage = cols * rows;
+      const pages = Math.max(1, Math.ceil(items.length / perPage));
+      const page = Math.max(0, Math.min(pages - 1, this.pages.get(key) ?? 0));
+      this.pages.set(key, page);
+      items.forEach((it, i) => it.classList.toggle("off-page", i < page * perPage || i >= (page + 1) * perPage));
+      if (paged) this.pageNavs.set(box, { key, page, pages });
+      else this.pageNavs.delete(box);
+      // A paged zone keeps room for its arrows at its outer edge.
+      const shown = Math.min(perPage, items.length - page * perPage);
+      return Math.max(1, Math.ceil(shown / rows)) * (colW + GAP) - GAP + (paged ? NAV : 0);
+    };
     // The rows span the whole table, left and right columns included, stopping short only of
     // the graveyard/library/exile piles. Everything else (stack, prompts and their messages,
     // action buttons, names) floats over the table and never moves the battlefield.
@@ -961,18 +1384,18 @@ export class Board {
     const obstacles = [".opp-piles", ".me-piles"]
       .map((s) => this.el.querySelector<HTMLElement>(s)?.getBoundingClientRect())
       .filter((r): r is DOMRect => !!r && r.width > 0 && r.height > 0);
-    // --bf-w: min(8vw, 12.6vh).
-    const bfw = Math.min(window.innerWidth * 0.08, window.innerHeight * 0.126);
-    const clearRow = (row: HTMLElement, overhang: number) => {
+    // How far a row must stay clear of the piles on each side; `overhangL`/`overhangR` extend the
+    // check above and below the row, for cards that rise out of it on that side.
+    const clearRow = (row: HTMLElement, overhangL: number, overhangR: number) => {
       row.style.paddingLeft = row.style.paddingRight = "";
       const r = row.getBoundingClientRect();
-      const top = r.top - overhang;
-      const bottom = r.bottom + overhang;
       let padL = 0;
       let padR = 0;
       for (const o of obstacles) {
-        if (o.bottom <= top || o.top >= bottom) continue;
-        if (o.left + o.width / 2 < board.left + board.width / 2) padL = Math.max(padL, o.right - r.left + 12);
+        const left = o.left + o.width / 2 < board.left + board.width / 2;
+        const overhang = left ? overhangL : overhangR;
+        if (o.bottom <= r.top - overhang || o.top >= r.bottom + overhang) continue;
+        if (left) padL = Math.max(padL, o.right - r.left + 12);
         else padR = Math.max(padR, r.right - o.left + 12);
       }
       return { padL: Math.max(0, padL), padR: Math.max(0, padR), width: r.width, left: r.left };
@@ -981,9 +1404,10 @@ export class Board {
       const front = side.querySelector<HTMLElement>(".row.front")!;
       const row = side.querySelector<HTMLElement>(".row.back")!;
       const [lands, others, full] = [".cluster.lands", ".cluster.others", ".cluster.full"].map((s) => row.querySelector<HTMLElement>(s)!) as [HTMLElement, HTMLElement, HTMLElement];
-      // Back row: lands on the left; artifacts/enchantments, then whole cards (Sagas, Classes,
-      // planeswalkers) on the right. Whole cards rise out of it, so check a little above/below too.
-      const b = clearRow(row, bfw * 0.6);
+      // Back row: lands on the left, using all the room up to the table's edge unless a pile is
+      // actually beside them; artifacts/enchantments, then whole cards (Sagas, Classes,
+      // planeswalkers) on the right. Whole cards rise out of it, so check a little above/below there.
+      const b = clearRow(row, 0, bfw * 0.6);
       row.style.paddingLeft = `${Math.ceil(b.padL)}px`;
       row.style.paddingRight = `${Math.ceil(b.padR)}px`;
       const inner = b.width - b.padL - b.padR;
@@ -999,29 +1423,52 @@ export class Board {
         leftSpace = Math.max(0, cx - clear);
         rightSpace = Math.max(0, inner - cx - clear);
       }
-      // Whole cards keep up to 60% of the right side; artifacts and enchantments get the rest.
-      const wf = Math.min(natural(full), rightSpace * 0.6);
-      full.style.width = `${Math.floor(wf)}px`;
-      fit(full, wf);
-      const wl = natural(lands);
-      const wo = natural(others);
+      // Crowded zones, Arena style. Whole cards (Sagas, Classes, planeswalkers) keep up to 60% of
+      // the right side: side by side while they fit, then a 3×2 grid of smaller cards, paged with
+      // arrows. Artifacts and enchantments get the rest, and lands the left side: one line,
+      // shrinking a little, then two rows of small cards, paged too.
+      const sideKey = side.classList.contains("me") ? "me" : "opp";
+      const fullLine = line(full, rightSpace * 0.6, 0.8);
+      const wf = fullLine.fits ? fullLine.width : grid(full, rightSpace * 0.6, 0.5, 2, 3, `${sideKey}:full`, "grid");
       const availO = Math.max(0, rightSpace - (wf ? wf + 16 : 0));
-      const sl = wl > leftSpace ? leftSpace / wl : 1;
-      const so = wo > availO ? availO / wo : 1;
-      lands.style.width = `${Math.floor(wl * sl)}px`;
-      others.style.width = `${Math.floor(wo * so)}px`;
-      fit(lands, wl * sl);
-      fit(others, wo * so);
+      const othersLine = line(others, availO, 0.75);
+      const othersW = Math.floor(othersLine.fits ? othersLine.width : grid(others, availO, 0.48, 2, Infinity, `${sideKey}:others`, "two-rows"));
+      const landsLine = line(lands, leftSpace, 0.75);
+      const landsW = Math.floor(landsLine.fits ? landsLine.width : grid(lands, leftSpace, 0.48, 2, Infinity, `${sideKey}:lands`, "two-rows"));
+      full.style.width = `${Math.floor(wf)}px`;
+      lands.style.width = `${landsW}px`;
+      others.style.width = `${othersW}px`;
+      // A grid of whole cards rises into the space above the row (below it for the opponent), as a
+      // single whole card does, so the row keeps its height.
+      if (full.classList.contains("grid")) {
+        const rows = Math.min(2, [...full.children].filter((s) => !s.classList.contains("off-page")).length);
+        const rise = Math.min(0, bfw * 0.8 - (rows * bfw * 0.5 * 88 / 63 + 6 * (rows - 1)));
+        full.style.setProperty(sideKey === "me" ? "margin-top" : "margin-bottom", `${Math.floor(rise)}px`);
+      }
+      // Each zone is centered in its own space: lands left of the avatar; right of it, the
+      // artifacts/enchantments area (about the first half) and the whole cards' area (the rest),
+      // either taking the whole right side when the other is empty.
+      const landsLeft = Math.max(0, (leftSpace - landsW) / 2);
+      lands.style.marginLeft = `${Math.floor(landsLeft)}px`;
+      const rightStart = inner - rightSpace;
+      const othersArea = !wf ? rightSpace : !othersW ? 0
+        : Math.max(othersW + 16, Math.min(rightSpace / 2, rightSpace - wf - 16));
+      const othersLeft = rightStart + Math.max(0, (othersArea - othersW) / 2);
+      others.style.marginLeft = `${Math.max(0, Math.floor(othersLeft - landsLeft - landsW))}px`;
+      const fullStart = Math.min(inner - wf, rightStart + othersArea + Math.max(0, (rightSpace - othersArea - wf) / 2));
+      full.style.marginLeft = `${Math.max(0, Math.floor(fullStart - othersLeft - othersW))}px`;
       // Front row: creatures centered in what's free; whole cards rise into its space, so
-      // creatures keep clear of that corner once they'd reach it.
-      const f = clearRow(front, 0);
-      const reserve = wf ? wf + 16 + b.padR : 0;
+      // creatures keep clear of them once they'd reach that far.
+      const f = clearRow(front, 0, 0);
+      const reserve = wf ? inner - fullStart + 16 + b.padR : 0;
       const padR = f.padR;
-      const clash = reserve > padR && natural(front) + 2 * reserve > f.width - f.padL;
+      const clash = reserve > padR && lineWidth(front) + 2 * reserve > f.width - f.padL;
       const right = clash ? Math.max(reserve, padR) : padR;
       front.style.paddingLeft = `${Math.ceil(f.padL)}px`;
       front.style.paddingRight = `${Math.ceil(right)}px`;
-      fit(front, f.width - f.padL - right);
+      // Many creatures: smaller cards so they all fit in their line (they overlap only past half size).
+      line(front, f.width - f.padL - right, 0.55);
+      this.placePageNavs(side, [[full, `${sideKey}:full`], [others, `${sideKey}:others`], [lands, `${sideKey}:lands`]]);
     }
     // Floating mana sits in the gap between the player's piles and the first step of their turn
     // bar, centered on the bar; its symbols shrink to fit so it never overlaps either.
@@ -1081,6 +1528,39 @@ export class Board {
     this.fan(main, mainWidth * 0.92, mainWidth / 2);
     if (sideSpan) side.style.setProperty("--cx", `${width - sideSpan / 2}px`);
     this.fan(this.q(".opp-hand"), this.q(".opp-hand").clientWidth * 0.9, null);
+    this.placeManaWheel();
+    this.layoutFans();
+  }
+
+  /** The ◂ n/N ▸ arrows of each zone shown in pages, in the room it keeps at its right edge
+      (stacked vertically, centered on it). */
+  private placePageNavs(side: HTMLElement, zones: [HTMLElement, string][]): void {
+    const s = side.getBoundingClientRect();
+    for (const [box, key] of zones) {
+      let nav = side.querySelector<HTMLElement>(`.page-nav[data-for="${key}"]`);
+      const info = this.pageNavs.get(box);
+      if (!info) {
+        nav?.remove();
+        continue;
+      }
+      if (!nav) {
+        nav = document.createElement("div");
+        nav.className = "page-nav";
+        nav.dataset.for = key;
+        side.appendChild(nav);
+      }
+      const html = `<button data-page="${key}" data-dir="-1" ${info.page === 0 ? "disabled" : ""} title="Previous">◂</button>
+        <span>${info.page + 1}/${info.pages}</span>
+        <button data-page="${key}" data-dir="1" ${info.page === info.pages - 1 ? "disabled" : ""} title="More">▸</button>`;
+      if (nav.dataset.sig !== html) {
+        nav.dataset.sig = html;
+        nav.innerHTML = html;
+      }
+      const r = box.getBoundingClientRect();
+      const w = nav.offsetWidth;
+      nav.style.left = `${Math.round(r.right - s.left - w)}px`;
+      nav.style.top = `${Math.round(r.top - s.top + r.height / 2 - nav.offsetHeight / 2)}px`;
+    }
   }
 
   /** Lays out a fanned hand within `maxWidth`, centered at `cx` px (or 50%). Returns its width. */
@@ -1114,7 +1594,8 @@ export class Board {
     const el = key.startsWith("player:")
       ? this.el.querySelector<HTMLElement>(`.life-orb[data-player="${key.slice(7)}"]`) ?? this.el.querySelector<HTMLElement>(`.tile[data-player="${key.slice(7)}"]`)
       : this.cardEls.get(key);
-    if (!el?.isConnected) return null;
+    // Not shown (e.g. on another page of a crowded zone): no arrow.
+    if (!el?.isConnected || !el.getClientRects().length) return null;
     // A hidden stack: point at its "◂ Stack" pill instead of the tucked-away item.
     if (el.closest(".stack-dock.collapsed")) return this.q(".stack-toggle").getBoundingClientRect();
     return el.getBoundingClientRect();
@@ -1126,9 +1607,9 @@ export class Board {
     if (!r) return null;
     const el = key.startsWith("player:") ? null : this.cardEls.get(key);
     if (el?.parentElement?.classList.contains("stack") && !el.closest(".stack-dock.collapsed")) {
-      // Items under the top only show a strip on their left, so aim there.
+      // Items under the top only show their top-left corner, so aim there.
       const covered = el !== el.parentElement.lastElementChild;
-      return { x: r.left + (covered ? r.width * 0.12 : r.width / 2) - origin.left, y: r.top + r.height * (covered ? 0.3 : 0.5) - origin.top };
+      return { x: r.left + r.width * (covered ? 0.18 : 0.5) - origin.left, y: r.top + r.height * (covered ? 0.08 : 0.5) - origin.top };
     }
     return { x: r.left + r.width / 2 - origin.left, y: r.top + r.height / 2 - origin.top };
   }
@@ -1190,12 +1671,13 @@ export class Board {
       }
       // Hovering a permanent or a stack item shows it big beside it (unless a right-click zoom
       // is pinned or a card is being dragged).
-      const perm = t.closest<HTMLElement>(".side .card[data-id], .stack .card[data-id]");
-      const permId = perm?.dataset.id ?? null;
+      // (Revealed cards are small, on the right: they enlarge on hover too.)
+      const perm = t.closest<HTMLElement>(".side .card[data-id], .stack .card[data-id], .opp-hand .card.known[data-id], .reveal .rcard[data-zoom]");
+      const permId = perm?.dataset.id ?? perm?.dataset.zoom ?? null;
       if (permId === this.hoverPerm || this.zoomPinned || this.drag?.active) return;
       this.hoverPerm = permId;
       const c = permId ? this.cardData.get(permId) : undefined;
-      if (perm && c && !c.faceDown) this.showHoverZoom(c, perm, perm.dataset.stackText || undefined);
+      if (perm && c && (!c.faceDown || c.peeked)) this.showHoverZoom(c, perm, perm.dataset.stackText || undefined);
       else this.hideZoom();
     });
     el.addEventListener("pointerleave", () => {
@@ -1206,20 +1688,65 @@ export class Board {
     el.addEventListener("pointerdown", (e) => {
       // Any press outside the enlarged card closes it (right-click opens it).
       if (this.zoomPinned && e.button !== 2) { this.zoomPinned = false; this.hideZoom(); }
+      // A card fan's slider: press or drag along it to scroll the fan.
+      const slider = (e.target as HTMLElement).closest<HTMLElement>("[data-fan-slider]");
+      const fan = slider?.closest<HTMLElement>(".fan[data-fan]");
+      if (e.button === 0 && fan) {
+        e.preventDefault();
+        this.slideFanTo(fan, e.clientX);
+        const move = (ev: PointerEvent) => this.slideFanTo(fan, ev.clientX);
+        const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", up);
+        return;
+      }
       this.onPointerDown(e);
     });
+    // The mouse wheel scrolls a card fan sideways.
+    el.addEventListener("wheel", (e) => {
+      const fan = (e.target as HTMLElement).closest<HTMLElement>(".fan[data-fan]");
+      if (!fan || fan.classList.contains("static")) return;
+      e.preventDefault();
+      const delta = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+      this.scrollFan(fan, delta / 110);
+    }, { passive: false });
     window.addEventListener("pointermove", (e) => this.onPointerMove(e));
     window.addEventListener("pointerup", (e) => this.onPointerUp(e));
     // A drag the browser cancels (e.g. the window loses focus) ends like a drop.
     window.addEventListener("pointercancel", (e) => this.onPointerUp(e));
     window.addEventListener("keydown", (e) => {
+      // Choosing a number (X): ↑/↓ change it (Shift: by 5), digit keys take a quick pick, Enter confirms.
+      const p = this.state?.pending;
+      const m = this.mode;
+      if (p?.type === "CHOOSE_NUMBER" && m.kind === "choice" && !this.awaiting && this.el.classList.contains("live") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const quick = quickNumbers(p);
+        const digit = /^[0-9]$/.test(e.key) ? (e.key === "0" ? 9 : Number(e.key) - 1) : -1;
+        let number: number | undefined;
+        if (e.key === "ArrowUp" || e.key === "ArrowDown") number = stepNumber(p, m.number, (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 5 : 1));
+        else if (digit >= 0 && quick[digit] !== undefined) number = quick[digit];
+        // Endstep's own (hidden) number picker listens for the same keys: it mustn't answer too.
+        if (number !== undefined) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          this.setMode({ ...m, number });
+          return;
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          this.controller.chooseNumber(m.number);
+          this.setAwaiting(true);
+          return;
+        }
+      }
       if (e.key === "Escape" && this.el.classList.contains("live")) {
         this.hideMenu();
+        this.hideConfirm();
         this.closeViewer();
         this.hideZoom();
         this.zoomPinned = false;
       }
-    });
+    }, true);
   }
 
   private keyFromTarget(t: HTMLElement): string | null {
@@ -1242,6 +1769,32 @@ export class Board {
     if (!state || performance.now() < this.suppressClickUntil) return;
     const btn = t.closest<HTMLElement>("button");
 
+    // The mana wheel: a slice makes that color; the center (or a click anywhere else, for a
+    // wheel opened by clicking a land) backs out.
+    const slice = t.closest<SVGElement>("[data-mana]");
+    if (slice && !this.awaiting) {
+      const key = slice.dataset.mana!;
+      const wheel = this.localWheel;
+      this.localWheel = null;
+      if (wheel) this.controller.playCard(wheel.cardId, Number(key));
+      else this.controller.chooseString("CHOOSE_MANA", key);
+      this.setAwaiting(true);
+      this.render(state);
+      return;
+    }
+    if (t.closest("[data-wheel-cancel]") || (this.localWheel && !t.closest(".mana-wheel"))) {
+      if (this.localWheel) { this.localWheel = null; this.render(state); return; }
+      if (state.pending?.cancellable && !this.awaiting) { this.controller.decline(); this.setAwaiting(true); }
+      return;
+    }
+    if (btn?.dataset.ability !== undefined && this.abilityPick && !this.awaiting) {
+      this.controller.playCard(this.abilityPick.cardId, Number(btn.dataset.ability));
+      this.abilityPick = null;
+      this.setAwaiting(true);
+      this.render(state);
+      return;
+    }
+
     if (btn?.dataset.stop) {
       const [side, step] = btn.dataset.stop.split(":") as [StopSide, string];
       this.hooks.togglePhaseStop(side, step);
@@ -1254,6 +1807,26 @@ export class Board {
       if (btn.dataset.ui === "back") { this.classicDismissedFor = this.modeKey; this.render(state); }
       if (btn.dataset.ui === "close-viewer") this.closeViewer();
       if (btn.dataset.ui === "stack-toggle") { this.stackHidden = !this.stackHidden; this.render(state); }
+      if (btn.dataset.ui === "peek") { this.peeking = !this.peeking; this.render(state); }
+      if (btn.dataset.ui === "confirm-cancel") this.hideConfirm();
+      if (btn.dataset.ui === "ability-cancel") { this.abilityPick = null; this.peeking = false; this.render(state); }
+      return;
+    }
+    if (btn?.dataset.revealClose) {
+      this.dismissedReveals.add(btn.dataset.revealClose);
+      this.render(state);
+      return;
+    }
+    if (btn?.dataset.concede) {
+      this.hideConfirm();
+      this.controller.concede(btn.dataset.concede === "match");
+      return;
+    }
+    if (btn?.dataset.page) {
+      const key = btn.dataset.page;
+      this.pages.set(key, (this.pages.get(key) ?? 0) + Number(btn.dataset.dir));
+      this.layout();
+      this.scheduleArrows();
       return;
     }
     if (btn?.dataset.spend) {
@@ -1295,15 +1868,21 @@ export class Board {
       return;
     }
     // Priority: one click activates a permanent; hand cards are played by dragging.
-    if (m.kind === "idle" && !this.cardEls.get(key)?.closest(".hand")) this.tryPlay(key, e.clientX, e.clientY, e.ctrlKey);
+    if (m.kind === "idle" && !this.cardEls.get(key)?.closest(".hand")) this.tryPlay(key, e.ctrlKey);
   }
 
   /** Plays/activates a card if Endstep lists it as playable; asks which ability when there are several. */
-  private tryPlay(cardId: string, x: number, y: number, keepPriority = false): boolean {
+  private tryPlay(cardId: string, keepPriority = false): boolean {
     const option = this.state?.pending?.type === "PRIORITY" ? this.state.pending.playable.find((p) => p.cardId === cardId) : undefined;
     if (!option) return false;
     if (option.abilities.length > 1) {
-      this.showMenu(x, y, option.abilities.map((a) => ({ label: a.description, hint: a.cost, data: `play:${cardId}:${a.index}` })), this.cardData.get(cardId)?.name);
+      // Only mana of different colors (a dual land): the color wheel on the card. Anything
+      // else: an ability card for each, Arena's Choose One.
+      const wheel = wheelFromAbilities(option.abilities);
+      if (wheel) this.localWheel = { cardId, options: wheel };
+      else this.abilityPick = { cardId, abilities: option.abilities };
+      this.hideMenu();
+      if (this.state) this.render(this.state);
       return true;
     }
     this.controller.playCard(cardId, option.abilities[0]?.index, keepPriority);
@@ -1387,8 +1966,10 @@ export class Board {
     } else if (d.modeCancel !== undefined) {
       c.no();
     } else if (d.num !== undefined && m.kind === "choice") {
-      const number = Math.max(p.min, Math.min(p.max, m.number + Number(d.num)));
-      this.setMode({ ...m, number });
+      this.setMode({ ...m, number: stepNumber(p, m.number, Number(d.num)) });
+      return true;
+    } else if (d.numSet !== undefined && m.kind === "choice") {
+      this.setMode({ ...m, number: Number(d.numSet) });
       return true;
     } else if (d.numConfirm !== undefined && m.kind === "choice") {
       c.chooseNumber(m.number);
@@ -1399,6 +1980,12 @@ export class Board {
     } else if (d.defender !== undefined && m.kind === "attackers") {
       this.setMode({ ...m, currentDefender: Number(d.defender) });
       return true;
+    } else if (d.arr !== undefined && m.kind === "arrange") {
+      // A click sends the card to the other pile.
+      this.setMode(arrangeMove(m, d.arr, m.top.includes(d.arr) ? "tray" : "top"));
+      return true;
+    } else if (d.arrangeDone !== undefined && m.kind === "arrange") {
+      c.arrangeCards(m.top);
     } else if (d.pick !== undefined) {
       this.onSelectKey(d.pick, new MouseEvent("click"));
       return true;
@@ -1422,9 +2009,17 @@ export class Board {
       this.orderDrag = { id: tile.dataset.orderId!, startX: e.clientX, active: false, tiles: [], ids: [], centers: [], step: 0, from: 0, to: 0 };
       return;
     }
-    if (e.button !== 0 || this.mode.kind !== "idle" || this.awaiting) return;
+    const arr = t.closest<HTMLElement>(".arr-card[data-arr]");
+    if (e.button === 0 && arr && this.mode.kind === "arrange" && !this.awaiting) {
+      e.preventDefault();
+      this.arrDrag = { id: arr.dataset.arr!, startX: e.clientX, startY: e.clientY, el: arr, active: false };
+      return;
+    }
+    if (e.button !== 0) return;
     const card = (e.target as HTMLElement).closest<HTMLElement>(".hand.mine .card[data-id]");
     if (!card) return;
+    // Your hand can be rearranged at any time; playing a card (or one from the side hand) needs priority.
+    if (!card.closest(".my-hand") && (this.mode.kind !== "idle" || this.awaiting)) return;
     e.preventDefault();
     this.drag = { id: card.dataset.id!, startX: e.clientX, startY: e.clientY, el: card, active: false };
   }
@@ -1452,7 +2047,30 @@ export class Board {
     return true;
   }
 
+  /** The scry/surveil pile under the pointer. */
+  private arrZoneAt(x: number, y: number): HTMLElement | undefined {
+    return [...this.el.querySelectorAll<HTMLElement>(".arr-zone")].find((z) => {
+      const r = z.getBoundingClientRect();
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    });
+  }
+
   private onPointerMove(e: PointerEvent): void {
+    const ad = this.arrDrag;
+    if (ad) {
+      const dx = e.clientX - ad.startX;
+      const dy = e.clientY - ad.startY;
+      if (!ad.active && Math.hypot(dx, dy) < 5) return;
+      if (!ad.active) {
+        ad.active = true;
+        ad.el.classList.add("dragging");
+        this.hideZoom();
+      }
+      ad.el.style.translate = `${dx}px ${dy}px`;
+      const over = this.arrZoneAt(e.clientX, e.clientY);
+      for (const z of this.el.querySelectorAll(".arr-zone")) z.classList.toggle("over", z === over);
+      return;
+    }
     const od = this.orderDrag;
     if (od) {
       if (!od.active && Math.abs(e.clientX - od.startX) < 5) return;
@@ -1494,6 +2112,26 @@ export class Board {
   }
 
   private onPointerUp(e: PointerEvent): void {
+    const ad = this.arrDrag;
+    this.arrDrag = null;
+    if (ad) {
+      if (!ad.active) return;
+      this.suppressClickUntil = performance.now() + 250;
+      ad.el.classList.remove("dragging");
+      ad.el.style.translate = "";
+      for (const z of this.el.querySelectorAll(".arr-zone")) z.classList.remove("over");
+      const m = this.mode;
+      const zone = this.arrZoneAt(e.clientX, e.clientY);
+      if (m.kind === "arrange" && zone) {
+        // Dropped among the pile's cards: it lands before the first one right of the pointer.
+        const others = [...zone.querySelectorAll<HTMLElement>(".arr-card")].filter((c) => c !== ad.el);
+        const index = others.filter((c) => { const r = c.getBoundingClientRect(); return r.left + r.width / 2 < e.clientX; }).length;
+        this.setMode(arrangeMove(m, ad.id, zone.dataset.zone as "top" | "tray", index));
+      } else if (this.state) {
+        this.render(this.state);
+      }
+      return;
+    }
     const od = this.orderDrag;
     this.orderDrag = null;
     if (od) {
@@ -1519,7 +2157,24 @@ export class Board {
     this.el.classList.remove("drop-ready");
     d.el.classList.remove("dragging", "over-table");
     const over = e.clientY < this.dropY();
-    const played = over && !this.awaiting && this.tryPlay(d.id, e.clientX, e.clientY, e.ctrlKey);
+    // Released within the hand: the card moves to where it was dropped.
+    const hand = this.q(".my-hand");
+    if (!over && d.el.parentElement === hand) {
+      const from = d.el.getBoundingClientRect();
+      const others = ([...hand.children] as HTMLElement[]).filter((c) => c !== d.el);
+      const index = others.filter((c) => { const r = c.getBoundingClientRect(); return r.left + r.width / 2 < e.clientX; }).length;
+      const order = this.handOrder.filter((id) => id !== d.id);
+      order.splice(index, 0, d.id);
+      this.handOrder = order;
+      d.el.style.translate = "";
+      if (this.state) this.render(this.state);
+      // Glide from where it was let go into its new place (the others slide via FLIP).
+      const to = d.el.getBoundingClientRect();
+      for (const a of d.el.getAnimations()) if (!(a instanceof CSSAnimation) && !(a instanceof CSSTransition)) a.cancel();
+      d.el.animate([{ translate: `${from.left - to.left}px ${from.top - to.top}px` }, { translate: "0px 0px" }], { duration: 200, easing: "ease-out" });
+      return;
+    }
+    const played = over && !this.awaiting && this.mode.kind === "idle" && this.tryPlay(d.id, e.ctrlKey);
     if (!played) {
       d.el.animate([{ translate: d.el.style.translate }, { translate: "0px 0px" }], { duration: 200, easing: "ease-out" });
       if (over) this.toast(`${this.cardData.get(d.id)?.name ?? "That card"} can't be played right now.`);
@@ -1550,14 +2205,25 @@ export class Board {
 
   private showZoom(c: CardView, extra?: string): void {
     const zoom = this.q(".zoom");
-    if (c.faceDown && !extra) return this.hideZoom();
+    if (c.faceDown && !c.peeked && !extra) return this.hideZoom();
     const url = imageUrl(c, "large");
     const counters = Object.entries(c.counters).map(([k, n]) => `<span>${esc(k)} ×${n}</span>`).join("");
     const effects = this.effectsByCard.get(c.id) ?? [];
+    const held = this.held.get(c.id) ?? [];
+    const holder = this.cardData.get(this.linked.get(c.id) ?? "");
+    const gained = c.keywordsGranted ?? [];
+    const lost = lostKeywords(c);
+    const notes = [
+      gained.length ? `<span class="kgain">Gained: ${esc(gained.join(", "))}</span>` : "",
+      lost.length ? `<span class="klost">Lost: ${esc(lost.join(", "))}</span>` : "",
+      held.length ? `<span>Exiled with it: ${esc(held.map((h) => h.name).join(", "))}</span>` : "",
+      holder ? `<span>Exiled by ${esc(holder.name)}</span>` : "",
+    ].filter(Boolean);
     zoom.innerHTML = `
       <div class="zcard">${url ? `<img src="${esc(url)}" alt="${esc(c.name)}">` : `<div class="ztext"><b>${esc(c.name)}</b><i>${esc(c.typeLine ?? "")}</i><p>${esc(c.oracleText ?? "")}</p></div>`}</div>
       ${extra ? `<div class="zextra">${esc(extra)}</div>` : ""}
       ${counters || c.damage ? `<div class="zextra">${counters}${c.damage ? `<span class="dmg">${c.damage} damage</span>` : ""}</div>` : ""}
+      ${notes.length ? `<div class="zextra col">${notes.join("")}</div>` : ""}
       ${effects.map((fx) => `<div class="zextra fx"><b>✦ ${esc(fx.name)}</b><span>${esc(fx.oracleText ?? "")}</span></div>`).join("")}`;
     // Always in the left column, in the space between the two players' piles.
     const box = this.el.getBoundingClientRect();
@@ -1565,7 +2231,7 @@ export class Board {
     const mePiles = this.q(".me-piles").getBoundingClientRect();
     const gapTop = (oppPiles.height ? oppPiles.bottom : box.top + box.height * 0.3) - box.top + 10;
     const gapBottom = (mePiles.height ? mePiles.top : box.top + box.height * 0.7) - box.top - 10;
-    const extraH = (extra ? 60 : 0) + (counters || c.damage ? 40 : 0) + effects.length * 56;
+    const extraH = (extra ? 60 : 0) + (counters || c.damage ? 40 : 0) + notes.length * 22 + effects.length * 56;
     const columnW = oppPiles.width || mePiles.width || 260;
     // Fill the gap; if it's too short, grow over the piles rather than shrink to unreadable.
     const zh = Math.max(gapBottom - gapTop - extraH, Math.min(box.height * 0.5, 420));
@@ -1600,6 +2266,11 @@ export class Board {
     if (!key || key.startsWith("player:")) {
       this.zoomPinned = false;
       this.hideZoom();
+      // Right-click on the table itself: the game menu (Endstep's items, in this board's style).
+      if (!key && !t.closest(".prompt.show, .viewer.open, .dock, .corner, .menu, .confirm, .stack-dock, .mana-wheel, .hand, .pile")) {
+        e.preventDefault();
+        void this.openTableMenu(e.clientX, e.clientY);
+      }
       return;
     }
     e.preventDefault();
@@ -1631,10 +2302,47 @@ export class Board {
     this.showZoom(c, extra);
   }
 
-  private showMenu(x: number, y: number, items: { label: string; hint?: string; data: string }[], title?: string): void {
+  /** The items of the table menu, by index (their labels are Endstep's). */
+  private tableItems: string[] = [];
+
+  /** Endstep's table menu (decklist, auto-yields, settings, reports, concede…), in this board's
+      style. Concede asks here; the rest opens Endstep's own window. */
+  private async openTableMenu(x: number, y: number): Promise<void> {
+    const labels = (await this.hooks.tableMenu()) ?? ["Reload", "Concede"];
+    this.tableItems = labels;
+    const items = labels.map((label, i) => {
+      const concede = /^concede( game| match)?$/i.exec(label);
+      return concede
+        ? { label, data: `concede:${concede[1]?.trim().toLowerCase() ?? "single"}`, cls: "danger" }
+        : { label, data: `table:${i}` };
+    });
+    // Conceding sits apart, at the bottom.
+    const first = items.findIndex((i) => i.cls === "danger");
+    if (first > 0) items[first] = { ...items[first]!, cls: "danger sep" };
+    this.showMenu(x, y, items, "Game");
+  }
+
+  /** "Concede?" in this board's style; confirming sends it. */
+  private showConcede(kind: string): void {
+    const match = kind === "match";
+    const title = match ? "Concede match?" : kind === "game" ? "Concede game?" : "Concede?";
+    const text = match ? "Forfeit the series. Your opponent wins the match. This can't be undone."
+      : kind === "game" ? "Lose this game. The match continues. This can't be undone." : "You'll lose this game. This can't be undone.";
+    const box = this.q(".confirm");
+    box.innerHTML = `<div class="phead"><h2>${esc(title)}</h2><p>${esc(text)}</p></div>
+      <div class="choices big"><button class="opt" data-ui="confirm-cancel">Cancel</button><button class="opt danger" data-concede="${match ? "match" : "game"}">${esc(title.replace("?", ""))}</button></div>`;
+    box.classList.add("open");
+    box.querySelector<HTMLElement>('[data-ui="confirm-cancel"]')?.focus();
+  }
+
+  private hideConfirm(): void {
+    this.q(".confirm").classList.remove("open");
+  }
+
+  private showMenu(x: number, y: number, items: { label: string; hint?: string; data: string; cls?: string }[], title?: string): void {
     const menu = this.q(".menu");
     menu.innerHTML = (title ? `<div class="mtitle">${esc(title)}</div>` : "") +
-      items.map((i) => `<button role="menuitem" data-menu="${esc(i.data)}"><span>${esc(i.label)}</span>${i.hint ? `<small>${esc(i.hint)}</small>` : ""}</button>`).join("");
+      items.map((i) => `<button role="menuitem" class="${i.cls ?? ""}" data-menu="${esc(i.data)}"><span>${esc(i.label)}</span>${i.hint ? `<small>${esc(i.hint)}</small>` : ""}</button>`).join("");
     menu.classList.add("show");
     const box = this.el.getBoundingClientRect();
     const r = menu.getBoundingClientRect();
@@ -1651,6 +2359,13 @@ export class Board {
     const [cmd, id, arg] = item.dataset.menu!.split(":");
     this.hideMenu();
     if (!id) return;
+    if (cmd === "table") {
+      const label = this.tableItems[Number(id)];
+      if (label === "Reload") location.reload();
+      else if (label) this.hooks.runTableItem(label);
+      return;
+    }
+    if (cmd === "concede") return this.showConcede(id);
     if (cmd === "play") {
       this.controller.playCard(id, arg ? Number(arg) : undefined);
       this.setAwaiting(true);
@@ -1662,7 +2377,6 @@ export class Board {
   // ---------------------------------------------------------------- zone viewer
 
   private viewer: { player: string; zone: string } | null = null;
-  private viewerStale = false;
 
   private openViewer(player: string, zone: string): void {
     if (zone === "library") return;
@@ -1670,73 +2384,32 @@ export class Board {
     this.refreshViewer();
   }
 
+  /** A graveyard, exile or command zone, full screen as an Arena card fan (newest first), with
+      Close under it. Cards you can play from there glow blue; clicking one plays it. */
   private refreshViewer(): void {
     const v = this.viewer;
     const box = this.q(".viewer");
     const p = this.state?.players.find((pl) => pl.id === v?.player);
     if (!v || !p) return this.closeViewer();
-    // Don't rebuild under a drag in progress; catch up when it ends.
-    this.viewerStale = !!box.querySelector(".vgrid.dragging");
-    if (this.viewerStale) return;
     const cards = v.zone === "graveyard" ? p.graveyard : v.zone === "exile" ? p.exile : p.commandZone;
     const playable = new Set(this.state?.pending?.type === "PRIORITY" ? this.state.pending.playable.map((o) => o.cardId) : []);
-    // Rebuilt on every update: keep the horizontal scroll position.
-    const scrolled = v.player === box.dataset.player && v.zone === box.dataset.zone ? box.querySelector<HTMLElement>(".vgrid")?.scrollLeft ?? 0 : 0;
-    box.dataset.player = v.player;
-    box.dataset.zone = v.zone;
-    box.innerHTML = `<div class="vpanel">
-        <header><b>${esc(p.name)} · ${esc(humanize(v.zone))}</b><span class="muted">${cards.length} cards</span><button class="ghost" data-ui="close-viewer">Close</button></header>
-        <div class="vgrid">${cards.slice().reverse().map((c) => {
-          const url = imageUrl(c);
-          return `<button class="vcard${playable.has(c.id) ? " playable" : ""}" data-zoom="${esc(c.id)}" data-vplay="${esc(c.id)}">
-            ${url ? `<img src="${esc(url)}" alt="${esc(c.name)}" draggable="false">` : `<span>${esc(c.name)}</span>`}</button>`;
-        }).join("") || '<p class="muted">Empty</p>'}</div></div>`;
-    box.classList.add("open");
-    const row = box.querySelector<HTMLElement>(".vgrid");
-    if (row) {
-      row.scrollTo({ left: scrolled, behavior: "instant" });
-      // The mouse wheel scrolls the row sideways.
-      row.onwheel = (e) => {
-        if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-        e.preventDefault();
-        row.scrollBy({ left: e.deltaY * 1.5, behavior: "instant" });
-      };
-      // Click and drag anywhere on the row to scroll it (the scrollbar itself scrolls natively).
-      row.onpointerdown = (e) => {
-        if (e.button !== 0 || e.clientY > row.getBoundingClientRect().top + row.clientHeight) return;
-        const startX = e.clientX;
-        const start = row.scrollLeft;
-        let moved = false;
-        const move = (ev: PointerEvent) => {
-          const dx = ev.clientX - startX;
-          if (!moved && Math.abs(dx) < 5) return;
-          if (!moved) {
-            moved = true;
-            row.classList.add("dragging");
-          }
-          row.scrollLeft = start - dx;
-        };
-        const up = () => {
-          window.removeEventListener("pointermove", move);
-          window.removeEventListener("pointerup", up);
-          if (!moved) return;
-          row.classList.remove("dragging");
-          // The release isn't a click on a card.
-          this.suppressClickUntil = performance.now() + 250;
-          if (this.viewerStale) this.refreshViewer();
-        };
-        window.addEventListener("pointermove", move);
-        window.addEventListener("pointerup", up);
-      };
+    const html = `<div class="phead"><h2>${esc(humanize(v.zone))}</h2><p>${esc(p.name)} · ${cards.length} card${cards.length === 1 ? "" : "s"}</p></div>
+      ${this.fanHtml(`view:${v.player}:${v.zone}`, cards.slice().reverse(), (c) => `data-vplay="${esc(c.id)}"`, (c) => (playable.has(c.id) ? "playable" : ""))}
+      <div class="choices big"><button class="opt primary" data-ui="close-viewer">Close</button></div>`;
+    // Rebuilt only when something changed, so hovering and scrolling aren't interrupted.
+    if (box.dataset.sig !== html) {
+      box.dataset.sig = html;
+      box.innerHTML = html;
     }
+    box.classList.add("open");
+    this.layoutFans();
     box.onclick = (e) => {
       const t = e.target as HTMLElement;
       if (performance.now() < this.suppressClickUntil) return;
       if (t === box) return this.closeViewer();
       const card = t.closest<HTMLElement>("[data-vplay]");
       if (card?.classList.contains("playable") && !this.awaiting) {
-        const r = card.getBoundingClientRect();
-        if (this.tryPlay(card.dataset.vplay!, r.right, r.top)) this.closeViewer();
+        if (this.tryPlay(card.dataset.vplay!)) this.closeViewer();
       }
     };
   }
@@ -1768,7 +2441,7 @@ function groupKey(c: CardView, local: string, effects: number): string | null {
   // Everything that changes how the card looks or what it is doing, including choices still
   // being made (an attacker or blocker you picked but haven't confirmed, a selected target).
   return JSON.stringify([c.name, c.power, c.toughness, c.loyalty, c.tapped, c.summoningSick, c.isToken, c.setCode, c.collectorNumber,
-    c.types, c.controllerId, local, effects]);
+    c.types, c.controllerId, c.keywordsGranted, c.keywordsLost, local, effects]);
 }
 
 /** Players appear among target options as -(seat + 1). */
@@ -1788,6 +2461,68 @@ function defaultMessage(type: string, m: Mode): string {
     case "targets": return "Choose target";
     case "cards": return m.mana ? "Pay the cost: tap lands, or Auto pay" : "Choose cards";
     default: return humanize(type);
+  }
+}
+
+/** A number prompt's values offered as quick picks: the allowed ones, or the whole range when it's
+    small (as Endstep's own picker does); none for a wide range. */
+function quickNumbers(p: PendingActionView): number[] {
+  if (p.allowedNumbers.length) return p.allowedNumbers.length <= 12 ? p.allowedNumbers : [];
+  return p.numberMax - p.numberMin <= 10 ? Array.from({ length: p.numberMax - p.numberMin + 1 }, (_, i) => p.numberMin + i) : [];
+}
+
+/** Mana and tap symbols ({T}, {G}, {2}, {W/U}…) in already-escaped text, as symbol images. */
+function withSymbols(html: string): string {
+  return html.replace(/\{([^}]{1,5})\}/g, (all, sym: string) =>
+    `<img class="sym" src="${MANA_SYMBOL_URL}/${sym.toUpperCase().replace(/\//g, "")}.svg" alt="${all}" draggable="false">`);
+}
+
+const NUMBER_WORDS =["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
+
+/** Heading and subtitle of a full-screen choice, as Arena words them. */
+function promptTitle(state: GameState, m: Mode): { title: string; sub: string } {
+  const p = state.pending!;
+  const msg = p.message ?? "";
+  // A message that only repeats the heading isn't worth a second line.
+  const pick = (title: string, fallback: string) => ({ title, sub: msg && msg.toLowerCase() !== title.toLowerCase() ? msg : fallback });
+  switch (p.type) {
+    case "MULLIGAN": {
+      const first = state.players.find((pl) => pl.id === state.activePlayerId);
+      const title = !first ? "Opening Hand" : first.isViewer ? "You Go First" : `${first.name} Goes First`;
+      return pick(title, "Keep this hand, or shuffle it away and draw a new one.");
+    }
+    case "CHOOSE_MODE":
+    case "CHOOSE_ABILITY":
+      return pick(`Choose ${p.max > 1 ? `${NUMBER_WORDS[p.max] ?? p.max}` : "One"}`, "Click an option below to select it.");
+    case "ARRANGE_CARDS": {
+      // Endstep's message ("Surveil 2") makes the heading; the instructions stay under it.
+      const [base, sub] = p.contextType === "surveil" ? ["Surveil", "Drag or click cards to put them on the top of your library or into your graveyard."]
+        : p.contextType === "scry" ? ["Scry", "Drag or click cards to keep them on the top of your library or put them on the bottom."]
+        : ["Arrange Cards", "Drag to set the order. The leftmost comes first."];
+      return { title: msg.toLowerCase().startsWith(base.toLowerCase()) ? msg : base, sub };
+    }
+    case "ORDER_ABILITIES":
+      return pick("Order Triggers", "Drag to set the order. The leftmost resolves first.");
+    case "ORDER_ATTACKERS":
+      return pick("Order Attackers", "Drag to set the order.");
+    case "ORDER_BLOCKERS":
+      return pick("Order Blockers", "Drag to set the damage order.");
+    case "YES_NO":
+      return pick(p.sourceCardName ?? "Decide", "");
+    case "CHOOSE_COLOR":
+      return pick("Choose a Color", "");
+    case "CHOOSE_NUMBER":
+      return pick(/\bX\b/.test(msg) ? "Choose X" : "Choose a Number", "");
+    default:
+      if (m.kind === "targets" || m.kind === "cards") {
+        // "Choose Up To 6", with Endstep's message ("Search for land cards.") under it.
+        const noun = m.kind === "targets" ? "Target" : "a Card";
+        const title = p.max >= 99 ? "Choose Any Number"
+          : p.max > 1 ? (p.min < p.max ? `Choose Up To ${p.max}` : `Choose ${p.max}`)
+          : `Choose ${noun}`;
+        return { title, sub: msg || p.sourceCardName || "" };
+      }
+      return pick(p.sourceCardName ?? humanize(p.type), "");
   }
 }
 
@@ -1819,6 +2554,15 @@ function manaPoolPips(pool: unknown, payable = false): string {
     return `<${tag} class="mpip m-${esc(s.toLowerCase())}${payable ? " payable" : ""}" title="${esc(title)}"${payable ? ` data-spend="${esc(s)}"` : ""}>
       <i>${esc(s)}</i><img src="${MANA_SYMBOL_URL}/${esc(s)}.svg" alt="${esc(s)}" draggable="false"><b>${n}</b></${tag}>`;
   }).join("");
+}
+
+/** The edges of the cards under a pile's top card, as box-shadow layers: 1px each, alternating
+    the dark card border with a faint lighter line. */
+function pileEdge(thick: number): string {
+  const layers: string[] = [];
+  for (let i = 1; i <= thick; i++) layers.push(`0 ${i}px 0 ${i % 2 ? "#2b2219" : "#4a3c2b"}`);
+  // A list of shadows can't contain "none".
+  return layers.join(", ") || "0 0 0 transparent";
 }
 
 /** "Name: what it does" for an effect/emblem. */

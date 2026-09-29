@@ -16,7 +16,8 @@
   --bf-w: min(8vw, 12.6vh);
   /* Battlefield cards show only their top (name bar + art), Arena style. */
   --bf-h: calc(var(--bf-w) * 0.8);
-  --stack-w: min(10.5vw, 17vh, calc(var(--gutter) - 50px));
+  /* The card that resolves next, big on the right as in Arena. */
+  --stack-w: min(14vw, 27vh);
   --hand-w: min(7.4vw, 14vh);
   --hand-h: calc(var(--hand-w) * 1.397);
   --ohand-w: calc(var(--bf-w) * 0.62);
@@ -89,13 +90,46 @@ button { font: inherit; color: inherit; cursor: pointer; }
   --gap: 10px;
 }
 .side.opp .row { align-items: flex-start; }
-/* Back row: lands on the left; other non-creature permanents on the right, then whole cards
-   (Sagas, Classes, planeswalkers) with a little space between. */
+/* Back row: lands on the left of the avatar; right of it, other non-creature permanents start
+   beside the avatar, and whole cards (Sagas, Classes, planeswalkers) from the middle of what's
+   left. The layout sets each cluster's width and left margin. */
 .row.back { justify-content: flex-start; }
 .cluster { display: flex; flex: none; min-width: 0; align-items: flex-end; }
-.cluster.others { justify-content: flex-end; margin-left: auto; }
-.cluster.full { justify-content: flex-end; margin-left: 16px; }
-.cluster.full:empty { margin-left: 0; }
+.cluster.others, .cluster.full { justify-content: flex-start; }
+/* Crowded zones (sized by the layout): artifacts and enchantments in two rows of small cards,
+   Sagas/Classes/planeswalkers in a 3×2 grid; more than fits goes on pages turned with ◂ ▸. */
+.cluster.two-rows, .cluster.grid { display: grid; grid-auto-flow: column; grid-template-rows: repeat(2, auto); gap: 6px; align-content: end; justify-content: start; }
+.side.opp .cluster.two-rows, .side.opp .cluster.grid { align-content: start; }
+.cluster.two-rows > .slot, .cluster.grid > .slot { margin: 0 !important; }
+.slot.off-page { display: none; }
+.page-nav {
+  position: absolute;
+  z-index: 26;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+.page-nav span { font: 600 10px/1.6 var(--font); text-align: center; color: var(--muted); }
+.page-nav button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  font-size: 15px;
+  line-height: 1;
+  color: #fff;
+  background: linear-gradient(180deg, #7ac8ff, #2f7fd0);
+  box-shadow: 0 0 10px rgba(80, 180, 255, 0.55);
+}
+.page-nav button:hover:not(:disabled) { filter: brightness(1.15); }
+.page-nav button:disabled { opacity: 0.3; box-shadow: none; cursor: default; }
 .side.opp .cluster { align-items: flex-start; }
 
 .midline {
@@ -296,6 +330,62 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .side.opp .slot > .card:not(:last-child) { bottom: auto; top: calc(var(--att) * var(--bf-w) * 0.17); }
 
+/* Cards exiled "until this leaves the battlefield" (Portable Hole, Oblivion Ring…): under the
+   permanent holding them, turned 90° and greyed like a tapped card, sticking out below it
+   (above it for the opponent). Each further one sticks out a little more. */
+.slot.holds { padding-bottom: calc(var(--bf-w) * (0.45 + (var(--held) - 1) * 0.12)); }
+.side.opp .slot.holds { padding-bottom: 0; padding-top: calc(var(--bf-w) * (0.45 + (var(--held) - 1) * 0.12)); }
+.slot > .card.linked,
+.side.opp .slot > .card.linked {
+  position: absolute;
+  z-index: 0;
+  left: 50%;
+  top: auto;
+  bottom: calc(var(--bf-w) * (0.02 - var(--li, 0) * 0.12));
+  translate: -50% 0;
+  rotate: 90deg;
+  filter: grayscale(0.85) brightness(0.62);
+  transition: filter 0.2s ease, rotate 0.22s ease;
+}
+.side.opp .slot > .card.linked { bottom: auto; top: calc(var(--bf-w) * (0.02 - var(--li, 0) * 0.12)); }
+.slot > .card.linked:hover { filter: grayscale(0.3) brightness(0.95); z-index: 4; transform: none; }
+.slot > .card.linked .badges, .slot > .card.linked .kws { display: none; }
+
+/* Keywords an effect gave the permanent (green) or took away (red, struck through), down its
+   left edge, Arena style. */
+.kws { display: none; }
+.side .card.modified .kws {
+  position: absolute;
+  z-index: 3;
+  left: calc(var(--cw) * -0.05);
+  bottom: calc(var(--cw) * 0.06);
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: 78%;
+  pointer-events: auto;
+}
+.k {
+  max-width: 100%;
+  padding: 1px 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  font: 700 max(9px, calc(var(--cw) * 0.085)) / 1.3 var(--font);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+  cursor: help;
+}
+.k.gain { color: #eaffe4; background: linear-gradient(180deg, #3d8a4a, #1f5229); border: 1px solid #8fe39c; }
+.k.lost { color: #ffd9d2; background: rgba(90, 24, 16, 0.92); border: 1px solid #ff8a70; text-decoration: line-through; }
+.b.pt i { font-style: normal; }
+.b.pt i.up { color: #8dff8a; }
+.b.pt i.down { color: #ff7a66; }
+.zextra.col { flex-direction: column; gap: 2px; }
+.zextra .kgain { color: #9be7a2; }
+.zextra .klost { color: #ff9a86; }
+
 /* Effects from the command zone, shown on the card that created them:
    a violet ✦ at the top-left (hover for the text; right-click lists them). */
 .fx-mark { display: none; }
@@ -363,7 +453,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .card.selectable .face { box-shadow: 0 0 0 2px var(--target), 0 0 16px 2px rgba(255, 194, 74, 0.55); animation: pulse 1.4s ease-in-out infinite; }
 .card.selected .face { box-shadow: 0 0 0 3px var(--picked), 0 0 22px 5px rgba(255, 138, 42, 0.7); animation: none; }
 .side .card.selected { transform: translateY(-6%) scale(1.05); }
-.card.attacking .face { box-shadow: 0 0 0 2px var(--atk), 0 0 20px 4px rgba(255, 90, 60, 0.6); }
+/* Attacking: bright orange, steady. Declaring attackers, the creatures that could attack but
+   aren't glow bright blue, as in Arena. */
+.card.attacking .face { box-shadow: 0 0 0 3px #ff9a2a, 0 0 24px 6px rgba(255, 150, 40, 0.8); animation: none; }
+.board.declaring-attacks .side .card.selectable:not(.attacking) .face { box-shadow: 0 0 0 3px #4fc3ff, 0 0 22px 5px rgba(79, 195, 255, 0.75); animation: none; }
 .card.blocking .face { box-shadow: 0 0 0 2px var(--blk), 0 0 20px 4px rgba(88, 168, 255, 0.6); }
 @keyframes pulse { 50% { box-shadow: 0 0 0 2px var(--target), 0 0 26px 6px rgba(255, 194, 74, 0.7); } }
 
@@ -383,11 +476,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
   pointer-events: auto;
   touch-action: none;
 }
-.hand.mine .card:hover {
-  transform: translateY(calc(var(--hand-h) * -0.42)) scale(1.4);
-  rotate: 0deg;
-  z-index: 100 !important;
-}
+/* Hover raises and enlarges the picture only: the card's own box stays put, so a pointer near
+   its bottom edge keeps hovering it instead of the card jumping away and back. */
+.hand.mine .card .face { transform-origin: 50% 120%; transition: transform 0.16s ease, rotate 0.16s ease, box-shadow 0.18s ease; }
+/* The card itself keeps its tilt in the fan (turning it would move its corners out from under
+   the pointer); the picture turns back upright instead. */
+.hand.mine .card:hover { z-index: 100 !important; }
+.hand.mine .card:hover .face { rotate: calc(var(--r, 0deg) * -1); transform: translateY(calc(var(--hand-h) * -0.42)) scale(1.4); }
+.hand.mine .card.dragging .face { transform: none; }
+/* The zone label of a side-hand card would sit on the raised picture. */
+.side-hand .card:hover::after { opacity: 0; }
 .hand.mine .card.dragging {
   transition: none;
   transform: scale(1.05);
@@ -422,7 +520,36 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border-radius: 24px;
 }
 
+/* Face down, but you know what it is (your morph, a card revealed from their hand…): its front,
+   a little dimmed, with an eye mark. */
+.card.peeked .face { filter: brightness(0.82) saturate(0.85); }
+.card.peeked::after, .opp-hand .card.known::after {
+  content: "";
+  position: absolute;
+  z-index: 4;
+  top: calc(var(--cw) * -0.05);
+  right: calc(var(--cw) * -0.05);
+  width: max(16px, calc(var(--cw) * 0.2));
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #1a140e url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 5C6.5 5 2.7 9.2 1.5 12c1.2 2.8 5 7 10.5 7s9.3-4.2 10.5-7C21.3 9.2 17.5 5 12 5zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm0-2.2a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z' fill='%23e8c678'/%3E%3C/svg%3E") center / 70% no-repeat;
+  border: 1px solid rgba(232, 198, 120, 0.8);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
 .opp-hand { grid-row: 1; z-index: 3; }
+/* Cards of theirs you know sit in line with the backs, face up; hovering one slides it down into
+   view (and shows it big beside it). */
+.opp-hand:has(.card.known:hover) { z-index: 26; }
+/* Only the picture slides down: the card's box stays under the pointer, so it doesn't flicker. */
+.opp-hand .card.known .face { transition: translate 0.16s ease; }
+.opp-hand .card.known:hover { z-index: 50; }
+.opp-hand .card.known:hover .face { translate: 0 calc(var(--cw) * 0.9); }
+.opp-hand .card.known:hover::after { translate: 0 calc(var(--cw) * 0.9); }
+/* Only their bottom shows, and each card covers the right of the one before it, so the eye goes
+   at the bottom-left corner, where it stays in sight. */
+.opp-hand .card.known::after { right: auto; top: auto; left: calc(var(--cw) * 0.04); bottom: calc(var(--cw) * 0.04); width: 20px; border-width: 2px; box-shadow: 0 0 10px rgba(232, 198, 120, 0.55), 0 2px 6px rgba(0, 0, 0, 0.8); }
 .opp-hand .card {
   --cw: var(--ohand-w);
   position: absolute;
@@ -472,7 +599,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
   /* A round margin in the table color, so nothing shows right under the edge of the picture. */
   outline: 8px solid rgba(12, 10, 8, 0.9);
 }
-.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+/* The picture (avatar, else commander art) over Endstep's logo, which shows when there's none. */
+.avatar { overflow: hidden; background: #0a0806; }
+.avatar .logo, .avatar .pic { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; }
+/* The logo's square fills the circle, its diamond centered. */
+.avatar .logo { object-fit: cover; scale: 1.08; }
+.avatar .pic { background-repeat: no-repeat; }
 .me-life .avatar { bottom: calc(100% + 4px); }
 .opp-life .avatar { top: calc(100% + 4px); }
 /* Life totals: centered on the table, just above each player's cards
@@ -591,28 +723,62 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: none;
   transform-style: preserve-3d;
 }
+/* A real pile on the table: the top card lies tilted away (perspective), raised by the pile's
+   thickness, with the edges of the cards under it showing below as fine layers (--edge, built by
+   the board from the card count) and a soft shadow on the table. */
 .pile-card {
   --thick: 0px;
   position: relative;
+  z-index: 1;
   width: var(--cw);
   aspect-ratio: 63 / 88;
   border-radius: 7px;
   border: 1px dashed rgba(232, 198, 120, 0.22);
-  transform: rotateX(30deg);
+  transform: rotateX(36deg);
   transform-origin: 50% 100%;
   transition: transform 0.2s ease;
-  /* The stack's edge: thicker for bigger piles. */
-  box-shadow:
-    0 calc(var(--thick) * 0.33) 0 #3a2a18,
-    0 calc(var(--thick) * 0.66) 0 #2c1f11,
-    0 var(--thick) 0 #20160b,
-    0 calc(var(--thick) + 12px) 20px rgba(0, 0, 0, 0.65);
+  box-shadow: var(--edge, 0 0 0 transparent), 0 calc(var(--thick) + 10px) 18px rgba(0, 0, 0, 0.7), 0 calc(var(--thick) + 2px) 4px rgba(0, 0, 0, 0.8);
   translate: 0 calc(var(--thick) * -1);
 }
+/* Light from the top left: a faint sheen across the top card. */
+.pile:not(.empty):not([data-zone="exile"]) .pile-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  background: linear-gradient(155deg, rgba(255, 248, 225, 0.16), transparent 38%, transparent 70%, rgba(0, 0, 0, 0.22));
+  pointer-events: none;
+}
 .pile:not(.empty) .pile-card { border-color: transparent; }
-.opp-piles .pile-card { transform: rotateX(-30deg); transform-origin: 50% 0; }
-.pile:not([data-zone="library"]):hover .pile-card { transform: rotateX(14deg) translateY(-4px); }
-.opp-piles .pile:not([data-zone="library"]):hover .pile-card { transform: rotateX(-14deg) translateY(4px); }
+.opp-piles .pile-card { transform: rotateX(-36deg); transform-origin: 50% 0; }
+.pile:not([data-zone="library"]):hover .pile-card { transform: rotateX(16deg) translateY(-4px); }
+.opp-piles .pile:not([data-zone="library"]):hover .pile-card { transform: rotateX(-16deg) translateY(4px); }
+/* Graveyard: the cards under the top one lie a little askew, as if dropped there. */
+.pile-under {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: var(--cw);
+  aspect-ratio: 63 / 88;
+  translate: -50% calc(var(--thick) * -1);
+  transform: rotateX(36deg);
+  transform-origin: 50% 100%;
+  pointer-events: none;
+}
+.opp-piles .pile-under { transform: rotateX(-36deg); transform-origin: 50% 0; }
+.pile-under img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 7px;
+  rotate: var(--rot);
+  translate: var(--dx) var(--dy);
+  filter: brightness(0.62) saturate(0.8);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.7);
+}
 .pile-card .card { --cw: var(--pw); }
 .pile-label { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
 .pile-count {
@@ -630,70 +796,83 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .pile:not([data-zone="library"]):not([data-zone="exile"]):hover .pile-card .face { outline: 2px solid var(--gold); outline-offset: 2px; }
 .pile.empty .pile-count { opacity: 0.5; }
 
-/* Exile: a swirling black hole the last exiled card sinks into. */
+/* Exile: a dark void. Smoky mist is drawn in from the rim and swallowed by the black center,
+   turning only slowly as it goes; the last exiled card lies in the dark at its heart. */
 .vortex {
   position: relative;
   width: calc(var(--pw) * 0.9);
   aspect-ratio: 1;
   border-radius: 50%;
-  background: radial-gradient(circle, #000 0 26%, #07040d 34%, rgba(46, 18, 78, 0.9) 50%, rgba(90, 40, 150, 0.35) 62%, transparent 71%);
-  filter: drop-shadow(0 0 16px rgba(130, 70, 220, 0.45));
+  overflow: hidden;
+  background: radial-gradient(circle, #000 0 24%, #050408 32%, rgba(28, 22, 38, 0.92) 48%, rgba(40, 34, 52, 0.45) 62%, transparent 71%);
+  filter: drop-shadow(0 0 12px rgba(20, 12, 30, 0.9));
   transition: filter 0.2s ease, scale 0.2s ease;
 }
-.swirl {
+/* Three wisps of mist, a third of a cycle apart: each starts wide and faint at the rim, thickens,
+   and shrinks into the center as it fades, so the pull never stops. */
+.mist {
   position: absolute;
-  inset: 0;
+  inset: -12%;
   border-radius: 50%;
-  background: conic-gradient(from 0deg, transparent 0, rgba(170, 120, 255, 0.75) 8%, transparent 22%,
-    rgba(232, 198, 120, 0.55) 34%, transparent 48%, rgba(120, 70, 230, 0.7) 60%, transparent 74%,
-    rgba(200, 160, 255, 0.5) 86%, transparent 100%);
-  -webkit-mask: radial-gradient(circle, transparent 24%, #000 34%, #000 56%, transparent 70%);
-  mask: radial-gradient(circle, transparent 24%, #000 34%, #000 56%, transparent 70%);
-  animation: swirl 70s linear infinite;
+  background: conic-gradient(from 0deg, transparent 0, rgba(165, 155, 185, 0.6) 10%, transparent 24%,
+    rgba(105, 95, 130, 0.65) 38%, transparent 52%, rgba(180, 170, 200, 0.5) 66%, transparent 80%,
+    rgba(125, 115, 150, 0.55) 90%, transparent 100%);
+  -webkit-mask: radial-gradient(circle, transparent 18%, #000 36%, #000 52%, transparent 68%);
+  mask: radial-gradient(circle, transparent 18%, #000 36%, #000 52%, transparent 68%);
+  filter: blur(3px);
+  opacity: 0;
+  animation: drawn-in 9s linear infinite;
 }
+.mist.m2 { animation-delay: -3s; rotate: 120deg; }
+.mist.m3 { animation-delay: -6s; rotate: 240deg; }
+@keyframes drawn-in {
+  0% { scale: 1.25; transform: rotate(0deg); opacity: 0; }
+  25% { opacity: 0.85; }
+  75% { opacity: 0.6; }
+  100% { scale: 0.25; transform: rotate(70deg); opacity: 0; }
+}
+/* The mouth of the void: pure black, a faint cold rim. */
 .vortex::after {
   content: "";
   position: absolute;
   inset: 30%;
   border-radius: 50%;
-  background: radial-gradient(circle, #000 55%, rgba(0, 0, 0, 0.6) 75%, transparent);
-  box-shadow: 0 0 0 1px rgba(190, 150, 255, 0.35), 0 0 14px rgba(160, 110, 255, 0.5);
+  background: radial-gradient(circle, #000 60%, rgba(0, 0, 0, 0.7) 80%, transparent);
+  box-shadow: 0 0 0 1px rgba(150, 140, 170, 0.18), 0 0 18px 6px rgba(0, 0, 0, 0.85);
   pointer-events: none;
 }
+/* The card lies still in the middle of the dark (no spinning). */
 .vortex .pile-card {
   position: absolute;
   z-index: 1;
-  left: 50%;
-  top: 50%;
+  left: calc(50% - var(--pw) * 0.2);
+  top: calc(50% - var(--pw) * 0.2 * 88 / 63);
   width: calc(var(--pw) * 0.4);
   border: 0;
-  box-shadow: none;
+  box-shadow: 0 0 14px 6px rgba(0, 0, 0, 0.9);
   transform: none !important;
-  translate: -50% -50%;
-  opacity: 0.6;
-  animation: sink 160s linear infinite;
+  opacity: 0.55;
+  filter: brightness(0.7) saturate(0.7);
 }
 .vortex .pile-card .card { --cw: calc(var(--pw) * 0.4); }
-.pile[data-zone="exile"]:hover .vortex { filter: drop-shadow(0 0 22px rgba(160, 110, 255, 0.75)); scale: 1.04; }
-.pile.empty .vortex { opacity: 0.45; }
-.pile.empty .swirl { animation-duration: 120s; }
+.pile[data-zone="exile"]:hover .vortex { filter: drop-shadow(0 0 16px rgba(120, 100, 160, 0.55)); scale: 1.04; }
+.pile.empty .vortex { opacity: 0.5; }
+.pile.empty .mist { animation-duration: 14s; }
 .pile[data-zone="exile"] .pile-count { top: 4px; right: 0; }
-@keyframes swirl { to { rotate: 360deg; } }
-@keyframes sink { to { rotate: -360deg; } }
 
 /* ---------- Stack ---------- */
-/* Top right, in a framed tray. Fanned sideways like a pile of permanents: the top of the
-   stack (resolves next) is in front on the right, and each item under it peeks out to the
-   left with a small step down, showing its name and order. The tray floats over the table
-   and grows to the left; --band (the visible strip) is set by the layout. */
+/* Arena style: what resolves next is a big card on the right of the table, glowing in its
+   controller's color. Everything under it cascades up and to the left behind it, a little
+   smaller at each step, so each shows its top-left corner (name and order). */
 .stack-dock {
   position: absolute;
-  right: calc((var(--gutter) - var(--stack-w)) / 2 - 12px);
-  top: 64px;
+  right: 26px;
+  top: 50%;
+  translate: 0 -54%;
   /* Always on top of the table (hand included); it never moves the battlefield. */
   z-index: 65;
   display: none;
-  align-items: flex-start;
+  align-items: center;
 }
 .stack-dock.has-items { display: flex; }
 .stack-dock.collapsed .stack { display: none; }
@@ -722,61 +901,56 @@ button { font: inherit; color: inherit; cursor: pointer; }
   text-transform: uppercase;
 }
 .stack {
+  --top: var(--stack-w);
+  /* Cascade step; with many items the steps shrink so the pile stays within ~260×200px. */
+  --sdx: min(calc(var(--top) * 0.2), calc(260px / max(1, var(--sn, 1) - 1)));
+  --sdy: min(calc(var(--top) * 0.15), calc(200px / max(1, var(--sn, 1) - 1)));
   position: relative;
   display: none;
-  flex-direction: row;
-  align-items: flex-start;
-  padding: 34px 14px calc(14px + (var(--sn, 1) - 1) * var(--stack-w) * 0.05);
-  border-radius: 18px;
-  background:
-    radial-gradient(ellipse 90% 60% at 50% 0%, rgba(232, 198, 120, 0.1), transparent 70%),
-    linear-gradient(180deg, rgba(28, 22, 15, 0.94), rgba(12, 10, 8, 0.94));
-  border: 1px solid rgba(232, 198, 120, 0.35);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 240, 200, 0.08), 0 18px 44px rgba(0, 0, 0, 0.6);
+  width: calc(var(--top) + (var(--sn, 1) - 1) * var(--sdx));
+  height: calc(var(--top) * 88 / 63 + (var(--sn, 1) - 1) * var(--sdy));
   pointer-events: none;
   animation: rise 0.2s ease;
 }
-.stack.has-items { display: flex; }
+.stack.has-items { display: block; }
 .stack.has-items::before {
   content: "Stack · " attr(data-n);
   position: absolute;
-  top: 8px;
-  left: 16px;
-  font: 700 11px/18px "Cinzel", Georgia, serif;
+  bottom: calc(100% + 8px);
+  left: 0;
+  padding: 3px 12px;
+  border-radius: 999px;
+  font: 700 11px/16px "Cinzel", Georgia, serif;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--gold-hi);
-}
-.stack.has-items::after {
-  content: "Resolves next ▸";
-  position: absolute;
-  top: 8px;
-  right: 16px;
-  font: 600 10px/18px var(--font);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
 }
 .stack .card {
-  --cw: var(--stack-w);
+  --cw: var(--top);
+  /* How far under the top of the stack this item is (0 = resolves next). */
+  --d: calc(var(--sn, 1) - 1 - var(--si, 0));
+  position: absolute;
+  right: 0;
+  bottom: 0;
   pointer-events: auto;
-  flex: none;
-  /* Items further down the stack sit a little lower, like a pile. */
-  translate: 0 calc((var(--sn, 1) - 1 - var(--si, 0)) * var(--cw) * 0.05);
-  transition: translate 0.18s ease, transform 0.18s ease, filter 0.18s ease;
+  translate: calc(var(--d) * var(--sdx) * -1) calc(var(--d) * var(--sdy) * -1);
+  scale: calc(1 - min(var(--d), 5) * 0.035);
+  transform-origin: 0 0;
+  transition: translate 0.18s ease, transform 0.18s ease, filter 0.18s ease, scale 0.18s ease;
 }
-.stack .card + .card { margin-left: calc(var(--band, calc(var(--cw) * 0.3)) - var(--cw)); }
 .stack .card .face { border: 2px solid rgba(20, 16, 12, 0.95); }
 /* Controller rim: gold for yours, red for the opponent's. The item that resolves next is
    steadily brighter with a glow (no pulsing). */
 .stack .card.mine .face { outline: 2px solid rgba(232, 198, 120, 0.75); outline-offset: -2px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.6); }
 .stack .card.theirs .face { outline: 2px solid rgba(255, 90, 60, 0.75); outline-offset: -2px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.6); }
-.stack .card:last-child.mine .face { box-shadow: 0 0 0 2px var(--gold), 0 0 26px 6px rgba(232, 198, 120, 0.45); filter: brightness(1.12); }
-.stack .card:last-child.theirs .face { box-shadow: 0 0 0 2px var(--atk), 0 0 26px 6px rgba(255, 90, 60, 0.4); filter: brightness(1.12); }
-.stack .card:not(:last-child) { filter: brightness(0.82); }
-/* Hover lifts an item out of the pile (and shows it big beside it). */
-.stack .card:hover { transform: translateY(-9%); filter: none; z-index: 40; }
-/* Resolution order, on the visible left strip: 1 resolves next. */
+.stack .card:last-child.mine .face { box-shadow: 0 0 0 3px var(--gold-hi), 0 0 34px 10px rgba(255, 214, 90, 0.55); filter: brightness(1.1); }
+.stack .card:last-child.theirs .face { box-shadow: 0 0 0 3px var(--atk), 0 0 34px 10px rgba(255, 90, 60, 0.45); filter: brightness(1.1); }
+.stack .card:not(:last-child) { filter: brightness(0.78); }
+/* Hover brings an item in front of the pile at full size (and shows it big beside it). */
+.stack .card:hover { scale: 1; filter: none; z-index: 40; }
+/* Resolution order, on the visible top-left corner: 1 resolves next. */
 .stack .card::before {
   content: attr(data-order);
   position: absolute;
@@ -971,6 +1145,23 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 }
 .prompt.show { display: flex; }
 .prompt .msg { font-size: 14px; text-align: center; }
+/* The status line: the card it's about, small, on the left; its costs as mana symbols. */
+.pline { display: flex; align-items: center; gap: 12px; }
+.pline .msg { text-align: left; }
+.prompt .msg .sym { width: 1.25em; height: 1.25em; vertical-align: -0.28em; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7)); }
+/* Kept about as tall as the turn bar it sits beside, clear of the action buttons below. */
+.prompt:not(.center):has(.pthumb) { padding: 6px 14px 6px 7px; }
+.pthumb {
+  flex: none;
+  width: 34px;
+  aspect-ratio: 63 / 88;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #1b1712;
+  box-shadow: 0 0 0 1px rgba(232, 198, 120, 0.6), 0 4px 10px rgba(0, 0, 0, 0.6);
+  cursor: help;
+}
+.pthumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 /* A choice from a card shows that card (normal size) beside the question. */
 .pwrap { display: flex; align-items: center; gap: 18px; }
 .pwrap .pbody { display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 0; }
@@ -992,6 +1183,295 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45), 0 20px 60px rgba(0, 0, 0, 0.7);
   animation: rise-c 0.2s ease;
 }
+/* Arena-style full-screen choice (mulligan, Choose One, trigger order, yes/no, a card to pick):
+   the table dims behind a big title with a gold rule, the options in the middle and big pill
+   buttons under them. "View battlefield" sets it aside to look at the table. */
+.prompt.center.arena {
+  inset: 0;
+  translate: none;
+  max-width: none !important;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px 32px 32px;
+  border: 0;
+  border-radius: 0;
+  background: radial-gradient(ellipse 80% 70% at 50% 45%, rgba(10, 8, 6, 0.72), rgba(4, 3, 2, 0.9));
+  backdrop-filter: blur(2px);
+  box-shadow: none;
+  animation: fade-in 0.2s ease;
+}
+@keyframes fade-in { from { opacity: 0; } }
+.board.arena-open .dock { z-index: 68; }
+.phead { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.phead h2 {
+  margin: 0;
+  padding: 0 min(8vw, 90px) 6px;
+  font: 700 clamp(26px, 3.4vw, 52px) / 1.1 "Cinzel", Georgia, serif;
+  letter-spacing: 0.02em;
+  color: #f4eee2;
+  text-shadow: 0 3px 18px rgba(0, 0, 0, 0.9);
+  border-bottom: 1px solid;
+  border-image: linear-gradient(90deg, transparent, rgba(232, 198, 120, 0.85), transparent) 1;
+}
+.phead p { margin: 0; font-size: clamp(13px, 1.1vw, 17px); color: #e6dcc8; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9); }
+.prompt.arena .pwrap { gap: 32px; }
+.prompt.arena .pcard { width: min(260px, 36vh); border-radius: 12px; box-shadow: 0 0 0 2px rgba(232, 198, 120, 0.7), 0 0 40px rgba(232, 198, 120, 0.3), 0 20px 50px rgba(0, 0, 0, 0.7); }
+/* Big pills: orange for the main answer, blue for the other, as in Arena. */
+:is(.prompt.arena, .viewer, .confirm) .choices { gap: 22px; }
+.prompt.arena .choices.col { gap: 10px; }
+:is(.prompt.arena, .viewer, .confirm) .opt {
+  min-width: 170px;
+  padding: 12px 30px;
+  border-radius: 999px;
+  border: 2px solid rgba(160, 200, 255, 0.55);
+  background: linear-gradient(180deg, #6d8fe8, #3a57b8 55%, #2a3f8e);
+  font: 700 clamp(15px, 1.4vw, 21px) "Cinzel", Georgia, serif;
+  color: #fff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 22px rgba(90, 130, 255, 0.45), 0 8px 20px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+:is(.prompt.arena, .viewer) .opt.primary {
+  border-color: rgba(255, 220, 160, 0.7);
+  background: linear-gradient(180deg, #ffc27a, #ff8a2a 55%, #d8621a);
+  box-shadow: 0 0 24px rgba(255, 150, 60, 0.55), 0 8px 20px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+:is(.prompt.arena, .viewer, .confirm) .opt.danger {
+  border-color: rgba(255, 170, 150, 0.7);
+  background: linear-gradient(180deg, #ff7a5c, #d8391f 55%, #9d2412);
+  box-shadow: 0 0 24px rgba(255, 80, 50, 0.5), 0 8px 20px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+:is(.prompt.arena, .viewer, .confirm) .opt:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.1); }
+.prompt.arena .opt.on { filter: brightness(1.25); box-shadow: 0 0 0 3px var(--picked), 0 0 26px rgba(255, 138, 42, 0.7); }
+.prompt.arena .opt.color { min-width: 120px; }
+.prompt.arena .opt.c-white { background: linear-gradient(180deg, #fffbe9, #e4dcc2); color: #2a2418; text-shadow: none; }
+.prompt.arena .opt.c-blue { background: linear-gradient(180deg, #5aa2e8, #1f5da8); }
+.prompt.arena .opt.c-black { background: linear-gradient(180deg, #5a5252, #1e1a1a); }
+.prompt.arena .opt.c-red { background: linear-gradient(180deg, #ea6a52, #9d2a1c); }
+.prompt.arena .opt.c-green { background: linear-gradient(180deg, #5cb070, #1f6433); }
+.prompt.arena .num { font-size: 40px; min-width: 70px; color: #fff; }
+.peek-btn {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  padding: 8px 20px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  background: rgba(10, 8, 6, 0.55);
+  font: 600 15px var(--font);
+  color: #fff;
+  pointer-events: auto;
+}
+.peek-btn:hover { background: rgba(60, 46, 28, 0.8); }
+.peek-btn .p-back { display: none; }
+/* Looking at the battlefield: only the button to go back stays. */
+.prompt.arena.peek { background: none; backdrop-filter: none; pointer-events: none; }
+.prompt.arena.peek > :not(.peek-btn) { visibility: hidden; }
+.prompt.arena.peek .peek-btn .p-view { display: none; }
+.prompt.arena.peek .peek-btn .p-back { display: inline; }
+
+/* Choosing a number (X): a big gold number between round − / + buttons, the values as quick
+   picks when there are few, the range under them. */
+.numpick { display: flex; align-items: center; gap: 22px; }
+.prompt.arena .opt.round { min-width: 0; width: 58px; height: 58px; padding: 0; border-radius: 50%; font: 700 30px/1 var(--font); }
+.prompt.arena .opt.round:disabled { opacity: 0.3; }
+.numval { display: flex; align-items: baseline; gap: 8px; min-width: 120px; justify-content: center; }
+.numval small { font: 700 22px "Cinzel", Georgia, serif; color: var(--gold); }
+.numval b { font: 700 72px/1 "Cinzel", Georgia, serif; color: #fff; text-shadow: 0 0 24px rgba(232, 198, 120, 0.55), 0 4px 12px rgba(0, 0, 0, 0.8); }
+.numquick { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.numquick button {
+  min-width: 40px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-line);
+  background: var(--glass);
+  font: 700 16px var(--font);
+  color: var(--text);
+}
+.numquick button:hover { border-color: var(--gold); }
+.numquick button.on { border-color: var(--gold-hi); background: linear-gradient(180deg, var(--gold-hi), var(--gold)); color: #231a0c; }
+.numrange { font-size: 12px; letter-spacing: 0.06em; color: var(--muted); }
+
+/* Mulligan: the opening hand, big and gently fanned. */
+.mull-hand { display: flex; justify-content: center; padding: 10px 0 18px; }
+.mcard {
+  --w: min(210px, calc(86vw / var(--n, 7)), 34vh);
+  flex: none;
+  width: var(--w);
+  aspect-ratio: 63 / 88;
+  margin-left: calc(var(--w) * -0.14);
+  border-radius: calc(var(--w) * 0.05);
+  overflow: hidden;
+  background: #1b1712;
+  rotate: calc(var(--t) * 2.2deg);
+  translate: 0 calc(var(--a) * var(--a) * 1.6px);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.7);
+  transition: translate 0.15s ease, scale 0.15s ease;
+}
+.mcard:first-child { margin-left: 0; }
+.mcard:hover { scale: 1.06; translate: 0 -10px; z-index: 2; }
+.mcard img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mcard span { display: block; padding: 10px; font-size: 13px; }
+
+/* Choose One: an ability card per option, glowing blue; the loyalty cost in a shield. */
+.acards { display: flex; justify-content: center; gap: min(28px, 2vw); padding: 8px 0 12px; }
+.acard {
+  --w: min(210px, calc(80vw / var(--n, 3)), 36vh);
+  position: relative;
+  flex: none;
+  width: var(--w);
+  aspect-ratio: 63 / 88;
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--w) * 0.045);
+  border-radius: calc(var(--w) * 0.06);
+  border: 3px solid #6fc3ff;
+  background: linear-gradient(180deg, #3a3026, #1e1812);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), 0 0 26px rgba(80, 180, 255, 0.65), 0 16px 34px rgba(0, 0, 0, 0.7);
+  text-align: left;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.acard:hover { transform: translateY(-8px); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), 0 0 36px rgba(120, 200, 255, 0.9), 0 22px 40px rgba(0, 0, 0, 0.7); }
+.acard.on { border-color: var(--picked); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), 0 0 36px rgba(255, 138, 42, 0.85); }
+/* The art: the top of the source card's image (name bar and picture). */
+.aart { flex: none; height: 40%; overflow: hidden; border-radius: calc(var(--w) * 0.025); background: #1b1712; }
+.aart img { width: 100%; display: block; }
+.acard .aname { display: none; }
+.aband, .otile .aband {
+  margin: 4px -2px 0;
+  padding: 2px 8px;
+  font: 700 max(10px, calc(var(--w, 170px) * 0.058)) / 1.3 "Cinzel", Georgia, serif;
+  letter-spacing: 0.06em;
+  color: #231a0c;
+  background: linear-gradient(90deg, #efe3c4, #d9c8a0);
+  border: 1px solid rgba(90, 68, 40, 0.6);
+  border-radius: 3px;
+}
+.atext {
+  flex: 1;
+  margin-top: 4px;
+  padding: 8% 7%;
+  overflow-y: auto;
+  border-radius: 3px;
+  font: max(11px, calc(var(--w) * 0.058)) / 1.3 Georgia, serif;
+  color: #2a2016;
+  background: linear-gradient(180deg, #f3ead3, #e2d5b4);
+}
+/* Keep the text clear of the cost shield. */
+.acard:has(.acost) .atext { padding-bottom: calc(var(--w) * 0.1); }
+.acost {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--w) * -0.06);
+  translate: -50% 0;
+  min-width: calc(var(--w) * 0.24);
+  padding: 4px 8px 7px;
+  font: 800 max(13px, calc(var(--w) * 0.1)) / 1 "Cinzel", Georgia, serif;
+  text-align: center;
+  color: #fff;
+  background: linear-gradient(180deg, #3a3a3a, #111);
+  border: 2px solid #d8d2c4;
+  clip-path: polygon(0 0, 100% 0, 100% 70%, 50% 100%, 0 70%);
+}
+
+/* Mana and tap symbols inside ability text. */
+.sym { display: inline-block; width: 1.05em; height: 1.05em; vertical-align: -0.16em; margin: 0 0.04em; }
+
+/* Scry/surveil: two framed piles side by side (graveyard or bottom on the left, the library
+   on the right), the card that did it on the right, and Done under them. */
+.pwrap.src-right { flex-direction: row-reverse; align-items: center; }
+.arrange { display: flex; gap: 28px; justify-content: center; align-items: stretch; }
+.arr-zone {
+  --cw: min(170px, 12vw, 26vh);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-width: calc(var(--cw) * 1.5);
+  padding: 0 18px 18px;
+  border: 1px solid rgba(232, 198, 120, 0.35);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.arrange.two .arr-zone[data-zone="top"] { min-width: calc(var(--cw) * 2.6); }
+.arr-zone.over { border-color: var(--gold-hi); background: rgba(232, 198, 120, 0.1); }
+.arr-zone h3 {
+  align-self: stretch;
+  margin: 0 -18px;
+  padding: 10px 18px 8px;
+  font: 600 clamp(18px, 1.8vw, 28px) / 1.1 "Cinzel", Georgia, serif;
+  text-align: center;
+  color: #f4eee2;
+  border-bottom: 1px solid;
+  border-image: linear-gradient(90deg, transparent, rgba(232, 198, 120, 0.6), transparent) 1;
+}
+/* Cards overlap a little, so a pile of several stays within the frame. */
+.arr-row { display: flex; justify-content: center; align-items: center; flex: 1; min-height: calc(var(--cw) * 1.4 + 12px); padding: 6px 0; }
+.arr-card {
+  position: relative;
+  flex: none;
+  width: var(--cw);
+  aspect-ratio: 63 / 88;
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--cw) * 0.05);
+  background: #1b1712;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.65);
+  cursor: grab;
+  touch-action: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.arr-card + .arr-card { margin-left: calc(var(--cw) * -0.45); }
+.arr-card:hover { transform: translateY(-8px); z-index: 3; box-shadow: 0 0 0 2px var(--gold), 0 16px 30px rgba(0, 0, 0, 0.7); }
+.arr-card.dragging { z-index: 10; cursor: grabbing; transition: none; transform: scale(1.05); box-shadow: 0 0 0 2px var(--target), 0 22px 40px rgba(0, 0, 0, 0.75); }
+.arr-card img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; display: block; }
+.arr-card > span { display: block; padding: 10px; font-size: 13px; }
+.arr-tag {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  translate: -50% 0;
+  padding: 1px 10px;
+  border-radius: 999px;
+  font: 700 11px/1.5 var(--font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #231a0c;
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+.arr-empty {
+  display: grid;
+  place-items: center;
+  width: var(--cw);
+  aspect-ratio: 63 / 88;
+  border: 2px dashed rgba(232, 198, 120, 0.3);
+  border-radius: calc(var(--cw) * 0.05);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* The mana wheel, on the card making the mana: a slice per color; the center cancels. */
+.mana-wheel {
+  position: absolute;
+  z-index: 69;
+  display: none;
+  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.7));
+  animation: wheel-in 0.16s ease-out;
+}
+.mana-wheel.show { display: block; }
+@keyframes wheel-in { from { opacity: 0; scale: 0.7; } }
+.mana-wheel svg { display: block; overflow: visible; }
+.wslice { cursor: pointer; }
+.wslice path, .wslice circle { fill: var(--fill); stroke: rgba(12, 10, 8, 0.85); stroke-width: 2; transition: filter 0.12s ease; }
+.wslice:hover path, .wslice:hover circle { filter: brightness(1.2) drop-shadow(0 0 8px rgba(255, 240, 200, 0.6)); }
+.wslice image { pointer-events: none; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.6)); }
+.wcenter { cursor: pointer; }
+.wcenter circle { fill: #1c1a18; stroke: rgba(232, 198, 120, 0.7); stroke-width: 2; }
+.wcenter path { stroke: #d8d0c0; stroke-width: 3; stroke-linecap: round; fill: none; }
+.wcenter:hover circle { fill: #3a2c1c; }
+
 @keyframes rise { from { opacity: 0; translate: 0 8px; } }
 @keyframes rise-c { from { opacity: 0; translate: -50% -46%; } }
 .choices { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; }
@@ -1017,17 +1497,21 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 /* No scrolling box (it would clip a dragged tile): with many triggers the tiles overlap more
    so the row stays within ~680px. */
 .order-row { display: flex; justify-content: center; padding: 14px 10px 8px; }
+/* In the full-screen layout each trigger is an ability card, like Arena's. */
 .otile {
-  --overlap: max(30px, calc((var(--n, 1) * 148px - 680px) / max(1, var(--n, 1) - 1)));
+  --w: 180px;
+  --overlap: max(30px, calc((var(--n, 1) * var(--w) - 82vw) / max(1, var(--n, 1) - 1)));
   position: relative;
   flex: none;
-  width: 148px;
+  width: var(--w);
+  min-height: calc(var(--w) * 1.3);
   display: flex;
   flex-direction: column;
-  border-radius: 11px;
-  background: linear-gradient(180deg, #2a2219, #15110c);
-  border: 1px solid rgba(232, 198, 120, 0.45);
-  box-shadow: -6px 0 14px rgba(0, 0, 0, 0.45), 0 8px 18px rgba(0, 0, 0, 0.5);
+  padding: 6px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #3a3026, #1e1812);
+  border: 3px solid #6fc3ff;
+  box-shadow: -6px 0 14px rgba(0, 0, 0, 0.45), 0 0 22px rgba(80, 180, 255, 0.5), 0 10px 22px rgba(0, 0, 0, 0.6);
   cursor: grab;
   touch-action: none;
   transition: translate 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
@@ -1042,7 +1526,7 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .order-row.settling .otile { transition: none !important; }
 .otile.dragging { transition: none; cursor: grabbing; z-index: 4; transform: scale(1.05); box-shadow: 0 0 0 2px var(--target), 0 18px 34px rgba(0, 0, 0, 0.7); }
 .otile.declined { opacity: 0.5; filter: grayscale(0.8); }
-.otile .oart { height: 66px; border-radius: 10px 10px 0 0; overflow: hidden; background: #1b1712; }
+.otile .oart { height: calc(var(--w) * 0.5); border-radius: 6px; overflow: hidden; background: #1b1712; }
 .otile .oart img { width: 100%; height: auto; display: block; }
 .otile .onum {
   position: absolute;
@@ -1059,9 +1543,9 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   border: 2px solid rgba(12, 10, 8, 0.9);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
 }
-.otile .oname { padding: 6px 8px 0; font: 700 12px/1.25 "Cinzel", Georgia, serif; color: var(--gold-hi); }
-.otile .otext { margin: 4px 6px; padding: 5px 6px; max-height: 78px; overflow-y: auto; border-radius: 5px; font: 11px/1.3 Georgia, serif; color: #2a2016; background: linear-gradient(180deg, #efe3c4, #d9c8a0); }
-.otile .omove { display: flex; justify-content: space-between; gap: 2px; margin-top: auto; padding: 4px 6px 6px; }
+.otile .oname { padding: 6px 4px 0; font: 700 12px/1.25 "Cinzel", Georgia, serif; color: var(--gold-hi); }
+.otile .otext { margin: 4px 0; padding: 6px 7px; max-height: 96px; overflow-y: auto; border-radius: 5px; font: 11px/1.3 Georgia, serif; color: #2a2016; background: linear-gradient(180deg, #efe3c4, #d9c8a0); }
+.otile .omove { display: flex; justify-content: space-between; gap: 2px; margin-top: auto; padding: 4px 0 0; }
 .otile .omove button { padding: 1px 8px; font-size: 11px; }
 .otile .omove button:disabled { opacity: 0.3; cursor: default; }
 .order-legend { display: flex; justify-content: space-between; gap: 16px; width: 100%; font: 600 11px var(--font); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
@@ -1071,12 +1555,6 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .c-red { background: #b8382a; }
 .c-green { background: #2f7f45; }
 .num { min-width: 40px; text-align: center; font: 700 22px "Cinzel", Georgia, serif; }
-.picker { display: flex; gap: 8px; max-width: 70vw; overflow-x: auto; padding: 4px; }
-.pick { flex: none; width: calc(var(--bf-w) * 1.05); aspect-ratio: 63 / 88; padding: 0; border-radius: 8px; border: 2px solid transparent; background: #1b1712; overflow: hidden; }
-.pick img { width: 100%; height: 100%; object-fit: cover; }
-.pick span { font-size: 11px; padding: 6px; display: block; }
-.pick:hover { border-color: var(--target); }
-.pick.on { border-color: var(--picked); box-shadow: 0 0 16px rgba(255, 138, 42, 0.6); }
 
 /* ---------- Action dock ---------- */
 .dock {
@@ -1162,54 +1640,223 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .zextra { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-radius: 10px; background: var(--glass); border: 1px solid var(--glass-line); font-size: 12.5px; }
 .zextra .dmg { color: #ff8a70; }
 
+/* Menus (a card's abilities, the table's game menu): a gold-framed dark panel like the rest of
+   the board, a Cinzel title over a gold rule, items that light up in gold. Conceding is red,
+   set apart at the bottom. */
 .menu {
   position: absolute;
   z-index: 95;
   display: none;
   flex-direction: column;
-  min-width: 190px;
+  min-width: 220px;
   max-width: 320px;
   padding: 6px;
-  border-radius: 12px;
-  background: rgba(20, 16, 12, 0.96);
-  border: 1px solid var(--glass-line);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  border-radius: 14px;
+  background:
+    radial-gradient(ellipse 90% 50% at 50% 0%, rgba(232, 198, 120, 0.1), transparent 70%),
+    linear-gradient(180deg, rgba(28, 22, 15, 0.97), rgba(12, 10, 8, 0.97));
+  border: 1px solid rgba(232, 198, 120, 0.45);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 18px 44px rgba(0, 0, 0, 0.7);
   animation: pop 0.12s ease;
 }
 .menu.show { display: flex; }
-.menu .mtitle { padding: 4px 10px 6px; font: 600 11px var(--font); letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
-.menu button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 7px 10px; border: 0; border-radius: 8px; background: none; text-align: left; font-size: 13px; }
+.menu .mtitle {
+  margin: 2px 4px 6px;
+  padding: 4px 8px 6px;
+  font: 700 13px/1.2 "Cinzel", Georgia, serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold-hi);
+  border-bottom: 1px solid;
+  border-image: linear-gradient(90deg, transparent, rgba(232, 198, 120, 0.7), transparent) 1;
+}
+.menu button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  font: 500 13.5px var(--font);
+  color: var(--text);
+  transition: background 0.12s ease, color 0.12s ease;
+}
 .menu button small { color: var(--muted); font-size: 11px; }
-.menu button:hover, .menu button:focus-visible { background: rgba(232, 198, 120, 0.12); outline: none; }
+.menu button:hover, .menu button:focus-visible { background: linear-gradient(90deg, rgba(232, 198, 120, 0.2), rgba(232, 198, 120, 0.04)); color: var(--gold-hi); outline: none; }
+.menu button:hover::before, .menu button:focus-visible::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--gold);
+}
+.menu button.danger { color: #ff8a70; }
+.menu button.danger:hover, .menu button.danger:focus-visible { background: linear-gradient(90deg, rgba(255, 90, 60, 0.22), rgba(255, 90, 60, 0.04)); color: #ffb0a0; }
+.menu button.danger:hover::before, .menu button.danger:focus-visible::before { background: var(--atk); }
+.menu button.sep { margin-top: 7px; }
+.menu button.sep::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: -4px;
+  height: 1px;
+  background: rgba(232, 198, 120, 0.2);
+}
+
+/* Revealed cards: small gold-framed panels down the right side of the table, under the corner
+   buttons (newest at the bottom), each with who revealed what and from where, and the cards
+   small (hover or right-click one to see it big). */
+.reveals {
+  position: absolute;
+  top: 56px;
+  right: 16px;
+  z-index: 64;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: min(330px, 28vw);
+  max-height: 46%;
+  overflow: hidden;
+  pointer-events: none;
+}
+.reveal {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 9px 9px;
+  border-radius: 11px;
+  background:
+    radial-gradient(ellipse 90% 50% at 50% 0%, rgba(232, 198, 120, 0.12), transparent 70%),
+    linear-gradient(180deg, rgba(28, 22, 15, 0.96), rgba(12, 10, 8, 0.96));
+  border: 1px solid rgba(232, 198, 120, 0.5);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 10px 26px rgba(0, 0, 0, 0.65);
+  animation: slide-in 0.25s ease;
+}
+@keyframes slide-in { from { opacity: 0; translate: 16px 0; } }
+.reveal header { display: flex; align-items: center; gap: 6px; }
+.reveal header b { font: 700 11px/1.3 "Cinzel", Georgia, serif; letter-spacing: 0.03em; color: var(--gold-hi); }
+.reveal .eye { color: var(--gold); font-size: 10px; }
+.reveal .x { margin-left: auto; padding: 1px 6px; border: 0; border-radius: 999px; background: rgba(255, 255, 255, 0.06); color: var(--muted); font-size: 11px; }
+.reveal .x:hover { color: var(--text); background: rgba(232, 198, 120, 0.18); }
+.rcards { display: flex; justify-content: flex-end; gap: 5px; flex-wrap: wrap; }
+.rcard {
+  width: min(58px, 4.6vw, 10vh);
+  aspect-ratio: 63 / 88;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #1b1712;
+  box-shadow: 0 0 0 1px rgba(232, 198, 120, 0.6), 0 4px 10px rgba(0, 0, 0, 0.6);
+  cursor: help;
+}
+.rcard img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.rcard span { display: block; padding: 8px; font-size: 12px; }
+
+/* "Concede?": full screen like the other choices, with a red button to confirm. */
+.confirm {
+  position: absolute;
+  inset: 0;
+  z-index: 96;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  background: radial-gradient(ellipse 80% 70% at 50% 45%, rgba(10, 8, 6, 0.75), rgba(4, 3, 2, 0.92));
+  backdrop-filter: blur(2px);
+  animation: fade-in 0.2s ease;
+}
+.confirm.open { display: flex; }
 @keyframes pop { from { opacity: 0; scale: 0.96; } }
 
 .viewer { position: absolute; inset: 0; z-index: 80; display: none; place-items: center; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(3px); }
-.viewer.open { display: grid; }
-.vpanel { width: min(1400px, 92vw); display: flex; flex-direction: column; border-radius: 16px; background: rgba(20, 16, 12, 0.97); border: 1px solid var(--glass-line); overflow: hidden; }
-.vpanel header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--glass-line); }
-.vpanel header .ghost { margin-left: auto; }
-/* One horizontal row: scroll it by dragging with the mouse, with the wheel, or with the
-   orange scrollbar underneath (always visible). */
-.vgrid {
-  display: flex;
-  gap: 14px;
-  padding: 18px 18px 14px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  cursor: grab;
-  scroll-snap-type: x proximity;
+.viewer.open { display: flex; }
+/* A graveyard/exile/command zone, full screen like Arena's: the table dims behind a title
+   and a fan of the cards (newest on the left); Close at the top right. */
+.viewer {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  background: radial-gradient(ellipse 80% 70% at 50% 45%, rgba(10, 8, 6, 0.72), rgba(4, 3, 2, 0.9));
+  backdrop-filter: blur(2px);
+  animation: fade-in 0.2s ease;
 }
-.vgrid.dragging { cursor: grabbing; scroll-snap-type: none; }
-.vgrid.dragging .vcard { pointer-events: none; }
-.vgrid::-webkit-scrollbar { height: 14px; }
-.vgrid::-webkit-scrollbar-track { margin: 0 18px; background: rgba(255, 138, 42, 0.12); border-radius: 999px; }
-.vgrid::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #ffb46b, #ff8a2a 60%, #d8681a); border: 2px solid rgba(20, 16, 12, 0.97); border-radius: 999px; }
-.vgrid::-webkit-scrollbar-thumb:hover { background: #ffa04d; }
-.vcard { flex: none; width: min(220px, 16vw, 34vh); padding: 0; border: 2px solid transparent; border-radius: 10px; background: #1b1712; aspect-ratio: 63 / 88; overflow: hidden; scroll-snap-align: start; transition: transform 0.15s ease; }
-.vcard:hover { transform: translateY(-4px); }
-.vcard img { width: 100%; height: 100%; object-fit: cover; }
-.vcard span { display: block; padding: 8px; font-size: 12px; }
-.vcard.playable { border-color: var(--play); box-shadow: 0 0 14px rgba(79, 195, 255, 0.5); cursor: pointer; }
+
+/* Arena's card fan: cards spread along an arc (placed by the board), a slider under it when
+   they don't all fit; the mouse wheel scrolls too. Blue = can be picked or played, orange =
+   picked. Hover raises a card's picture, not its box, so it never jumps away from the pointer. */
+.fan {
+  --fw: min(200px, 14vw, 30vh);
+  position: relative;
+  width: min(1100px, 76vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding-top: 12px;
+}
+/* Beside the card that asked (a search, a return from the graveyard…), the fan leaves it room. */
+.pwrap .fan { width: min(1000px, calc(100vw - min(260px, 36vh) - 140px)); }
+.fan-cards { position: relative; width: 100%; height: calc(var(--fw) * 88 / 63 + var(--fw) * 0.35); }
+.fcard {
+  position: absolute;
+  left: calc(50% - var(--fw) / 2);
+  top: 0;
+  width: var(--fw);
+  aspect-ratio: 63 / 88;
+  padding: 0;
+  border: 0;
+  background: none;
+  transform-origin: 50% 110%;
+  transition: transform 0.22s cubic-bezier(.2, .8, .2, 1), opacity 0.2s ease;
+}
+.fimg {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: calc(var(--fw) * 0.05);
+  background: #1b1712;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.7);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+.fimg img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fimg span { display: block; padding: 10px; font-size: 13px; }
+.fcard.selectable, .fcard.playable { cursor: pointer; }
+.fcard.selectable .fimg, .fcard.playable .fimg { box-shadow: 0 0 0 3px #5fc2ff, 0 0 22px 4px rgba(80, 180, 255, 0.6), 0 12px 28px rgba(0, 0, 0, 0.7); }
+.fcard.on { cursor: pointer; }
+.fcard.on .fimg { box-shadow: 0 0 0 3px #ffb347, 0 0 26px 6px rgba(255, 150, 40, 0.75), 0 12px 28px rgba(0, 0, 0, 0.7); }
+.fcard:hover { z-index: 150 !important; }
+.fcard:hover .fimg { transform: translateY(-14px) scale(1.06); }
+.fan .muted { align-self: center; margin-top: 60px; }
+.fan-slider { position: relative; width: min(340px, 40%); height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.28); cursor: pointer; }
+.fan.static .fan-slider { visibility: hidden; }
+.fan-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 70px;
+  height: 26px;
+  translate: 0 -50%;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  color: #1c1a18;
+  background: linear-gradient(180deg, #d9d6d0, #8f8a82);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.6);
+  cursor: grab;
+}
 .muted { color: var(--muted); }
 
 .banner {
@@ -1280,4 +1927,6 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 
 @media (prefers-reduced-motion: reduce) {
   .board *, .board *::before, .board *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  /* The void's mist stands still instead of flickering through its cycle. */
+  .board .mist { animation: none !important; opacity: 0.45; scale: 0.8; }
 }

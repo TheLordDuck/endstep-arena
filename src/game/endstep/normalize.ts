@@ -9,6 +9,7 @@ import type {
   GameState,
   PendingActionView,
   PlayerView,
+  RevealView,
   StackItemView,
 } from "../GameState";
 
@@ -50,7 +51,13 @@ function typeLineOf(v: Raw): string | undefined {
   return main ? (sub ? `${main} — ${sub}` : main) : undefined;
 }
 
-const idOf = (v: unknown): string | undefined => (isObj(v) ? str(v.id) : str(v));
+/** A list of names (keywords), or undefined when empty. */
+function words(v: unknown): string[] | undefined {
+  const out = arr(v).map((x) => str(isObj(x) ? x.name ?? x.keyword : x)).filter((x): x is string => !!x);
+  return out.length ? out : undefined;
+}
+
+const idOf =(v: unknown): string | undefined => (isObj(v) ? str(v.id) : str(v));
 
 export function toCard(v: unknown): CardView | null {
   if (!isObj(v)) return null;
@@ -61,12 +68,14 @@ export function toCard(v: unknown): CardView | null {
     id,
     name: str(v.name) ?? (faceDown ? "Face-down card" : "Unknown card"),
     ownerId: str(v.ownerId),
+    ownerName: str(v.ownerName),
     controllerId: str(v.controllerId),
     tapped: v.tapped === true || v.isTapped === true,
     summoningSick: v.hasSummoningSickness === true,
     faceDown,
     isToken: v.isToken === true,
     isCopyOfRealCard: v.isCopyOfRealCard === true,
+    peeked: v.isPeeked === true || undefined,
     backFace: v.isTransformed === true || v.isBackFace === true,
     tokenSetCode: str(v.tokenSetCode),
     tokenCollectorNumber: str(v.tokenCollectorNumber),
@@ -82,6 +91,8 @@ export function toCard(v: unknown): CardView | null {
     damage: num(v.damage),
     classLevel: num(v.classLevel ?? v.level ?? v.currentLevel),
     counters: toCounters(v.counters),
+    keywordsGranted: words(v.keywordsGranted),
+    keywordsLost: words(v.keywordsLost),
     // Endstep lists them on the host as `attachedCards`, and each aura/equipment names its host in `attachedTo`.
     attachmentIds: arr(v.attachedCards ?? v.attachments).map(idOf).filter((x): x is string => !!x),
     attachedToId: idOf(v.attachedTo),
@@ -101,15 +112,37 @@ export function toCard(v: unknown): CardView | null {
 
 const cards = (v: unknown): CardView[] => arr(v).map(toCard).filter((c): c is CardView => c !== null);
 
-function toPlayer(v: unknown, index: number, viewerSeat: number): PlayerView {
+/** A face-down card the viewer may look at, shown as what it really is (still face down). */
+function withPeek(c: CardView, peek: CardView | undefined): CardView {
+  if (!peek || !c.faceDown) return c;
+  return {
+    ...c, peeked: true, name: peek.name, setCode: peek.setCode, collectorNumber: peek.collectorNumber, backFace: peek.backFace,
+    types: peek.types, typeLine: peek.typeLine, manaCost: peek.manaCost, oracleText: peek.oracleText,
+  };
+}
+
+/** Endstep's peeks: face-down cards the viewer may see (its own morphs on the battlefield, cards
+    it exiled face down…), sent as `battlefieldPeek`/`exilePeek`, by card id. */
+function peeksOf(players: unknown[]): Map<string, CardView> {
+  const out = new Map<string, CardView>();
+  for (const p of players) {
+    if (!isObj(p)) continue;
+    for (const c of [...cards(p.battlefieldPeek), ...cards(p.exilePeek)]) out.set(c.id, c);
+  }
+  return out;
+}
+
+function toPlayer(v: unknown, index: number, viewerSeat: number, peeks: Map<string, CardView>): PlayerView {
   const p = isObj(v) ? v : {};
-  const hand = Array.isArray(p.hand) ? cards(p.hand) : null;
+  const peek = (list: CardView[]) => (peeks.size ? list.map((c) => withPeek(c, peeks.get(c.id))) : list);
+  const hand = Array.isArray(p.hand) ? peek(cards(p.hand)) : null;
   return {
     id: String(index),
     seat: num(p.seatIndex) ?? index,
     name: str(p.displayName ?? p.name ?? p.username) ?? `Seat ${index + 1}`,
     targetName: str(p.name),
-    username: str(p.username),
+    // The account name, as Endstep's own player popup and profile links use it: `name`.
+    username: str(p.name ?? p.username),
     isViewer: index === viewerSeat,
     life: num(p.life),
     poison: num(p.poisonCounters) ?? 0,
@@ -117,9 +150,9 @@ function toPlayer(v: unknown, index: number, viewerSeat: number): PlayerView {
     librarySize: num(p.librarySize) ?? (Array.isArray(p.library) ? p.library.length : undefined),
     handSize: num(p.handSize) ?? hand?.length,
     hand,
-    battlefield: cards(p.battlefield),
+    battlefield: peek(cards(p.battlefield)),
     graveyard: cards(p.graveyard),
-    exile: cards(p.exile),
+    exile: peek(cards(p.exile)),
     // Endstep's command zone mixes commanders with effects/emblems (anything else).
     commandZone: cards(p.commandZone).filter((c) => c.isCommander),
     effects: cards(p.commandZone).filter((c) => !c.isCommander),
@@ -177,6 +210,15 @@ function toEligibility(v: unknown): Record<string, string[]> {
   return out;
 }
 
+/** CHOOSE_NUMBER's range, as Endstep's number picker reads it: minValue/maxValue, and
+    allowedValues when only some numbers may be chosen. */
+function numberRange(v: Raw): { numberMin: number; numberMax: number; allowedNumbers: number[] } {
+  const allowed = arr(v.allowedValues).map(num).filter((n): n is number => n !== undefined).sort((a, b) => a - b);
+  const min = num(v.minValue) ?? allowed[0] ?? num(v.min) ?? 0;
+  const max = num(v.maxValue) ?? allowed.at(-1) ?? num(v.max) ?? Math.max(min, 20);
+  return { numberMin: min, numberMax: Math.max(min, max), allowedNumbers: allowed };
+}
+
 function toPending(v: unknown): PendingActionView | null {
   if (!isObj(v)) return null;
   const options = arr(v.cardOptions).filter(isObj);
@@ -218,6 +260,8 @@ function toPending(v: unknown): PendingActionView | null {
     // PAY_MANA: the floating mana that can pay this cost (what Endstep's pay panel spends from).
     floatingMana: v.floatingMana,
     canUndo: v.canUndo === true,
+    cancellable: v.cancellable === true,
+    ...numberRange(v),
   };
 }
 
@@ -233,6 +277,35 @@ function combatOf(players: PlayerView[]) {
   return { attacks, blocks };
 }
 
+/**
+ * A CARD_REVEALED / CARD_REVEALED_TO_HAND game event: { cardName | cardNames[], cardId | cardIds[],
+ * cardSetCodes[], cardCollectorNumbers[], toZone (where they were revealed from), playerName,
+ * message, sequenceNumber }, as Endstep's reveal toasts read it.
+ */
+export function toReveal(v: unknown, at = Date.now()): RevealView | null {
+  if (!isObj(v) || (v.type !== "CARD_REVEALED" && v.type !== "CARD_REVEALED_TO_HAND")) return null;
+  const names = arr(v.cardNames).map(str).filter((x): x is string => !!x);
+  if (!names.length && str(v.cardName)) names.push(str(v.cardName)!);
+  if (!names.length) return null;
+  const ids = arr(v.cardIds).map(str);
+  const sets = arr(v.cardSetCodes).map(str);
+  const numbers = arr(v.cardCollectorNumbers).map(str);
+  const id = str(v.sequenceNumber) ?? `${at}`;
+  return {
+    id,
+    playerName: str(v.playerName),
+    zone: str(v.toZone ?? v.fromZone ?? v.zone),
+    toHand: v.type === "CARD_REVEALED_TO_HAND",
+    message: str(v.message),
+    cards: names.map((name, i) => ({
+      ...(toCard({ id: `reveal:${id}:${i}`, name }) as CardView),
+      setCode: sets[i], collectorNumber: numbers[i],
+    })),
+    cardIds: names.map((_, i) => ids[i] ?? (i === 0 ? str(v.cardId) : undefined)),
+    at,
+  };
+}
+
 export interface FrameMeta {
   matchId: string;
   viewerSeat: number;
@@ -241,7 +314,8 @@ export interface FrameMeta {
 }
 
 export function normalize(raw: Raw, meta: FrameMeta): GameState {
-  const players = arr(raw.players).map((p, i) => toPlayer(p, i, meta.viewerSeat));
+  const peeks = peeksOf(arr(raw.players));
+  const players = arr(raw.players).map((p, i) => toPlayer(p, i, meta.viewerSeat, peeks));
   const priorityPlayerId = str(raw.priorityPlayerId);
   return {
     matchId: meta.matchId,
@@ -259,6 +333,7 @@ export function normalize(raw: Raw, meta: FrameMeta): GameState {
     stack: arr(raw.stack).map(toStackItem).filter((s): s is StackItemView => s !== null),
     pending: toPending(raw.pendingAction),
     combat: combatOf(players),
+    reveals: [],
     unrecognizedKeys: Object.keys(raw).filter((k) => !KNOWN_TOP_LEVEL.has(k)),
     desynced: meta.desynced,
     updatedAt: Date.now(),

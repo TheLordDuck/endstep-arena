@@ -42,7 +42,8 @@ export function isSendActionCommand(v: unknown): v is SendActionCommand {
 
 /**
  * The only action types the Arena UI may send: exactly the in-game choices
- * Endstep's own UI offers, plus its phase-stop setting. No CHEAT, no CONCEDE.
+ * Endstep's own UI offers, plus its phase-stop setting. No CHEAT. Conceding is only sent after
+ * the player confirms it in the board's concede dialog.
  */
 export const ALLOWED_ACTIONS = new Set([
   "SET_PHASE_STOPS",
@@ -52,4 +53,8 @@ export const ALLOWED_ACTIONS = new Set([
   "CHOOSE_PILE", "CHOOSE_CARD_NAME", "YES", "NO", "DECLINE", "MULLIGAN", "MULLIGAN_SPECIAL", "KEEP_HAND",
   // Paying with floating mana, and ordering triggers/attackers/blockers (Endstep's pay panel and order box).
   "USE_FLOATING_MANA", "ORDER_ABILITIES", "ORDER_ATTACKERS", "ORDER_BLOCKERS",
+  // Scry, surveil and other library arrangements (Endstep's arrange box).
+  "ARRANGE_CARDS",
+  // Conceding the game (or a best-of-three match), from the table menu, after confirming.
+  "CONCEDE", "CONCEDE_MATCH",
 ]);

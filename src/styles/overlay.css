@@ -30,6 +30,9 @@
   pointer-events: auto;
 }
 
+/* One of Endstep's own windows (decklist, settings…) is open: the board steps aside for it. */
+.layer.endstep-window .board { display: none !important; }
+
 button {
   font: inherit;
   color: inherit;

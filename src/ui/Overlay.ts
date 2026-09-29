@@ -12,6 +12,7 @@ import type { RingBuffer } from "../shared/RingBuffer";
 import { saveSettings, type DebugTab, type Settings } from "../content/settings";
 import { esc, renderEvents, renderNetwork, renderRaw, renderState } from "./DebugViews";
 import { Board } from "./board/Board";
+import { endstepWindowOpen, readBoardMenu, runBoardMenuItem } from "../game/endstep/boardMenu";
 
 export type SocketStatus = "none" | "open" | "closed";
 
@@ -82,6 +83,8 @@ export class Overlay {
       onHide: () => this.setEnabled(false),
       phaseStops: () => this.stops.get(),
       togglePhaseStop: (side, step) => this.stops.toggle(side, step),
+      tableMenu: () => readBoardMenu(),
+      runTableItem: (label) => this.runTableItem(label),
     });
     this.layer.prepend(this.board.el);
     document.documentElement.appendChild(this.host);
@@ -182,6 +185,30 @@ export class Overlay {
     }
     button.textContent = ok ? "Copied ✓" : "Copy failed";
     setTimeout(() => (button.textContent = "Copy raw state"), 1500);
+  }
+
+  /** Runs an item of Endstep's table menu. Its window (decklist, settings…) is Endstep's, so the
+      board steps aside while it is open and comes back when it closes. */
+  private runTableItem(label: string): void {
+    this.layer.classList.add("endstep-window");
+    const back = () => this.layer.classList.remove("endstep-window");
+    void runBoardMenuItem(label).then((ok) => {
+      if (!ok) {
+        back();
+        this.board.toast(`Couldn't open "${label}" from Endstep's menu.`);
+        return;
+      }
+      // Wait for its window to show (items without one come straight back), then to close.
+      const start = performance.now();
+      let seen = false;
+      const check = () => {
+        const open = endstepWindowOpen();
+        seen ||= open;
+        if (seen ? !open : performance.now() - start > 1500) return back();
+        setTimeout(check, 200);
+      };
+      check();
+    });
   }
 
   private render(): void {

@@ -3,6 +3,12 @@
   "name": "Endstep Arena UI",
   "version": "0.1.0",
   "description": "A modern, card-first game UI layered on top of endstep.cc matches. Visual only; Endstep's server stays the source of truth.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "permissions": ["storage"],
   "content_scripts": [
     {

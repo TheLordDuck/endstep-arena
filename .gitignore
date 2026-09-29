@@ -6,3 +6,4 @@ dist-harness/
 # Extension signing key and packaged builds: never commit.
 *.pem
 *.crx
+releases/

@@ -2,7 +2,7 @@
 // Pure functions: the Board keeps one Mode and swaps it on each click.
 
 import { playerTargetKey } from "../../game/GameController";
-import type { GameState, ModeOption } from "../../game/GameState";
+import type { GameState, ModeOption, PendingActionView } from "../../game/GameState";
 
 export type Mode =
   | { kind: "idle" }
@@ -19,6 +19,9 @@ export type Mode =
     }
   /** Trigger/attacker/blocker order in a box (first = leftmost); optional triggers can be declined. */
   | { kind: "order"; order: string[]; declined: string[] }
+  /** Scry/surveil (and other library arrangements): cards kept on top (first = top), and the
+      ones sent to the other pile (bottom for scry, graveyard for surveil) when there is one. */
+  | { kind: "arrange"; top: string[]; tray: string[]; hasTray: boolean; context: string }
   /** Answered from the prompt panel (modes, colors, numbers, yes/no, mulligan). */
   | { kind: "choice"; selectedModes: number[]; number: number }
   /** Not supported by the Arena UI yet: hand the prompt to Endstep's own UI. */
@@ -86,12 +89,17 @@ export function deriveMode(state: GameState | null): Mode {
       }
       return { kind: "blockers", validBlockers: new Set(p.optionCardIds), attackerIds, eligibility, assignments: new Map(), selectedBlocker: null };
     }
+    case "ARRANGE_CARDS": {
+      if (!p.optionCardIds.length) return { kind: "classic", reason: "Arrange cards" };
+      const context = p.contextType ?? "";
+      return { kind: "arrange", top: [...p.optionCardIds], tray: [], hasTray: context === "scry" || context === "surveil", context };
+    }
     case "ORDER_ABILITIES":
     case "ORDER_ATTACKERS":
     case "ORDER_BLOCKERS":
       return { kind: "order", order: p.orderOptions.map((o) => o.id), declined: [] };
     default:
-      if (CHOICE_TYPES.has(p.type)) return { kind: "choice", selectedModes: [], number: p.min };
+      if (CHOICE_TYPES.has(p.type)) return { kind: "choice", selectedModes: [], number: p.type === "CHOOSE_NUMBER" ? p.numberMin : p.min };
       if (p.type === "CHOOSE_CARD_NAME" && p.stringOptions.length > 0) return { kind: "choice", selectedModes: [], number: 0 };
       return { kind: "classic", reason: humanize(p.type) };
   }
@@ -138,6 +146,30 @@ export function clickInMode(mode: Mode, key: string): Mode {
     default:
       return mode;
   }
+}
+
+/** The number `steps` away from `n` in a CHOOSE_NUMBER prompt: through the allowed values when
+    Endstep lists them, otherwise by ones, kept within the range. */
+export function stepNumber(p: Pick<PendingActionView, "numberMin" | "numberMax" | "allowedNumbers">, n: number, steps: number): number {
+  const allowed = p.allowedNumbers;
+  if (allowed.length) {
+    const at = allowed.findIndex((v) => v >= n);
+    const i = at < 0 ? allowed.length - 1 : at;
+    return allowed[Math.max(0, Math.min(allowed.length - 1, i + steps))]!;
+  }
+  return Math.max(p.numberMin, Math.min(p.numberMax, n + steps));
+}
+
+/** Moves a card in an arrangement to `zone` at `index` (the end when omitted). A card can only
+    leave the top pile when there is another pile. */
+export function arrangeMove(mode: Extract<Mode, { kind: "arrange" }>, id: string, zone: "top" | "tray", index?: number): Extract<Mode, { kind: "arrange" }> {
+  if (zone === "tray" && !mode.hasTray) return mode;
+  const top = mode.top.filter((x) => x !== id);
+  const tray = mode.tray.filter((x) => x !== id);
+  if (top.length + tray.length === mode.top.length + mode.tray.length) return mode;
+  const into = zone === "top" ? top : tray;
+  into.splice(Math.max(0, Math.min(index ?? into.length, into.length)), 0, id);
+  return { ...mode, top, tray };
 }
 
 /** Defender whose card/player matches a clicked key, for multi-defender attacks. */

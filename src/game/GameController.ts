@@ -76,6 +76,22 @@ export class GameController {
     this.send({ type: "NO" });
   }
 
+  /** Concedes this game, or the whole match (best of three), as Endstep's concede dialog does. */
+  concede(match: boolean): void {
+    this.send({ type: match ? "CONCEDE_MATCH" : "CONCEDE" });
+  }
+
+  /** Backs out of an optional choice (a cancellable mana choice, a picker). */
+  decline(): void {
+    this.send({ type: "DECLINE" });
+  }
+
+  /** Scry/surveil and other arrangements: the cards kept on top, first = top of the library.
+      Everything else goes to the other pile (bottom for scry, graveyard for surveil). */
+  arrangeCards(top: string[]): void {
+    this.send({ type: "ARRANGE_CARDS", orderedCards: top.map(wireId) });
+  }
+
   answer(yes: boolean, labels?: [string, string]): void {
     if (labels) this.send({ type: "YES", stringValue: yes ? labels[0] : labels[1] });
     else this.send({ type: yes ? "YES" : "NO" });
