@@ -1,0 +1,239 @@
+/* Lives inside the shadow root: nothing here can leak into Endstep, and
+   `all: initial` on the host stops Endstep's inherited styles leaking in. */
+:host {
+  all: initial;
+  --bg: rgba(14, 12, 10, 0.94);
+  --bg-raised: rgba(255, 244, 220, 0.05);
+  --line: rgba(232, 198, 120, 0.18);
+  --text: #efe7d6;
+  --muted: #a39a88;
+  --gold: #e8c678;
+  --atk: #ff7a59;
+  --blk: #6fb7ff;
+  --ok: #7ad08a;
+  --warn: #ffcf5c;
+  --radius: 10px;
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+
+.layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+  font: 13px/1.45 var(--font);
+  color: var(--text);
+}
+
+.layer > * {
+  pointer-events: auto;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* ---------- ON/OFF pill ---------- */
+.pill {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+.pill:hover { transform: translateY(-1px); border-color: var(--gold); }
+.pill:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.pill-label { font-weight: 600; letter-spacing: 0.02em; }
+.pill-state { font: 600 11px var(--mono); color: var(--muted); }
+.is-on .pill-state { color: var(--gold); }
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.has-match .dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(122, 208, 138, 0.2);
+}
+
+/* ---------- Debug panel ---------- */
+.panel {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  bottom: 16px;
+  width: min(440px, calc(100vw - 32px));
+  display: none;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+}
+.debug-on .panel { display: flex; }
+.board-on .pill { display: none; }
+
+.panel-head {
+  padding: 12px 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.title { font-weight: 700; color: var(--gold); letter-spacing: 0.04em; }
+.sub { font-weight: 400; color: var(--muted); font-size: 11px; letter-spacing: 0; }
+
+.tabs { display: flex; gap: 2px; margin-top: 10px; }
+.tabs button {
+  padding: 6px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+}
+.tabs button:hover { color: var(--text); }
+.tabs button.active { color: var(--text); border-bottom-color: var(--gold); }
+
+.head-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tools { display: flex; gap: 6px; }
+.tools button {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  font-size: 11px;
+}
+.tools button:hover { border-color: var(--gold); }
+
+.panel-body {
+  flex: 1;
+  overflow: auto;
+  padding: 10px 12px 16px;
+  overscroll-behavior: contain;
+}
+
+/* ---------- Content ---------- */
+h3 {
+  margin: 16px 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+h3 b { color: var(--text); }
+
+.kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 12px;
+  margin: 0;
+}
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+
+.mono, code, pre { font-family: var(--mono); font-size: 11.5px; }
+.muted { color: var(--muted); }
+.warn {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(255, 207, 92, 0.12);
+  color: var(--warn);
+}
+
+.empty { padding: 24px 4px; }
+.empty .big { font-size: 16px; font-weight: 600; margin: 0 0 6px; }
+
+.badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.badge.you { color: var(--gold); border-color: var(--gold); }
+.badge.prio { color: var(--ok); border-color: rgba(122, 208, 138, 0.5); }
+.badge.lost { color: var(--atk); }
+
+.player {
+  margin: 8px 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+.player.is-viewer { border-color: rgba(232, 198, 120, 0.45); }
+.player header { display: flex; align-items: center; }
+.pname { font-weight: 600; }
+.life {
+  margin-left: auto;
+  font: 700 22px/1 var(--font);
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+.stats { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 6px 0; color: var(--muted); }
+.stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.zone { margin-top: 4px; }
+.zone summary { cursor: pointer; color: var(--muted); }
+.zone summary b { color: var(--text); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 2px; padding: 0; list-style: none; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.25);
+}
+.chip.is-tapped { opacity: 0.6; }
+.pt, .counter { font: 11px var(--mono); color: var(--muted); }
+
+.flag {
+  font: 600 9.5px var(--mono);
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--bg-raised);
+  color: var(--muted);
+}
+.flag.atk { color: var(--atk); background: rgba(255, 122, 89, 0.15); }
+.flag.blk { color: var(--blk); background: rgba(111, 183, 255, 0.15); }
+.flag.tapped { color: var(--warn); }
+
+.list { margin: 0; padding-left: 0; list-style: none; }
+.list li { padding: 3px 0; }
+.idx { display: inline-block; width: 18px; color: var(--muted); font-family: var(--mono); }
+
+.log { margin: 0; padding: 0; list-style: none; }
+.log li { padding: 4px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.04); overflow-wrap: anywhere; }
+.log code { display: block; color: var(--muted); margin-top: 2px; }
+.log .dir { font-family: var(--mono); }
+.log .out .dir { color: var(--gold); }
+
+.raw { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .pill { transition: none; }
+}

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.test-dist/
+.devlog/
+dist-harness/
+# Extension signing key and packaged builds: never commit.
+*.pem
+*.crx

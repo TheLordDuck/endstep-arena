@@ -1,0 +1,1283 @@
+/* Arena-style board. Everything is sized from a few viewport-derived
+   variables, so the layout holds from 1366×768 to 3440×1440. */
+
+.board {
+  --gold: #e8c678;
+  --gold-hi: #ffe3a1;
+  --play: #4fc3ff;
+  --target: #ffc24a;
+  --picked: #ff8a2a;
+  --atk: #ff5a3c;
+  --blk: #58a8ff;
+  --glass: rgba(16, 13, 10, 0.82);
+  --glass-line: rgba(232, 198, 120, 0.22);
+
+  --gutter: clamp(200px, 17vw, 330px);
+  --bf-w: min(8vw, 12.6vh);
+  /* Battlefield cards show only their top (name bar + art), Arena style. */
+  --bf-h: calc(var(--bf-w) * 0.8);
+  --stack-w: min(10.5vw, 17vh, calc(var(--gutter) - 50px));
+  --hand-w: min(7.4vw, 14vh);
+  --hand-h: calc(var(--hand-w) * 1.397);
+  --ohand-w: calc(var(--bf-w) * 0.62);
+  /* Most of each hand card is visible, not just its top. */
+  --strip: calc(var(--hand-h) * 0.84);
+  /* Player plate (name and status chips) in the left corners. */
+  --plate-h: 44px;
+  /* Row holding a player's life total and their turn track. */
+  --bar-h: 50px;
+  --pw: min(calc((var(--gutter) - 48px) / 3), 104px, 11vh);
+
+  position: absolute;
+  inset: 0;
+  display: none;
+  grid-template-columns: var(--gutter) minmax(0, 1fr) var(--gutter);
+  grid-template-rows:
+    calc(var(--ohand-w) * 0.6) var(--bar-h) minmax(0, 1fr) auto
+    minmax(0, 1fr) var(--bar-h) var(--strip);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: var(--font);
+  color: var(--text);
+  background: #0c0a08;
+}
+.layer.board-on .board.live { display: grid; }
+
+.felt {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 70% 55% at 50% 50%, rgba(92, 70, 40, 0.35), transparent 70%),
+    radial-gradient(ellipse 120% 80% at 50% 110%, rgba(40, 60, 70, 0.35), transparent 60%),
+    radial-gradient(ellipse 120% 80% at 50% -10%, rgba(70, 40, 40, 0.3), transparent 60%),
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.012) 0 2px, transparent 2px 6px),
+    linear-gradient(180deg, #14100c, #0e0c0a 50%, #12100d);
+  pointer-events: none;
+}
+
+button { font: inherit; color: inherit; cursor: pointer; }
+.ghost {
+  padding: 4px 10px;
+  border: 1px solid var(--glass-line);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  color: var(--muted);
+}
+.ghost:hover { color: var(--text); border-color: var(--gold); }
+
+/* ---------- Sides & rows ---------- */
+.side {
+  /* The whole width: the layout keeps each row clear of the piles, names, stack and buttons. */
+  grid-column: 1 / -1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  min-height: 0;
+  padding: 0 16px;
+}
+.side.opp { grid-row: 3; }
+.side.me { grid-row: 5; }
+
+.row {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  min-height: var(--bf-h);
+  --gap: 10px;
+}
+.side.opp .row { align-items: flex-start; }
+/* Back row: lands on the left; other non-creature permanents on the right, then whole cards
+   (Sagas, Classes, planeswalkers) with a little space between. */
+.row.back { justify-content: flex-start; }
+.cluster { display: flex; flex: none; min-width: 0; align-items: flex-end; }
+.cluster.others { justify-content: flex-end; margin-left: auto; }
+.cluster.full { justify-content: flex-end; margin-left: 16px; }
+.cluster.full:empty { margin-left: 0; }
+.side.opp .cluster { align-items: flex-start; }
+
+.midline {
+  grid-column: 1 / -1;
+  grid-row: 4;
+  padding: 4px 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  z-index: 26;
+}
+.midline::before {
+  content: "";
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  top: 50%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(232, 198, 120, 0.25), transparent);
+}
+
+.slot {
+  position: relative;
+  flex: none;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  width: var(--bf-w);
+  margin-left: var(--gap);
+  padding-top: calc(var(--atts, 0) * var(--bf-w) * 0.17);
+  transition: width 0.22s ease, translate 0.22s ease, margin 0.22s ease;
+}
+.slot:first-child { margin-left: 0; }
+/* A card tilted 10° needs about 1.1× its width. */
+.slot.tapped { width: calc(var(--bf-w) * 1.1); }
+.side.me .slot.attacking { translate: 0 calc(var(--bf-w) * -0.16); }
+.side.opp .slot.attacking { translate: 0 calc(var(--bf-w) * 0.16); }
+.side.opp .slot { align-items: flex-start; padding-top: 0; padding-bottom: calc(var(--atts, 0) * var(--bf-w) * 0.17); }
+
+/* ---------- Cards ---------- */
+.card {
+  --cw: var(--bf-w);
+  position: relative;
+  flex: none;
+  width: var(--cw);
+  aspect-ratio: 63 / 88;
+  border-radius: calc(var(--cw) * 0.055);
+  transition: transform 0.16s ease, rotate 0.22s ease, filter 0.2s ease, left 0.25s ease, bottom 0.25s ease, top 0.25s ease;
+  cursor: default;
+  z-index: 1;
+}
+.card .face {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  background: linear-gradient(160deg, #2a241c, #16120e);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.55), 0 8px 18px rgba(0, 0, 0, 0.35);
+  transition: box-shadow 0.18s ease;
+}
+.card .img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.card.has-img .img { opacity: 1; }
+.card.has-img .fallback { visibility: hidden; }
+.fallback {
+  position: absolute;
+  inset: 6%;
+  display: flex;
+  flex-direction: column;
+  gap: 4%;
+  font-size: calc(var(--cw) * 0.085);
+  line-height: 1.2;
+  overflow: hidden;
+  border: 1px solid rgba(232, 198, 120, 0.25);
+  border-radius: calc(var(--cw) * 0.03);
+  padding: 6%;
+}
+.fallback .fname { color: var(--gold-hi); font-weight: 600; }
+.fallback .fcost, .fallback .ftype { color: var(--muted); font-size: 0.85em; }
+.fallback .ftext { font-size: 0.8em; color: #cfc6b4; }
+
+.card.back .face, .card.facedown .face {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(232, 198, 120, 0.2), transparent 45%),
+    repeating-linear-gradient(135deg, rgba(232, 198, 120, 0.06) 0 3px, transparent 3px 9px),
+    linear-gradient(160deg, #3a2a1a, #1a120c);
+  border: 1px solid rgba(232, 198, 120, 0.35);
+}
+.card.back .face::before, .card.facedown .face::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  rotate: 45deg;
+  border: 2px solid rgba(232, 198, 120, 0.7);
+  box-shadow: 0 0 12px rgba(232, 198, 120, 0.35);
+}
+
+.badges {
+  position: absolute;
+  inset: auto 4% 4% 4%;
+  display: flex;
+  flex-wrap: wrap-reverse;
+  justify-content: flex-end;
+  gap: 3px;
+  pointer-events: none;
+}
+.b {
+  padding: 1px 5px;
+  border-radius: 6px;
+  font: 700 calc(var(--cw) * 0.1) / 1.2 var(--font);
+  background: rgba(12, 10, 8, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.b.pt { color: #fff; }
+.b.loy { color: #fff; background: #3b3257; }
+.b.dmg { color: #fff; background: #9d2a1c; }
+.b.ctr { color: var(--gold-hi); font-size: calc(var(--cw) * 0.085); }
+
+/* Battlefield: only the top of the card (name bar and art), Arena style.
+   Creatures get a big power/toughness; lands, artifacts etc. just the frame. */
+.side .card { aspect-ratio: 1 / 0.8; }
+.side .card .face { border: 2px solid rgba(20, 16, 12, 0.95); outline: 1px solid rgba(232, 198, 120, 0.35); outline-offset: -1px; }
+.side .card .img { object-position: 50% 0; }
+.side .card .badges { inset: auto -5% -9% 0; align-items: flex-end; }
+.side .card .b { font-size: calc(var(--cw) * 0.12); }
+.side .card .b.pt, .side .card .b.loy {
+  padding: 1px 8px;
+  border-radius: 9px;
+  font: 800 calc(var(--cw) * 0.2) / 1.1 "Cinzel", Georgia, serif;
+  color: #fff;
+  background: linear-gradient(180deg, #2e241a, #0e0b08);
+  border: 2px solid rgba(232, 198, 120, 0.8);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.7);
+}
+.side .card .b.loy { background: linear-gradient(180deg, #4a3d6a, #1f1830); }
+
+/* Sagas, Classes and planeswalkers: the whole card, full size. It sits in the back row but
+   rises into the space above it (below it for the opponent), so the row keeps its height. */
+.side .card.full { aspect-ratio: 63 / 88; }
+.side .slot.group.full { height: calc(var(--bf-w) * 1.397 + (var(--gn) - 1) * var(--pile-dy)); }
+.side.me .slot.full { margin-top: calc(var(--bf-w) * -0.6); }
+.side.opp .slot.full { margin-bottom: calc(var(--bf-w) * -0.6); }
+.side .card .b.chap, .side .card .b.lvl {
+  padding: 1px 8px;
+  border-radius: 9px;
+  font: 800 calc(var(--cw) * 0.16) / 1.1 "Cinzel", Georgia, serif;
+  color: #fff;
+  background: linear-gradient(180deg, #5a4526, #1e160c);
+  border: 2px solid rgba(232, 198, 120, 0.8);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.7);
+}
+.side .card .b.dmg { font-size: calc(var(--cw) * 0.14); }
+
+/* Tapped */
+/* Tapped: tilted 10° to the right and greyed out. */
+.side .card.tapped { rotate: 10deg; filter: grayscale(0.65) brightness(0.68); }
+.side .card.tapped:hover { filter: grayscale(0.3) brightness(0.9); }
+
+/* Summoning sickness: a sleepy creature — cool haze over the art and a "Zz" mark. */
+.side .card.sick .face::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(180deg, rgba(120, 150, 210, 0.28), rgba(40, 50, 90, 0.12) 60%, transparent);
+  pointer-events: none;
+}
+.side .card.sick::before {
+  content: "z Z";
+  position: absolute;
+  z-index: 3;
+  top: -2%;
+  right: 6%;
+  font: italic 800 calc(var(--cw) * 0.2) / 1 "Cinzel", Georgia, serif;
+  letter-spacing: 0.05em;
+  color: #cfe0ff;
+  text-shadow: 0 0 6px rgba(120, 160, 255, 0.9), 0 2px 4px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+.slot > .card:not(:last-child) {
+  position: absolute;
+  z-index: 0;
+  bottom: calc(var(--att) * var(--bf-w) * 0.17);
+}
+.side.opp .slot > .card:not(:last-child) { bottom: auto; top: calc(var(--att) * var(--bf-w) * 0.17); }
+
+/* Effects from the command zone, shown on the card that created them:
+   a violet ✦ at the top-left (hover for the text; right-click lists them). */
+.fx-mark { display: none; }
+.card.has-fx .fx-mark {
+  display: block;
+  position: absolute;
+  z-index: 4;
+  top: calc(var(--cw) * -0.06);
+  left: calc(var(--cw) * -0.06);
+  padding: 1px 6px;
+  border-radius: 999px;
+  font: 700 max(10px, calc(var(--cw) * 0.11)) / 1.2 var(--font);
+  color: #fff;
+  background: linear-gradient(180deg, #8a5cf0, #4b2a9a);
+  border: 1px solid rgba(200, 170, 255, 0.8);
+  box-shadow: 0 0 10px rgba(150, 100, 255, 0.6);
+  cursor: help;
+}
+.chip.fx { color: #d9c6ff; background: rgba(138, 92, 240, 0.25); cursor: help; }
+.zextra.fx { flex-direction: column; gap: 2px; border-color: rgba(160, 120, 255, 0.5); }
+.zextra.fx b { color: #d9c6ff; }
+
+/* A pile of identical permanents, fanned out sideways with only a slight step, so the pile
+   stays low: the front card sits on the left, and each card behind peeks out to the right,
+   so its power/toughness stays visible and it can still be clicked on its own
+   (tap for mana, attack, block, activate). */
+.slot.group {
+  --pile-dx: calc(var(--bf-w) * 0.3);
+  --pile-dy: calc(var(--bf-w) * 0.06);
+  width: calc(var(--bf-w) + (var(--gn) - 1) * var(--pile-dx));
+  height: calc(var(--bf-h) + (var(--gn) - 1) * var(--pile-dy));
+  padding: 0;
+}
+.slot.group > .card,
+.side.opp .slot.group > .card {
+  position: absolute;
+  left: calc((var(--gn) - 1 - var(--gi, 0)) * var(--pile-dx));
+  top: auto;
+  bottom: calc(var(--gi, 0) * var(--pile-dy));
+  z-index: auto;
+}
+.slot.group > .card:not(:last-child) .face { box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.6); }
+.slot.group::after {
+  content: attr(data-count);
+  position: absolute;
+  z-index: 6;
+  top: -9px;
+  left: -6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font: 700 12px var(--font);
+  color: var(--gold-hi);
+  background: rgba(12, 10, 8, 0.92);
+  border: 1px solid var(--glass-line);
+  pointer-events: none;
+}
+
+/* Hover lift on the battlefield */
+.side .card:hover { transform: translateY(-4%) scale(1.04); z-index: 5; }
+
+/* Highlights */
+.card.playable .face { box-shadow: 0 0 0 2px var(--play), 0 0 16px 3px rgba(79, 195, 255, 0.6); }
+.card.playable { cursor: pointer; }
+.card.selectable { cursor: pointer; }
+.card.selectable .face { box-shadow: 0 0 0 2px var(--target), 0 0 16px 2px rgba(255, 194, 74, 0.55); animation: pulse 1.4s ease-in-out infinite; }
+.card.selected .face { box-shadow: 0 0 0 3px var(--picked), 0 0 22px 5px rgba(255, 138, 42, 0.7); animation: none; }
+.side .card.selected { transform: translateY(-6%) scale(1.05); }
+.card.attacking .face { box-shadow: 0 0 0 2px var(--atk), 0 0 20px 4px rgba(255, 90, 60, 0.6); }
+.card.blocking .face { box-shadow: 0 0 0 2px var(--blk), 0 0 20px 4px rgba(88, 168, 255, 0.6); }
+@keyframes pulse { 50% { box-shadow: 0 0 0 2px var(--target), 0 0 26px 6px rgba(255, 194, 74, 0.7); } }
+
+/* ---------- Hands ---------- */
+.hand { position: relative; grid-column: 2; }
+/* Your hand and the side hand share the bottom strip; only cards take clicks. The hand draws
+   over the table (life, turn track, piles, prompt) so a raised card is never hidden. */
+.hand.mine { grid-row: 7; z-index: 60; pointer-events: none; }
+.hand.mine .card {
+  --cw: var(--hand-w);
+  position: absolute;
+  left: calc(var(--cx, 50%) + var(--x, 0px) - var(--cw) / 2);
+  top: calc(var(--y, 0px) + 4px);
+  rotate: var(--r, 0deg);
+  transform-origin: 50% 120%;
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+}
+.hand.mine .card:hover {
+  transform: translateY(calc(var(--hand-h) * -0.42)) scale(1.4);
+  rotate: 0deg;
+  z-index: 100 !important;
+}
+.hand.mine .card.dragging {
+  transition: none;
+  transform: scale(1.05);
+  rotate: 0deg;
+  z-index: 200 !important;
+  cursor: grabbing;
+  filter: drop-shadow(0 18px 24px rgba(0, 0, 0, 0.6));
+}
+.hand.mine .card.dragging:not(.playable).over-table { filter: grayscale(0.7) brightness(0.7) drop-shadow(0 18px 24px rgba(0, 0, 0, 0.6)); }
+
+/* Side hand: playable cards from the graveyard, exile, command zone or library top. */
+.side-hand .card[data-from]::after {
+  content: attr(data-from);
+  position: absolute;
+  top: calc(var(--cw) * -0.13);
+  left: 50%;
+  translate: -50% 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font: 600 10px var(--font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--gold-hi);
+  background: rgba(12, 10, 8, 0.9);
+  border: 1px solid var(--glass-line);
+  pointer-events: none;
+}
+.side-hand .card .face { filter: saturate(0.85); }
+.board.drop-ready .side.me {
+  background: radial-gradient(ellipse at 50% 60%, rgba(79, 195, 255, 0.12), transparent 70%);
+  border-radius: 24px;
+}
+
+.opp-hand { grid-row: 1; z-index: 3; }
+.opp-hand .card {
+  --cw: var(--ohand-w);
+  position: absolute;
+  left: calc(50% + var(--x, 0px) * 0.55 - var(--cw) / 2);
+  top: calc(var(--cw) * -0.72 + var(--y, 0px) * 0.4);
+  rotate: calc(var(--r, 0deg) * -1);
+  transform-origin: 50% -20%;
+}
+
+/* ---------- Player plates ---------- */
+/* In the left corners: the player's name and status chips (the avatar is on the life total).
+   Yours at the very bottom, the opponent's at the very top. */
+.plate {
+  position: relative;
+  grid-column: 1;
+  justify-self: start;
+  /* Text off the battlefield sits under the cards: it never covers or moves them. */
+  z-index: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 0 16px;
+  padding: 8px 12px;
+  border-radius: 18px;
+  transition: box-shadow 0.25s ease;
+}
+.plate:empty { display: none; }
+.opp-plate { grid-row: 1 / 4; align-self: start; margin-top: 10px; }
+.me-plate { grid-row: 5 / 8; align-self: end; margin-bottom: 10px; }
+/* The avatar sits on the central life total: above yours, below the opponent's (toward the table). */
+.avatar {
+  position: absolute;
+  left: 50%;
+  translate: -50% 0;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font: 700 30px "Cinzel", Georgia, serif;
+  color: var(--gold-hi);
+  background: radial-gradient(circle at 35% 30%, #5a4428, #20170e);
+  border: 3px solid rgba(232, 198, 120, 0.55);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.6);
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+  /* A round margin in the table color, so nothing shows right under the edge of the picture. */
+  outline: 8px solid rgba(12, 10, 8, 0.9);
+}
+.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+.me-life .avatar { bottom: calc(100% + 4px); }
+.opp-life .avatar { top: calc(100% + 4px); }
+/* Life totals: centered on the table, just above each player's cards
+   (yours above your hand, the opponent's below their hand). */
+.life-orb {
+  position: relative;
+  grid-column: 2;
+  justify-self: center;
+  z-index: 27;
+  display: grid;
+  place-items: center;
+  min-width: 70px;
+  height: 46px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font: 700 30px/1 "Cinzel", Georgia, serif;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+  background: radial-gradient(ellipse at 50% 30%, #3a2c1c, #120e0a 75%);
+  border: 2px solid rgba(232, 198, 120, 0.6);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.life-orb:empty { display: none; }
+.life-orb.priority { border-color: var(--gold-hi); box-shadow: 0 0 0 3px rgba(232, 198, 120, 0.3), 0 0 22px rgba(232, 198, 120, 0.5); }
+.life-orb.out { opacity: 0.5; filter: grayscale(1); }
+.life-orb.selectable { cursor: pointer; border-color: var(--target); animation: plate-pulse 1.4s ease-in-out infinite; }
+.life-orb.selected { border-color: var(--picked); box-shadow: 0 0 0 4px var(--picked); animation: none; }
+.life-orb.hit { animation: hit 0.45s ease; border-color: var(--atk); }
+.life-orb.heal { animation: heal 0.6s ease; }
+.plate .pname { font-size: 13px; font-weight: 600; max-width: calc(var(--gutter) - 50px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8); }
+.plate .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; max-width: calc(var(--gutter) - 40px); }
+.plate .chips:empty { display: none; }
+.chip { padding: 0 6px; border-radius: 999px; font-size: 11px; background: rgba(255, 255, 255, 0.07); color: var(--muted); }
+.chip.poison { color: #9be37a; }
+.chip.energy { color: #ffd84a; }
+.life-orb.priority .avatar { border-color: var(--gold-hi); box-shadow: 0 0 0 3px rgba(232, 198, 120, 0.3), 0 0 26px rgba(232, 198, 120, 0.55); }
+.plate.active .pname { color: var(--gold-hi); }
+.plate.out { opacity: 0.5; filter: grayscale(1); }
+/* When a player can be targeted, the corner name and the life total (with the avatar) are click targets. */
+.plate.selectable { cursor: pointer; background: rgba(255, 194, 74, 0.08); box-shadow: 0 0 0 2px var(--target); }
+.plate.selectable:hover { background: rgba(255, 194, 74, 0.16); }
+.plate.selectable .pname { color: var(--target); }
+.plate.selected { background: rgba(255, 138, 42, 0.14); box-shadow: 0 0 0 3px var(--picked); }
+.life-orb.selectable .avatar { border-color: var(--target); box-shadow: 0 0 0 3px var(--target), 0 0 18px rgba(255, 194, 74, 0.5); animation: plate-pulse 1.4s ease-in-out infinite; }
+.life-orb.selected .avatar { border-color: var(--picked); box-shadow: 0 0 0 4px var(--picked); animation: none; }
+@keyframes plate-pulse { 50% { box-shadow: 0 0 0 4px var(--target), 0 0 30px rgba(255, 194, 74, 0.65); } }
+@keyframes hit {
+  20% { translate: -5px 0; }
+  40% { translate: 5px 0; }
+  60% { translate: -3px 0; }
+  80% { translate: 2px 0; }
+}
+@keyframes heal { 30% { box-shadow: 0 0 0 3px #7ad08a, 0 0 30px rgba(122, 208, 138, 0.7); } }
+.life-float {
+  position: absolute;
+  left: calc(100% + 6px);
+  top: 4px;
+  font: 800 28px "Cinzel", Georgia, serif;
+  pointer-events: none;
+  animation: float-up 1.2s ease-out forwards;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+.life-float.loss { color: #ff6b50; }
+.life-float.gain { color: #7ad08a; }
+@keyframes float-up { from { opacity: 0; translate: 0 10px; } 15% { opacity: 1; } to { opacity: 0; translate: 0 -46px; } }
+
+.opp-tiles { position: absolute; top: 52px; right: 16px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; z-index: 0; }
+.tile {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+}
+.tile .tlife { font: 700 18px "Cinzel", Georgia, serif; }
+.tile.priority { border-color: var(--gold); }
+.tile.selectable { animation: plate-pulse 1.4s ease-in-out infinite; }
+
+/* ---------- Piles ---------- */
+/* Library and graveyard lying on the table in 3D, exile as a vortex; left side,
+   between the player's plate and the middle of the table. */
+.piles {
+  grid-column: 1;
+  position: relative;
+  z-index: 22;
+  display: grid;
+  grid-template-columns: repeat(3, var(--pw));
+  grid-template-areas: "exile graveyard library";
+  justify-content: center;
+  justify-items: center;
+  gap: 16px 12px;
+  perspective: 900px;
+}
+.opp-piles { grid-row: 1 / 4; align-self: start; margin-top: calc(var(--plate-h) + 18px); }
+.me-piles { grid-row: 5 / 8; align-self: end; margin-bottom: calc(var(--plate-h) + 18px); }
+/* One row: exile, graveyard, library (and the command zone when there is one). */
+.piles.has-cmd { --pw: min(calc((var(--gutter) - 60px) / 4), 104px, 11vh); grid-template-columns: repeat(4, var(--pw)); grid-template-areas: "exile graveyard library command"; }
+.pile[data-zone="library"] { grid-area: library; }
+.pile[data-zone="graveyard"] { grid-area: graveyard; }
+.pile[data-zone="exile"] { grid-area: exile; }
+.pile[data-zone="command"] { grid-area: command; }
+.pile[data-zone="exile"] { align-self: center; }
+.pile {
+  --cw: var(--pw);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  transform-style: preserve-3d;
+}
+.pile-card {
+  --thick: 0px;
+  position: relative;
+  width: var(--cw);
+  aspect-ratio: 63 / 88;
+  border-radius: 7px;
+  border: 1px dashed rgba(232, 198, 120, 0.22);
+  transform: rotateX(30deg);
+  transform-origin: 50% 100%;
+  transition: transform 0.2s ease;
+  /* The stack's edge: thicker for bigger piles. */
+  box-shadow:
+    0 calc(var(--thick) * 0.33) 0 #3a2a18,
+    0 calc(var(--thick) * 0.66) 0 #2c1f11,
+    0 var(--thick) 0 #20160b,
+    0 calc(var(--thick) + 12px) 20px rgba(0, 0, 0, 0.65);
+  translate: 0 calc(var(--thick) * -1);
+}
+.pile:not(.empty) .pile-card { border-color: transparent; }
+.opp-piles .pile-card { transform: rotateX(-30deg); transform-origin: 50% 0; }
+.pile:not([data-zone="library"]):hover .pile-card { transform: rotateX(14deg) translateY(-4px); }
+.opp-piles .pile:not([data-zone="library"]):hover .pile-card { transform: rotateX(-14deg) translateY(4px); }
+.pile-card .card { --cw: var(--pw); }
+.pile-label { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+.pile-count {
+  position: absolute;
+  z-index: 3;
+  top: -8px;
+  right: -10px;
+  min-width: 26px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font: 700 13px var(--font);
+  background: #1d1812;
+  border: 1px solid var(--glass-line);
+}
+.pile:not([data-zone="library"]):not([data-zone="exile"]):hover .pile-card .face { outline: 2px solid var(--gold); outline-offset: 2px; }
+.pile.empty .pile-count { opacity: 0.5; }
+
+/* Exile: a swirling black hole the last exiled card sinks into. */
+.vortex {
+  position: relative;
+  width: calc(var(--pw) * 0.9);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, #000 0 26%, #07040d 34%, rgba(46, 18, 78, 0.9) 50%, rgba(90, 40, 150, 0.35) 62%, transparent 71%);
+  filter: drop-shadow(0 0 16px rgba(130, 70, 220, 0.45));
+  transition: filter 0.2s ease, scale 0.2s ease;
+}
+.swirl {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0, rgba(170, 120, 255, 0.75) 8%, transparent 22%,
+    rgba(232, 198, 120, 0.55) 34%, transparent 48%, rgba(120, 70, 230, 0.7) 60%, transparent 74%,
+    rgba(200, 160, 255, 0.5) 86%, transparent 100%);
+  -webkit-mask: radial-gradient(circle, transparent 24%, #000 34%, #000 56%, transparent 70%);
+  mask: radial-gradient(circle, transparent 24%, #000 34%, #000 56%, transparent 70%);
+  animation: swirl 70s linear infinite;
+}
+.vortex::after {
+  content: "";
+  position: absolute;
+  inset: 30%;
+  border-radius: 50%;
+  background: radial-gradient(circle, #000 55%, rgba(0, 0, 0, 0.6) 75%, transparent);
+  box-shadow: 0 0 0 1px rgba(190, 150, 255, 0.35), 0 0 14px rgba(160, 110, 255, 0.5);
+  pointer-events: none;
+}
+.vortex .pile-card {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--pw) * 0.4);
+  border: 0;
+  box-shadow: none;
+  transform: none !important;
+  translate: -50% -50%;
+  opacity: 0.6;
+  animation: sink 160s linear infinite;
+}
+.vortex .pile-card .card { --cw: calc(var(--pw) * 0.4); }
+.pile[data-zone="exile"]:hover .vortex { filter: drop-shadow(0 0 22px rgba(160, 110, 255, 0.75)); scale: 1.04; }
+.pile.empty .vortex { opacity: 0.45; }
+.pile.empty .swirl { animation-duration: 120s; }
+.pile[data-zone="exile"] .pile-count { top: 4px; right: 0; }
+@keyframes swirl { to { rotate: 360deg; } }
+@keyframes sink { to { rotate: -360deg; } }
+
+/* ---------- Stack ---------- */
+/* Top right, in a framed tray. Fanned sideways like a pile of permanents: the top of the
+   stack (resolves next) is in front on the right, and each item under it peeks out to the
+   left with a small step down, showing its name and order. The tray floats over the table
+   and grows to the left; --band (the visible strip) is set by the layout. */
+.stack-dock {
+  position: absolute;
+  right: calc((var(--gutter) - var(--stack-w)) / 2 - 12px);
+  top: 64px;
+  /* Always on top of the table (hand included); it never moves the battlefield. */
+  z-index: 65;
+  display: none;
+  align-items: flex-start;
+}
+.stack-dock.has-items { display: flex; }
+.stack-dock.collapsed .stack { display: none; }
+/* The arrow tab on the tray's left edge tucks the stack away; collapsed, it becomes a
+   "◂ Stack · N" pill that brings it back. */
+.stack-toggle {
+  margin-top: 18px;
+  margin-right: -1px;
+  padding: 14px 5px;
+  border-radius: 10px 0 0 10px;
+  border: 1px solid rgba(232, 198, 120, 0.35);
+  border-right: 0;
+  background: linear-gradient(180deg, rgba(28, 22, 15, 0.96), rgba(12, 10, 8, 0.96));
+  font: 700 13px/1 var(--font);
+  color: var(--gold-hi);
+  box-shadow: -6px 8px 18px rgba(0, 0, 0, 0.45);
+}
+.stack-toggle:hover { color: #fff; background: rgba(60, 46, 28, 0.98); }
+.stack-dock.collapsed .stack-toggle {
+  margin: 0;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border-right: 1px solid rgba(232, 198, 120, 0.35);
+  font: 700 11px/1 "Cinzel", Georgia, serif;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.stack {
+  position: relative;
+  display: none;
+  flex-direction: row;
+  align-items: flex-start;
+  padding: 34px 14px calc(14px + (var(--sn, 1) - 1) * var(--stack-w) * 0.05);
+  border-radius: 18px;
+  background:
+    radial-gradient(ellipse 90% 60% at 50% 0%, rgba(232, 198, 120, 0.1), transparent 70%),
+    linear-gradient(180deg, rgba(28, 22, 15, 0.94), rgba(12, 10, 8, 0.94));
+  border: 1px solid rgba(232, 198, 120, 0.35);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 240, 200, 0.08), 0 18px 44px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  animation: rise 0.2s ease;
+}
+.stack.has-items { display: flex; }
+.stack.has-items::before {
+  content: "Stack · " attr(data-n);
+  position: absolute;
+  top: 8px;
+  left: 16px;
+  font: 700 11px/18px "Cinzel", Georgia, serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold-hi);
+}
+.stack.has-items::after {
+  content: "Resolves next ▸";
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  font: 600 10px/18px var(--font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.stack .card {
+  --cw: var(--stack-w);
+  pointer-events: auto;
+  flex: none;
+  /* Items further down the stack sit a little lower, like a pile. */
+  translate: 0 calc((var(--sn, 1) - 1 - var(--si, 0)) * var(--cw) * 0.05);
+  transition: translate 0.18s ease, transform 0.18s ease, filter 0.18s ease;
+}
+.stack .card + .card { margin-left: calc(var(--band, calc(var(--cw) * 0.3)) - var(--cw)); }
+.stack .card .face { border: 2px solid rgba(20, 16, 12, 0.95); }
+/* Controller rim: gold for yours, red for the opponent's. The item that resolves next is
+   steadily brighter with a glow (no pulsing). */
+.stack .card.mine .face { outline: 2px solid rgba(232, 198, 120, 0.75); outline-offset: -2px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.6); }
+.stack .card.theirs .face { outline: 2px solid rgba(255, 90, 60, 0.75); outline-offset: -2px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.6); }
+.stack .card:last-child.mine .face { box-shadow: 0 0 0 2px var(--gold), 0 0 26px 6px rgba(232, 198, 120, 0.45); filter: brightness(1.12); }
+.stack .card:last-child.theirs .face { box-shadow: 0 0 0 2px var(--atk), 0 0 26px 6px rgba(255, 90, 60, 0.4); filter: brightness(1.12); }
+.stack .card:not(:last-child) { filter: brightness(0.82); }
+/* Hover lifts an item out of the pile (and shows it big beside it). */
+.stack .card:hover { transform: translateY(-9%); filter: none; z-index: 40; }
+/* Resolution order, on the visible left strip: 1 resolves next. */
+.stack .card::before {
+  content: attr(data-order);
+  position: absolute;
+  z-index: 3;
+  top: calc(var(--cw) * -0.07);
+  left: calc(var(--cw) * -0.05);
+  width: calc(var(--cw) * 0.16);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font: 800 calc(var(--cw) * 0.085) / 1 "Cinzel", Georgia, serif;
+  color: #231a0c;
+  background: radial-gradient(circle at 35% 30%, var(--gold-hi), var(--gold));
+  border: 2px solid rgba(12, 10, 8, 0.9);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+.stack .card.theirs::before { background: radial-gradient(circle at 35% 30%, #ff8a70, var(--atk)); color: #fff; }
+/* Abilities: the source card with a ribbon and the ability text on a parchment plate. */
+.stack .card.ability .face::before {
+  content: "Ability";
+  position: absolute;
+  z-index: 2;
+  top: 44%;
+  left: -2px;
+  right: -2px;
+  padding: 2px 0;
+  text-align: center;
+  font: 700 calc(var(--cw) * 0.07) / 1.3 "Cinzel", Georgia, serif;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #231a0c;
+  background: linear-gradient(90deg, transparent, var(--gold-hi) 12%, var(--gold) 88%, transparent);
+}
+.stack .card.ability::after {
+  content: attr(data-stack-text);
+  position: absolute;
+  z-index: 2;
+  inset: auto 5% 5% 5%;
+  max-height: 44%;
+  overflow: hidden;
+  padding: 6% 7%;
+  border-radius: calc(var(--cw) * 0.03);
+  font: 500 calc(var(--cw) * 0.072) / 1.3 Georgia, serif;
+  color: #2a2016;
+  background: linear-gradient(180deg, #efe3c4, #d9c8a0);
+  border: 1px solid rgba(90, 68, 40, 0.6);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* ---------- Turn tracks ---------- */
+/* Each player's turn runs along their life total, Arena style: beginning and
+   main 1 on the left, main 2 and end on the right, and combat wrapped around
+   the life badge (one red capsule the life total sits in).
+   Every step is a stop toggle: a gold dot = the game stops there for you. */
+.lifebar {
+  grid-column: 2;
+  position: relative;
+  z-index: 27;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+.opp-bar { grid-row: 2; }
+.me-bar { grid-row: 6; }
+/* Floating mana: in the gap between each player's piles and their turn bar, centered on the
+   bar (placed and sized by the layout so it never overlaps either). One mana symbol per
+   color (then colorless) with the amount on it. */
+.mana-pool {
+  --pip: 30px;
+  position: absolute;
+  z-index: 27;
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 6), var(--pip));
+  align-items: center;
+  gap: 8px 6px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 16px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+.mana-pool:empty { display: none; }
+.mpip { position: relative; flex: none; width: var(--pip); height: var(--pip); border-radius: 50%; animation: pip-in 0.2s ease; }
+/* The color letter shows if the symbol image can't load; the symbol covers it otherwise. */
+.mpip i { position: absolute; inset: 0; display: grid; place-items: center; font: 800 calc(var(--pip) * 0.5) / 1 "Cinzel", Georgia, serif; font-style: normal; color: #1a140e; }
+.mpip img { position: relative; width: 100%; height: 100%; display: block; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6)); }
+/* Color behind the symbol (shows alone if the symbol can't load). */
+.mpip.m-w { background: #f8f3d8; }
+.mpip.m-u { background: #a9d4ee; }
+.mpip.m-b { background: #b8aea9; }
+.mpip.m-r { background: #eea78c; }
+.mpip.m-g { background: #9fcfae; }
+.mpip.m-c { background: #cdc6c0; }
+.mpip b {
+  position: absolute;
+  right: calc(var(--pip) * -0.22);
+  bottom: calc(var(--pip) * -0.22);
+  min-width: calc(var(--pip) * 0.5);
+  height: calc(var(--pip) * 0.5);
+  padding: 0 2px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  font: 800 calc(var(--pip) * 0.36) / 1 var(--font);
+  color: #fff;
+  background: #1a140e;
+  border: 1px solid rgba(232, 198, 120, 0.7);
+}
+@keyframes pip-in { from { scale: 0.6; opacity: 0; } }
+/* While paying a cost, your floating mana glows and can be clicked to spend one. */
+button.mpip { padding: 0; border: 0; cursor: pointer; }
+.mpip.payable { box-shadow: 0 0 0 2px var(--target), 0 0 14px rgba(255, 194, 74, 0.7); transition: transform 0.12s ease, box-shadow 0.12s ease; }
+.mpip.payable:hover { transform: translateY(-2px) scale(1.08); box-shadow: 0 0 0 2px var(--gold-hi), 0 0 20px rgba(255, 194, 74, 0.9); }
+.board.awaiting .mpip.payable { opacity: 0.6; cursor: default; }
+.lifebar .life-orb { flex: none; }
+.track-half { flex: 1 1 0; display: flex; align-items: center; gap: 4px; min-width: 0; opacity: 0.55; transition: opacity 0.25s ease; }
+.track-half.left { justify-content: flex-end; }
+.track-half.right { justify-content: flex-start; }
+.lifebar.active .track-half { opacity: 1; }
+.pgroup { display: flex; gap: 2px; padding: 2px 3px; border-radius: 10px; background: var(--glass); border: 1px solid var(--glass-line); }
+.pgroup.combat { background: rgba(52, 18, 12, 0.88); border-color: rgba(255, 90, 60, 0.35); }
+.track-half.left .pgroup.combat { margin-right: -10px; padding-right: 14px; border-right: 0; border-radius: 10px 0 0 10px; }
+.track-half.right .pgroup.combat { margin-left: -10px; padding-left: 14px; border-left: 0; border-radius: 0 10px 10px 0; }
+.lifebar.in-combat .pgroup.combat { border-color: var(--atk); box-shadow: 0 0 14px rgba(255, 90, 60, 0.35); }
+.lifebar.in-combat .life-orb { border-color: var(--atk); }
+/* Full step names; long ones wrap onto two lines. */
+.pip {
+  position: relative;
+  min-width: 38px;
+  max-width: 70px;
+  min-height: 30px;
+  padding: 2px 6px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font: 600 10px/1.1 var(--font);
+  letter-spacing: 0.01em;
+  white-space: normal;
+  text-align: center;
+  color: rgba(242, 236, 223, 0.38);
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.pip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 1px;
+  width: 4px;
+  height: 4px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid rgba(232, 198, 120, 0.35);
+  box-sizing: border-box;
+}
+.pip.stop { color: rgba(242, 236, 223, 0.75); }
+.pip.stop::after { background: var(--gold); border-color: var(--gold); }
+.pip.past { color: rgba(242, 236, 223, 0.3); }
+.pip:hover { background: rgba(232, 198, 120, 0.12); color: var(--text); }
+.opp-bar .pip.on { background: rgba(255, 90, 60, 0.9); color: #fff; }
+.me-bar .pip.on { background: linear-gradient(180deg, var(--gold-hi), var(--gold)); color: #231a0c; }
+.pip.on::after { border-color: currentColor; }
+.pip.on.stop::after { background: currentColor; }
+.turn-label { position: relative; display: flex; align-items: baseline; gap: 8px; padding: 2px 14px; border-radius: 999px; background: var(--glass); border: 1px solid var(--glass-line); font-size: 12px; color: var(--muted); white-space: nowrap; }
+.turn-label b { font: 700 13px "Cinzel", Georgia, serif; color: var(--text); }
+.turn-label span { animation: step-in 0.3s ease; }
+@keyframes step-in { from { opacity: 0; translate: 6px 0; } }
+
+/* ---------- Prompt ---------- */
+/* Plain messages sit above the action button; rich choices take the center. */
+.prompt {
+  position: absolute;
+  right: 22px;
+  bottom: 96px;
+  max-width: min(340px, 24vw) !important;
+  /* Status text ("Waiting for opponent…", "Choose target", "Pay …") sits right of your turn bar
+   (placed by the layout), in empty table space, drawn like the bar so it stays readable. */
+  z-index: 27;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: min(760px, 70vw);
+  padding: 10px 18px;
+  border-radius: 16px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  animation: rise 0.2s ease;
+}
+.prompt.show { display: flex; }
+.prompt .msg { font-size: 14px; text-align: center; }
+/* A choice from a card shows that card (normal size) beside the question. */
+.pwrap { display: flex; align-items: center; gap: 18px; }
+.pwrap .pbody { display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 0; }
+.pcard { flex: none; width: min(150px, 20vh); aspect-ratio: 63 / 88; border-radius: 8px; overflow: hidden; background: #1b1712; box-shadow: 0 0 0 1px rgba(232, 198, 120, 0.6), 0 10px 26px rgba(0, 0, 0, 0.6); }
+.pcard img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.prompt .msg.dim { color: var(--muted); font-size: 13px; }
+.prompt .src { display: block; font: 600 11px var(--font); letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
+.prompt.center {
+  /* A choice to make is modal: over everything, stack and hand included. */
+  z-index: 67;
+  right: auto;
+  left: 50%;
+  bottom: auto;
+  top: 50%;
+  translate: -50% -50%;
+  max-width: min(760px, 70vw) !important;
+  padding: 16px 20px;
+  background: rgba(16, 13, 10, 0.97);
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45), 0 20px 60px rgba(0, 0, 0, 0.7);
+  animation: rise-c 0.2s ease;
+}
+@keyframes rise { from { opacity: 0; translate: 0 8px; } }
+@keyframes rise-c { from { opacity: 0; translate: -50% -46%; } }
+.choices { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; }
+.choices.col { flex-direction: column; align-items: stretch; }
+.opt {
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-line);
+  background: rgba(255, 255, 255, 0.05);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.opt:hover { border-color: var(--gold); background: rgba(232, 198, 120, 0.1); }
+.opt.on { border-color: var(--picked); background: rgba(255, 138, 42, 0.18); }
+.opt.primary { background: linear-gradient(180deg, var(--gold-hi), var(--gold)); color: #231a0c; font-weight: 700; border-color: transparent; }
+.opt.dim { color: var(--muted); }
+.opt:disabled { opacity: 0.45; cursor: default; }
+.opt.color { min-width: 72px; font-weight: 600; }
+
+/* Order box (triggers, or attackers/blockers): a row of tiles, leftmost first, overlapping a
+   little like a hand of cards. Each tile keeps its name and ability text in the part that's
+   never covered; hovering one brings it to the front. Drag a tile or use its arrows. */
+.order-box { display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 100%; }
+/* No scrolling box (it would clip a dragged tile): with many triggers the tiles overlap more
+   so the row stays within ~680px. */
+.order-row { display: flex; justify-content: center; padding: 14px 10px 8px; }
+.otile {
+  --overlap: max(30px, calc((var(--n, 1) * 148px - 680px) / max(1, var(--n, 1) - 1)));
+  position: relative;
+  flex: none;
+  width: 148px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #2a2219, #15110c);
+  border: 1px solid rgba(232, 198, 120, 0.45);
+  box-shadow: -6px 0 14px rgba(0, 0, 0, 0.45), 0 8px 18px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+  touch-action: none;
+  transition: translate 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+.otile + .otile { margin-left: calc(var(--overlap) * -1); }
+/* Everything but the last tile keeps its content clear of the next tile's edge. */
+.otile:not(:last-child) > :not(.oart):not(.onum) { margin-right: var(--overlap); }
+/* Hover lifts a tile but keeps it behind the next one, so no trigger's name ever gets covered. */
+.otile:hover { transform: translateY(-6px); border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold), 0 14px 28px rgba(0, 0, 0, 0.65); }
+/* While sorting, the other tiles slide aside; the dragged one follows the pointer. */
+.order-row.sorting .otile:not(.dragging) { transform: none; }
+.order-row.settling .otile { transition: none !important; }
+.otile.dragging { transition: none; cursor: grabbing; z-index: 4; transform: scale(1.05); box-shadow: 0 0 0 2px var(--target), 0 18px 34px rgba(0, 0, 0, 0.7); }
+.otile.declined { opacity: 0.5; filter: grayscale(0.8); }
+.otile .oart { height: 66px; border-radius: 10px 10px 0 0; overflow: hidden; background: #1b1712; }
+.otile .oart img { width: 100%; height: auto; display: block; }
+.otile .onum {
+  position: absolute;
+  top: -10px;
+  left: -8px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font: 800 13px "Cinzel", Georgia, serif;
+  color: #231a0c;
+  background: radial-gradient(circle at 35% 30%, var(--gold-hi), var(--gold));
+  border: 2px solid rgba(12, 10, 8, 0.9);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+.otile .oname { padding: 6px 8px 0; font: 700 12px/1.25 "Cinzel", Georgia, serif; color: var(--gold-hi); }
+.otile .otext { margin: 4px 6px; padding: 5px 6px; max-height: 78px; overflow-y: auto; border-radius: 5px; font: 11px/1.3 Georgia, serif; color: #2a2016; background: linear-gradient(180deg, #efe3c4, #d9c8a0); }
+.otile .omove { display: flex; justify-content: space-between; gap: 2px; margin-top: auto; padding: 4px 6px 6px; }
+.otile .omove button { padding: 1px 8px; font-size: 11px; }
+.otile .omove button:disabled { opacity: 0.3; cursor: default; }
+.order-legend { display: flex; justify-content: space-between; gap: 16px; width: 100%; font: 600 11px var(--font); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.c-white { background: #f4efe0; color: #2a2418; }
+.c-blue { background: #2e6fb8; }
+.c-black { background: #2a2626; }
+.c-red { background: #b8382a; }
+.c-green { background: #2f7f45; }
+.num { min-width: 40px; text-align: center; font: 700 22px "Cinzel", Georgia, serif; }
+.picker { display: flex; gap: 8px; max-width: 70vw; overflow-x: auto; padding: 4px; }
+.pick { flex: none; width: calc(var(--bf-w) * 1.05); aspect-ratio: 63 / 88; padding: 0; border-radius: 8px; border: 2px solid transparent; background: #1b1712; overflow: hidden; }
+.pick img { width: 100%; height: 100%; object-fit: cover; }
+.pick span { font-size: 11px; padding: 6px; display: block; }
+.pick:hover { border-color: var(--target); }
+.pick.on { border-color: var(--picked); box-shadow: 0 0 16px rgba(255, 138, 42, 0.6); }
+
+/* ---------- Action dock ---------- */
+.dock {
+  position: absolute;
+  right: 22px;
+  bottom: 22px;
+  z-index: 45;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  gap: 8px;
+}
+.dock .primary {
+  min-width: 150px;
+  height: 52px;
+  padding: 0 26px;
+  border: 0;
+  border-radius: 999px;
+  font: 700 16px "Cinzel", Georgia, serif;
+  letter-spacing: 0.04em;
+  color: #231a0c;
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold) 60%, #b99545);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.2s ease;
+}
+.dock .primary:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.08); }
+.dock .primary:active:not(:disabled) { transform: translateY(1px); }
+.dock .primary:disabled { background: linear-gradient(180deg, #4a4236, #332c23); color: var(--muted); box-shadow: none; cursor: default; }
+.dock.has-priority .primary:not(:disabled) { animation: prio 1.8s ease-in-out infinite; }
+.dock.urgent .primary:not(:disabled) { background: linear-gradient(180deg, #ffb46b, #ff8a2a 60%, #c9641a); }
+@keyframes prio { 50% { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 6px rgba(232, 198, 120, 0.18), 0 0 30px rgba(232, 198, 120, 0.45); } }
+.dock .secondary {
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-line);
+  background: var(--glass);
+  font-size: 13px;
+}
+.dock .secondary:hover:not(:disabled) { border-color: var(--gold); }
+.dock button:disabled { cursor: default; }
+.board.awaiting .dock { opacity: 0.6; }
+
+/* ---------- Arrows ---------- */
+/* Arrows draw over the stack tray (and the hand), so one that ends on a stack item stays visible;
+   only a choice to make (the centered prompt) is above them. */
+.arrows { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 66; overflow: visible; }
+.arrow { fill: none; stroke-width: 5; stroke-linecap: round; filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.6)); }
+.arrow.atk { stroke: var(--atk); }
+.arrow.blk { stroke: var(--blk); }
+.arrow.pending { stroke-dasharray: 10 8; animation: dash 0.8s linear infinite; }
+.ah.atk { fill: var(--atk); }
+.ah.blk { fill: var(--blk); }
+/* Stack arrows: the source card of an ability (violet), and a spell or ability's targets (orange). */
+.arrow.src { stroke: #b58cff; stroke-width: 4; stroke-dasharray: 2 9; }
+.arrow.tgt { stroke: var(--picked); stroke-width: 4; }
+.ah.src { fill: #b58cff; }
+.ah.tgt { fill: var(--picked); }
+@keyframes dash { to { stroke-dashoffset: -18; } }
+
+/* ---------- Corner, zoom, menu, viewer, banners ---------- */
+.corner { position: absolute; top: 12px; right: 16px; z-index: 50; display: flex; gap: 6px; opacity: 0.55; transition: opacity 0.2s; }
+.corner:hover { opacity: 1; }
+
+.zoom {
+  --zw: 300px;
+  position: absolute;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: var(--zw);
+  pointer-events: none;
+  opacity: 0;
+  scale: 0.96;
+  transition: opacity 0.12s ease, scale 0.12s ease;
+}
+.zoom.show { opacity: 1; scale: 1; }
+.zcard { width: var(--zw); aspect-ratio: 63 / 88; border-radius: calc(var(--zw) * 0.05); overflow: hidden; background: #1b1712; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7); }
+.zcard img { width: 100%; height: 100%; object-fit: cover; }
+.ztext { padding: 16px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.ztext b { color: var(--gold-hi); font-size: 17px; }
+.ztext i { color: var(--muted); }
+.zextra { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-radius: 10px; background: var(--glass); border: 1px solid var(--glass-line); font-size: 12.5px; }
+.zextra .dmg { color: #ff8a70; }
+
+.menu {
+  position: absolute;
+  z-index: 95;
+  display: none;
+  flex-direction: column;
+  min-width: 190px;
+  max-width: 320px;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(20, 16, 12, 0.96);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  animation: pop 0.12s ease;
+}
+.menu.show { display: flex; }
+.menu .mtitle { padding: 4px 10px 6px; font: 600 11px var(--font); letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
+.menu button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 7px 10px; border: 0; border-radius: 8px; background: none; text-align: left; font-size: 13px; }
+.menu button small { color: var(--muted); font-size: 11px; }
+.menu button:hover, .menu button:focus-visible { background: rgba(232, 198, 120, 0.12); outline: none; }
+@keyframes pop { from { opacity: 0; scale: 0.96; } }
+
+.viewer { position: absolute; inset: 0; z-index: 80; display: none; place-items: center; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(3px); }
+.viewer.open { display: grid; }
+.vpanel { width: min(1400px, 92vw); display: flex; flex-direction: column; border-radius: 16px; background: rgba(20, 16, 12, 0.97); border: 1px solid var(--glass-line); overflow: hidden; }
+.vpanel header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--glass-line); }
+.vpanel header .ghost { margin-left: auto; }
+/* One horizontal row: scroll it by dragging with the mouse, with the wheel, or with the
+   orange scrollbar underneath (always visible). */
+.vgrid {
+  display: flex;
+  gap: 14px;
+  padding: 18px 18px 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  cursor: grab;
+  scroll-snap-type: x proximity;
+}
+.vgrid.dragging { cursor: grabbing; scroll-snap-type: none; }
+.vgrid.dragging .vcard { pointer-events: none; }
+.vgrid::-webkit-scrollbar { height: 14px; }
+.vgrid::-webkit-scrollbar-track { margin: 0 18px; background: rgba(255, 138, 42, 0.12); border-radius: 999px; }
+.vgrid::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #ffb46b, #ff8a2a 60%, #d8681a); border: 2px solid rgba(20, 16, 12, 0.97); border-radius: 999px; }
+.vgrid::-webkit-scrollbar-thumb:hover { background: #ffa04d; }
+.vcard { flex: none; width: min(220px, 16vw, 34vh); padding: 0; border: 2px solid transparent; border-radius: 10px; background: #1b1712; aspect-ratio: 63 / 88; overflow: hidden; scroll-snap-align: start; transition: transform 0.15s ease; }
+.vcard:hover { transform: translateY(-4px); }
+.vcard img { width: 100%; height: 100%; object-fit: cover; }
+.vcard span { display: block; padding: 8px; font-size: 12px; }
+.vcard.playable { border-color: var(--play); box-shadow: 0 0 14px rgba(79, 195, 255, 0.5); cursor: pointer; }
+.muted { color: var(--muted); }
+
+.banner {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  z-index: 70;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  translate: -50% -50%;
+  pointer-events: none;
+}
+.banner span {
+  padding: 10px 48px;
+  font: 700 clamp(22px, 3vw, 44px) "Cinzel", Georgia, serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  background: linear-gradient(90deg, transparent, rgba(12, 10, 8, 0.85) 20%, rgba(12, 10, 8, 0.85) 80%, transparent);
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.8);
+}
+.banner.mine span { color: var(--gold-hi); }
+.banner.theirs span { color: #ffb0a0; }
+.banner.combat span { color: #ff8a70; }
+.banner.show { display: flex; animation: banner 1.3s ease forwards; }
+.banner.sticky { display: flex; pointer-events: auto; animation: rise-b 0.4s ease; }
+@keyframes banner { 0% { opacity: 0; scale: 0.94; } 15%, 70% { opacity: 1; scale: 1; } 100% { opacity: 0; } }
+@keyframes rise-b { from { opacity: 0; } }
+
+.toast {
+  position: absolute;
+  left: 50%;
+  top: 18px;
+  z-index: 99;
+  translate: -50% 0;
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: rgba(157, 42, 28, 0.92);
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+}
+.toast.show { animation: toast 3s ease forwards; }
+@keyframes toast { 0% { opacity: 0; translate: -50% -8px; } 8%, 85% { opacity: 1; translate: -50% 0; } 100% { opacity: 0; } }
+
+/* Prompt the Arena UI can't answer: step aside for Endstep's own UI. */
+.classic-chip { display: none; }
+.board.classic { background: transparent; pointer-events: none; }
+.board.classic > :not(.classic-chip) { display: none !important; }
+.board.classic .classic-chip.show {
+  display: flex;
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  translate: -50% 0;
+  z-index: 99;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 16px;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--gold);
+  font-size: 13px;
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board *, .board *::before, .board *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

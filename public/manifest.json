@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Endstep Arena UI",
+  "version": "0.1.0",
+  "description": "A modern, card-first game UI layered on top of endstep.cc matches. Visual only; Endstep's server stays the source of truth.",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["https://endstep.cc/*"],
+      "js": ["inject.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://endstep.cc/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

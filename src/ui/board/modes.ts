@@ -1,0 +1,162 @@
+// The board's local interaction mode, derived from Endstep's pendingAction.
+// Pure functions: the Board keeps one Mode and swaps it on each click.
+
+import { playerTargetKey } from "../../game/GameController";
+import type { GameState, ModeOption } from "../../game/GameState";
+
+export type Mode =
+  | { kind: "idle" }
+  | { kind: "targets"; valid: Set<string>; selected: string[]; min: number; max: number; mandatory: boolean }
+  | { kind: "cards"; valid: Set<string>; selected: string[]; min: number; max: number; mandatory: boolean; mana: boolean; offBoard: boolean }
+  | { kind: "attackers"; valid: Set<string>; assignments: Map<string, number>; defenders?: ModeOption[]; currentDefender: number }
+  | {
+      kind: "blockers";
+      validBlockers: Set<string>;
+      attackerIds: Set<string>;
+      eligibility: Map<string, Set<string>>;
+      assignments: Map<string, string>;
+      selectedBlocker: string | null;
+    }
+  /** Trigger/attacker/blocker order in a box (first = leftmost); optional triggers can be declined. */
+  | { kind: "order"; order: string[]; declined: string[] }
+  /** Answered from the prompt panel (modes, colors, numbers, yes/no, mulligan). */
+  | { kind: "choice"; selectedModes: number[]; number: number }
+  /** Not supported by the Arena UI yet: hand the prompt to Endstep's own UI. */
+  | { kind: "classic"; reason: string };
+
+const CHOICE_TYPES = new Set([
+  "CHOOSE_MODE", "CHOOSE_ABILITY", "CHOOSE_COLOR", "CHOOSE_TYPE", "CHOOSE_MANA", "CHOOSE_PILE",
+  "CHOOSE_NUMBER", "YES_NO", "MULLIGAN",
+]);
+
+/** Changes whenever Endstep issues a new prompt, so local selections reset. */
+export function promptKey(state: GameState | null): string {
+  const p = state?.pending;
+  return p ? `${state!.matchId}|${p.type}|${p.promptVersion ?? ""}|${p.message ?? ""}|${p.optionCardIds.join(",")}` : "none";
+}
+
+function battlefieldIds(state: GameState): Set<string> {
+  const ids = new Set<string>();
+  for (const p of state.players) {
+    for (const c of p.battlefield) ids.add(c.id);
+    for (const c of p.hand ?? []) ids.add(c.id);
+  }
+  for (const s of state.stack) ids.add(s.id);
+  return ids;
+}
+
+export function deriveMode(state: GameState | null): Mode {
+  const p = state?.pending;
+  if (!state || !p) return { kind: "idle" };
+  switch (p.type) {
+    case "PRIORITY":
+      return { kind: "idle" };
+    case "CHOOSE_TARGETS": {
+      // Players are -(seat + 1) on the wire, whether listed as ids or by name.
+      const valid = new Set(p.optionCardIds.map((id) => (/^-\d+$/.test(id) ? playerTargetKey(-Number(id) - 1) : id)));
+      for (const name of p.stringOptions) {
+        const i = state.players.findIndex((pl) => (pl.targetName ?? pl.name) === name);
+        if (i >= 0) valid.add(playerTargetKey(i));
+      }
+      return { kind: "targets", valid, selected: [], min: p.min, max: p.max, mandatory: p.mandatory };
+    }
+    case "CHOOSE_CARDS": {
+      if (p.contextType === "sideboard") return { kind: "classic", reason: "Sideboarding" };
+      const valid = new Set(p.optionCardIds);
+      const onBoard = battlefieldIds(state);
+      const offBoard = [...valid].some((id) => !onBoard.has(id));
+      return { kind: "cards", valid, selected: [], min: Math.min(p.min, valid.size), max: p.max, mandatory: p.mandatory, mana: false, offBoard };
+    }
+    case "PAY_MANA":
+      return { kind: "cards", valid: new Set(p.optionCardIds), selected: [], min: 0, max: 999, mandatory: false, mana: true, offBoard: false };
+    case "DECLARE_ATTACKERS":
+      return {
+        kind: "attackers",
+        valid: new Set(p.optionCardIds),
+        assignments: new Map(),
+        defenders: p.modeOptions.length > 1 ? p.modeOptions : undefined,
+        currentDefender: p.modeOptions[0]?.index ?? 0,
+      };
+    case "DECLARE_BLOCKERS": {
+      const eligibility = new Map(Object.entries(p.blockerEligibility).map(([b, as]) => [b, new Set(as)]));
+      const attackerIds = new Set<string>();
+      eligibility.forEach((as) => as.forEach((a) => attackerIds.add(a)));
+      if (attackerIds.size === 0) {
+        for (const pl of state.players) for (const c of pl.battlefield) if (c.isAttacking) attackerIds.add(c.id);
+      }
+      return { kind: "blockers", validBlockers: new Set(p.optionCardIds), attackerIds, eligibility, assignments: new Map(), selectedBlocker: null };
+    }
+    case "ORDER_ABILITIES":
+    case "ORDER_ATTACKERS":
+    case "ORDER_BLOCKERS":
+      return { kind: "order", order: p.orderOptions.map((o) => o.id), declined: [] };
+    default:
+      if (CHOICE_TYPES.has(p.type)) return { kind: "choice", selectedModes: [], number: p.min };
+      if (p.type === "CHOOSE_CARD_NAME" && p.stringOptions.length > 0) return { kind: "choice", selectedModes: [], number: 0 };
+      return { kind: "classic", reason: humanize(p.type) };
+  }
+}
+
+export const humanize = (s: string) => s.toLowerCase().replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+
+/** Applies a click on a card/player key to the current mode. Returns the new mode. */
+export function clickInMode(mode: Mode, key: string): Mode {
+  switch (mode.kind) {
+    case "targets":
+    case "cards": {
+      if (!mode.valid.has(key)) return mode;
+      const has = mode.selected.includes(key);
+      let selected = has ? mode.selected.filter((k) => k !== key) : [...mode.selected, key];
+      if (selected.length > mode.max) selected = selected.slice(selected.length - mode.max);
+      return { ...mode, selected };
+    }
+    case "attackers": {
+      if (!mode.valid.has(key)) return mode;
+      const assignments = new Map(mode.assignments);
+      if (assignments.has(key)) assignments.delete(key);
+      else assignments.set(key, mode.currentDefender);
+      return { ...mode, assignments };
+    }
+    case "blockers": {
+      if (mode.validBlockers.has(key)) {
+        if (mode.assignments.has(key)) {
+          const assignments = new Map(mode.assignments);
+          assignments.delete(key);
+          return { ...mode, assignments, selectedBlocker: null };
+        }
+        return { ...mode, selectedBlocker: mode.selectedBlocker === key ? null : key };
+      }
+      if (mode.attackerIds.has(key) && mode.selectedBlocker) {
+        const allowed = mode.eligibility.get(mode.selectedBlocker);
+        if (allowed && allowed.size > 0 && !allowed.has(key)) return mode;
+        const assignments = new Map(mode.assignments);
+        assignments.set(mode.selectedBlocker, key);
+        return { ...mode, assignments, selectedBlocker: null };
+      }
+      return mode;
+    }
+    default:
+      return mode;
+  }
+}
+
+/** Defender whose card/player matches a clicked key, for multi-defender attacks. */
+export function defenderForKey(mode: Mode, key: string, state: GameState): number | null {
+  if (mode.kind !== "attackers" || !mode.defenders) return null;
+  const byCard = mode.defenders.find((d) => d.cardId === key);
+  if (byCard) return byCard.index;
+  if (key.startsWith("player:")) {
+    const player = state.players[Number(key.slice(7))];
+    const name = player?.targetName ?? player?.name;
+    const byName = mode.defenders.find((d) => !d.cardId && name && d.description.includes(name));
+    if (byName) return byName.index;
+  }
+  return null;
+}
+
+export function canConfirm(mode: Mode): boolean {
+  if (mode.kind === "cards" && mode.mana) return true;
+  if (mode.kind === "targets" || mode.kind === "cards") return mode.selected.length >= mode.min;
+  return mode.kind === "attackers" || mode.kind === "blockers";
+}
+
