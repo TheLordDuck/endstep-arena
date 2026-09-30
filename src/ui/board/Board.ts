@@ -7,7 +7,7 @@
 import type { AbilityOption, CardView, GameState, PendingActionView, PlayerView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
 import { createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
-import { arrangeMove, canConfirm, clickInMode, defenderForKey, deriveMode, humanize, promptKey, stepNumber, type Mode } from "./modes";
+import { arrangeMove, canConfirm, clickInMode, defenderForKey, deriveMode, humanize, keyForDefender, promptKey, stepNumber, type Mode } from "./modes";
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
 import { currentStep, stepIndex, stepLabel, TURN_STEPS } from "./phases";
 import type { PhaseStops, StopSide } from "../../game/endstep/phaseStops";
@@ -19,6 +19,8 @@ const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => `&#${c.ch
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 /** How long a reveal stays on screen (ms), unless closed sooner. */
 const REVEAL_MS = 12_000;
+/** Arrow key for the prompt text (target arrows start there). */
+const PROMPT_KEY = "prompt";
 /** Endstep's logo (the site's own icon), for a player without an avatar picture. */
 const ENDSTEP_LOGO = `<img class="logo" src="/favicon.svg" alt="" draggable="false">`;
 /** Clear space (px) kept around each player's avatar, so no card sits under it. */
@@ -113,6 +115,9 @@ export class Board {
   /** Scry/surveil: a card being dragged between the piles. */
   private arrDrag: { id: string; startX: number; startY: number; el: HTMLElement; active: boolean } | null = null;
   private arrowsTimer = 0;
+  /** Aiming an attacker: the pointer (client coordinates) its arrow follows. */
+  private aimPoint: { x: number; y: number } | null = null;
+  private aimFrame = 0;
 
   constructor(private readonly controller: GameController, private readonly hooks: BoardHooks) {
     this.el = document.createElement("div");
@@ -457,6 +462,7 @@ export class Board {
   private localState(id: string): string {
     const m = this.mode;
     if (m.kind === "attackers" && m.assignments.has(id)) return `attack:${m.assignments.get(id)}`;
+    if (m.kind === "attackers" && m.aiming === id) return "aiming";
     if (m.kind === "blockers" && m.assignments.has(id)) return `block:${m.assignments.get(id)}`;
     if (m.kind === "blockers" && m.selectedBlocker === id) return "blocker";
     if ((m.kind === "targets" || m.kind === "cards") && m.selected.includes(id)) return "selected";
@@ -677,6 +683,8 @@ export class Board {
     const attackingAssigned = mode.kind === "attackers" ? mode.assignments : null;
     const blockAssigned = mode.kind === "blockers" ? mode.assignments : null;
     this.el.classList.toggle("declaring-attacks", mode.kind === "attackers");
+    this.el.classList.toggle("aiming-attack", mode.kind === "attackers" && !!mode.aiming);
+    this.el.classList.toggle("aiming-target", mode.kind === "targets");
     for (const [id, el] of this.cardEls) {
       const c = this.cardData.get(id);
       const selectable = this.isSelectable(id);
@@ -691,7 +699,8 @@ export class Board {
       el.classList.toggle("selected",
         ((mode.kind === "targets" || mode.kind === "cards") && mode.selected.includes(id)) ||
         (mode.kind === "blockers" && mode.selectedBlocker === id));
-      el.classList.toggle("attacking", !!c?.isAttacking || !!attackingAssigned?.has(id));
+      el.classList.toggle("attacking", !!c?.isAttacking || !!attackingAssigned?.has(id) || (mode.kind === "attackers" && mode.aiming === id));
+      el.classList.toggle("aiming", mode.kind === "attackers" && mode.aiming === id);
       el.classList.toggle("blocking", !!c?.isBlocking || !!blockAssigned?.has(id));
     }
     for (const slot of this.slotEls.values()) {
@@ -717,7 +726,8 @@ export class Board {
       case "cards":
         return m.valid.has(key);
       case "attackers":
-        return m.valid.has(key);
+        // While aiming, the players and planeswalkers it can attack light up.
+        return m.valid.has(key) || (!!m.aiming && !!this.state && defenderForKey(m, key, this.state) !== null);
       case "blockers":
         return m.validBlockers.has(key) || (!!m.selectedBlocker && m.attackerIds.has(key));
       default:
@@ -919,7 +929,8 @@ export class Board {
         const url = src ? imageUrl(src) : null;
         const thumb = src && url ? `<div class="pthumb" data-zoom="${esc(src.id)}" title="${esc(src.name)}"><img src="${esc(url)}" alt="" draggable="false"></div>` : "";
         // With the card's picture there, its name label above the message is redundant.
-        html = `<div class="pline">${thumb}<div class="msg">${thumb ? "" : source}${withSymbols(esc(p.message ?? defaultMessage(p.type, m)))}</div></div>` + controls;
+        const msg = m.kind === "attackers" && m.aiming ? "Click a player or planeswalker to attack" : p.message ?? defaultMessage(p.type, m);
+        html = `<div class="pline">${thumb}<div class="msg">${thumb ? "" : source}${withSymbols(esc(msg))}</div></div>` + controls;
       } else {
         const { title, sub } = promptTitle(state, m);
         // A question from a card (a trigger's yes/no, a color, a number…) shows that card beside
@@ -1169,9 +1180,6 @@ export class Board {
   private choiceControls(state: GameState): string {
     const p = state.pending!;
     const m = this.mode;
-    if (m.kind === "attackers" && m.defenders) {
-      return `<div class="choices">${m.defenders.map((d) => `<button class="opt${d.index === m.currentDefender ? " on" : ""}" data-defender="${d.index}">${esc(d.description)}</button>`).join("")}</div>`;
-    }
     if ((m.kind === "cards" && m.offBoard) || (m.kind === "targets" && p.optionCardIds.some((id) => !isPlayerId(id) &&!this.cardEls.get(id)?.isConnected))) {
       // Cards from a library, graveyard or exile: an Arena fan to pick from (orange = picked).
       // Cancel (when the choice can be declined) goes under the fan; Submit stays bottom right.
@@ -1472,7 +1480,7 @@ export class Board {
     }
     // Floating mana sits in the gap between the player's piles and the first step of their turn
     // bar, centered on the bar; its symbols shrink to fit so it never overlaps either.
-    for (const [pool, piles, bar] of [[".me-mana", ".me-piles", ".me-bar"], [".opp-mana", ".opp-piles", ".opp-bar"]] as const) {
+    for (const [pool, piles, bar, plate] of [[".me-mana", ".me-piles", ".me-bar", ".me-plate"], [".opp-mana", ".opp-piles", ".opp-bar", ".opp-plate"]] as const) {
       const el = this.q(pool);
       const n = el.children.length;
       if (!n) continue;
@@ -1480,7 +1488,13 @@ export class Board {
       const barEl = this.q(bar);
       const b = barEl.getBoundingClientRect();
       // The visible piles (their container is a little wider than the cards).
-      const pilesRight = Math.max(box.left, ...[...this.q(piles).querySelectorAll<HTMLElement>(".pile")].map((x) => x.getBoundingClientRect().right));
+      // (The opponent's piles are on the right: their mana starts after their name plate instead.)
+      const pilesEl = this.q(piles);
+      const pilesBox = pilesEl.getBoundingClientRect();
+      const pilesLeftSide = pilesBox.left + pilesBox.width / 2 < box.left + box.width / 2;
+      const pilesRight = pilesLeftSide
+        ? Math.max(box.left, ...[...pilesEl.querySelectorAll<HTMLElement>(".pile")].map((x) => x.getBoundingClientRect().right))
+        : Math.max(box.left + 10, this.q(plate).getBoundingClientRect().right);
       const firstStep = barEl.querySelector<HTMLElement>(".track-half.left > *")?.getBoundingClientRect();
       const left = pilesRight + 6;
       const right = (firstStep?.width ? firstStep.left : b.left) - 6;
@@ -1591,7 +1605,8 @@ export class Board {
   }
 
   private anchor(key: string): DOMRect | null {
-    const el = key.startsWith("player:")
+    const el = key === PROMPT_KEY ? this.el.querySelector<HTMLElement>(".prompt.show")
+      : key.startsWith("player:")
       ? this.el.querySelector<HTMLElement>(`.life-orb[data-player="${key.slice(7)}"]`) ?? this.el.querySelector<HTMLElement>(`.tile[data-player="${key.slice(7)}"]`)
       : this.cardEls.get(key);
     // Not shown (e.g. on another page of a crowded zone): no arrow.
@@ -1605,6 +1620,8 @@ export class Board {
   private point(key: string, origin: DOMRect): { x: number; y: number } | null {
     const r = this.anchor(key);
     if (!r) return null;
+    // The prompt text: arrows leave from its left edge, toward the board.
+    if (key === PROMPT_KEY) return { x: r.left - origin.left, y: r.top + r.height / 2 - origin.top };
     const el = key.startsWith("player:") ? null : this.cardEls.get(key);
     if (el?.parentElement?.classList.contains("stack") && !el.closest(".stack-dock.collapsed")) {
       // Items under the top only show their top-left corner, so aim there.
@@ -1639,20 +1656,53 @@ export class Board {
     if (m.kind === "blockers") m.assignments.forEach((att, blk) => links.push({ from: blk, to: att, kind: "blk", pending: true }));
     if (m.kind === "attackers" && m.defenders) {
       m.assignments.forEach((def, att) => {
-        const d = m.defenders!.find((x) => x.index === def);
-        if (d?.cardId) links.push({ from: att, to: d.cardId, kind: "atk", pending: true });
+        const to = keyForDefender(m, def, state);
+        if (to) links.push({ from: att, to, kind: "atk", pending: true });
       });
     }
-    g.innerHTML = links.map((l) => {
-      const a = this.point(l.from, origin);
-      const b = this.point(l.to, origin);
-      if (!a || !b) return "";
+    const path = (a: { x: number; y: number }, b: { x: number; y: number }, cls: string, kind: string) => {
       const { x: x1, y: y1 } = a;
       const { x: x2, y: y2 } = b;
       const mx = (x1 + x2) / 2 + (y2 - y1) * 0.15;
       const my = (y1 + y2) / 2 - Math.abs(x2 - x1) * 0.1;
-      return `<path class="arrow ${l.kind}${l.pending ? " pending" : ""}" d="M${x1},${y1} Q${mx},${my} ${x2},${y2}" marker-end="url(#ah-${l.kind})"/>`;
+      return `<path class="${cls}" d="M${x1},${y1} Q${mx},${my} ${x2},${y2}" marker-end="url(#ah-${kind})"/>`;
+    };
+    let html = links.map((l) => {
+      const a = this.point(l.from, origin);
+      const b = this.point(l.to, origin);
+      return a && b ? path(a, b, `arrow ${l.kind}${l.pending ? " pending" : ""}`, l.kind) : "";
     }).join("");
+    // Choosing targets: the prompt text points at the targets picked so far.
+    const aim = this.aimSource();
+    if (m.kind === "targets" && !this.awaiting) {
+      for (const t of m.selected) {
+        const a = this.point(PROMPT_KEY, origin);
+        const b = this.point(t, origin);
+        if (a && b) html += path(a, b, "arrow tgt pending", "tgt");
+      }
+    }
+    // An attacker being aimed, or a spell/ability choosing targets: an arrow from it to the
+    // pointer, snapping onto what it can go at.
+    if (aim && this.aimPoint) {
+      const a = this.point(aim.from, origin);
+      const under = document.elementFromPoint(this.aimPoint.x, this.aimPoint.y);
+      const overKey = under instanceof HTMLElement ? this.keyFromTarget(under) : null;
+      const snap = overKey && overKey !== aim.from && aim.accepts(overKey) ? this.point(overKey, origin) : null;
+      const b = snap ?? { x: this.aimPoint.x - origin.left, y: this.aimPoint.y - origin.top };
+      if (a && Math.hypot(b.x - a.x, b.y - a.y) > 12) html += path(a, b, `arrow ${aim.kind} aim${snap ? " locked" : ""}`, aim.kind);
+    }
+    g.innerHTML = html;
+  }
+
+  /** What an arrow follows the pointer from right now: an attacker being aimed, or the prompt
+      text asking for targets. */
+  private aimSource(): { from: string; kind: "atk" | "tgt"; accepts: (key: string) => boolean } | null {
+    const m = this.mode;
+    const state = this.state;
+    if (!state || this.awaiting) return null;
+    if (m.kind === "attackers" && m.aiming) return { from: m.aiming, kind: "atk", accepts: (k) => defenderForKey(m, k, state) !== null };
+    if (m.kind !== "targets" || m.selected.length >= m.max || this.el.querySelector(".prompt .fan")) return null;
+    return { from: PROMPT_KEY, kind: "tgt", accepts: (k) => m.valid.has(k) && !m.selected.includes(k) };
   }
 
   // ---------------------------------------------------------------- events
@@ -1740,6 +1790,7 @@ export class Board {
         }
       }
       if (e.key === "Escape" && this.el.classList.contains("live")) {
+        if (m.kind === "attackers" && m.aiming) this.setMode({ ...m, aiming: null });
         this.hideMenu();
         this.hideConfirm();
         this.closeViewer();
@@ -1841,6 +1892,8 @@ export class Board {
     if (menuItem) return this.onMenuItem(menuItem);
 
     const key = this.keyFromTarget(t);
+    // Aiming an attacker: a click on nothing in particular puts the arrow down.
+    if (!key && !btn && this.mode.kind === "attackers" && this.mode.aiming) { this.setMode({ ...this.mode, aiming: null }); return; }
     if (!key || this.awaiting) return;
     this.onSelectKey(key, e);
   }
@@ -1853,10 +1906,15 @@ export class Board {
       return;
     }
     if (m.kind === "attackers") {
+      // Several defenders: click an attacker, then the player or planeswalker it attacks.
+      // (Clicking a defender without an attacker in hand picks it for "All attack".)
       const d = defenderForKey(m, key, state);
-      if (d !== null) { this.setMode({ ...m, currentDefender: d }); return; }
+      if (d !== null && !m.aiming) { this.setMode({ ...m, currentDefender: d }); return; }
+      const next = clickInMode(m, key, d);
+      if (next !== m) this.setMode(next);
+      return;
     }
-    if (m.kind === "targets" || m.kind === "cards" || m.kind === "attackers" || m.kind === "blockers") {
+    if (m.kind === "targets" || m.kind === "cards" || m.kind === "blockers") {
       const next = clickInMode(m, key);
       if (next === m) return;
       // Single-target prompts submit on click, as in Endstep.
@@ -1901,11 +1959,11 @@ export class Board {
       case "cancel": c.cancel(); break;
       case "decline": c.no(); break;
       case "clear":
-        if (m.kind === "attackers") this.setMode({ ...m, assignments: new Map() });
+        if (m.kind === "attackers") this.setMode({ ...m, assignments: new Map(), aiming: null });
         if (m.kind === "blockers") this.setMode({ ...m, assignments: new Map(), selectedBlocker: null });
         return;
       case "all-attack":
-        if (m.kind === "attackers") this.setMode({ ...m, assignments: new Map([...m.valid].map((id) => [id, m.currentDefender])) });
+        if (m.kind === "attackers") this.setMode({ ...m, assignments: new Map([...m.valid].map((id) => [id, m.currentDefender])), aiming: null });
         return;
       case "confirm":
         if (m.kind === "attackers") c.declareAttackers(m.assignments, !!m.defenders);
@@ -1977,9 +2035,6 @@ export class Board {
       const type = p.type === "CHOOSE_ABILITY" || p.type === "YES_NO" || p.type === "MULLIGAN" ? null : p.type;
       if (!type) return false;
       c.chooseString(type as "CHOOSE_COLOR", d.string);
-    } else if (d.defender !== undefined && m.kind === "attackers") {
-      this.setMode({ ...m, currentDefender: Number(d.defender) });
-      return true;
     } else if (d.arr !== undefined && m.kind === "arrange") {
       // A click sends the card to the other pile.
       this.setMode(arrangeMove(m, d.arr, m.top.includes(d.arr) ? "tray" : "top"));
@@ -2056,6 +2111,12 @@ export class Board {
   }
 
   private onPointerMove(e: PointerEvent): void {
+    // Always kept, so an arrow that starts aiming (a new target prompt) starts at the pointer.
+    this.aimPoint = { x: e.clientX, y: e.clientY };
+    if (this.aimSource()) {
+      cancelAnimationFrame(this.aimFrame);
+      this.aimFrame = requestAnimationFrame(() => this.drawArrows());
+    }
     const ad = this.arrDrag;
     if (ad) {
       const dx = e.clientX - ad.startX;
@@ -2287,7 +2348,7 @@ export class Board {
     }
     if (this.isSelectable(key)) {
       const m = this.mode;
-      const label = m.kind === "attackers" ? (m.assignments.has(key) ? "Remove from attack" : "Attack")
+      const label = m.kind === "attackers" ? (m.assignments.has(key) ? "Remove from attack" : m.valid.has(key) ? "Attack" : "Attack this")
         : m.kind === "blockers" ? (m.validBlockers.has(key) ? "Block with this" : "Block this attacker")
         : m.kind === "cards" && m.mana ? "Tap for mana"
         : "Select";

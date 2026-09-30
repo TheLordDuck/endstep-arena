@@ -8,7 +8,9 @@ export type Mode =
   | { kind: "idle" }
   | { kind: "targets"; valid: Set<string>; selected: string[]; min: number; max: number; mandatory: boolean }
   | { kind: "cards"; valid: Set<string>; selected: string[]; min: number; max: number; mandatory: boolean; mana: boolean; offBoard: boolean }
-  | { kind: "attackers"; valid: Set<string>; assignments: Map<string, number>; defenders?: ModeOption[]; currentDefender: number }
+  /** With several defenders (a planeswalker or battle in play), clicking an attacker "aims" it:
+      an arrow follows the pointer until a player or planeswalker is clicked. */
+  | { kind: "attackers"; valid: Set<string>; assignments: Map<string, number>; defenders?: ModeOption[]; currentDefender: number; aiming: string | null }
   | {
       kind: "blockers";
       validBlockers: Set<string>;
@@ -79,6 +81,7 @@ export function deriveMode(state: GameState | null): Mode {
         assignments: new Map(),
         defenders: p.modeOptions.length > 1 ? p.modeOptions : undefined,
         currentDefender: p.modeOptions[0]?.index ?? 0,
+        aiming: null,
       };
     case "DECLARE_BLOCKERS": {
       const eligibility = new Map(Object.entries(p.blockerEligibility).map(([b, as]) => [b, new Set(as)]));
@@ -107,8 +110,9 @@ export function deriveMode(state: GameState | null): Mode {
 
 export const humanize = (s: string) => s.toLowerCase().replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 
-/** Applies a click on a card/player key to the current mode. Returns the new mode. */
-export function clickInMode(mode: Mode, key: string): Mode {
+/** Applies a click on a card/player key to the current mode. Returns the new mode.
+    `defender`: the defender index the key stands for (see `defenderForKey`), when attacking. */
+export function clickInMode(mode: Mode, key: string, defender: number | null = null): Mode {
   switch (mode.kind) {
     case "targets":
     case "cards": {
@@ -119,6 +123,20 @@ export function clickInMode(mode: Mode, key: string): Mode {
       return { ...mode, selected };
     }
     case "attackers": {
+      if (mode.defenders) {
+        // Aiming: a defender takes the attacker; anything else stops aiming.
+        if (mode.aiming && defender !== null) {
+          const assignments = new Map(mode.assignments).set(mode.aiming, defender);
+          return { ...mode, assignments, aiming: null };
+        }
+        if (!mode.valid.has(key)) return mode.aiming ? { ...mode, aiming: null } : mode;
+        if (mode.assignments.has(key)) {
+          const assignments = new Map(mode.assignments);
+          assignments.delete(key);
+          return { ...mode, assignments, aiming: null };
+        }
+        return { ...mode, aiming: mode.aiming === key ? null : key };
+      }
       if (!mode.valid.has(key)) return mode;
       const assignments = new Map(mode.assignments);
       if (assignments.has(key)) assignments.delete(key);
@@ -178,10 +196,27 @@ export function defenderForKey(mode: Mode, key: string, state: GameState): numbe
   const byCard = mode.defenders.find((d) => d.cardId === key);
   if (byCard) return byCard.index;
   if (key.startsWith("player:")) {
-    const player = state.players[Number(key.slice(7))];
+    const seat = Number(key.slice(7));
+    const player = state.players[seat];
     const name = player?.targetName ?? player?.name;
     const byName = mode.defenders.find((d) => !d.cardId && name && d.description.includes(name));
     if (byName) return byName.index;
+    // A single player to attack (1v1): any opponent's plate stands for it.
+    const players = mode.defenders.filter((d) => !d.cardId);
+    if (players.length === 1 && seat !== state.viewerSeat) return players[0]!.index;
+  }
+  return null;
+}
+
+/** The card/player key a defender stands for on the board (where its arrows point), if any. */
+export function keyForDefender(mode: Mode, index: number, state: GameState): string | null {
+  if (mode.kind !== "attackers" || !mode.defenders) return null;
+  const d = mode.defenders.find((x) => x.index === index);
+  if (!d) return null;
+  if (d.cardId) return d.cardId;
+  for (let seat = 0; seat < state.players.length; seat++) {
+    const key = playerTargetKey(seat);
+    if (defenderForKey(mode, key, state) === index) return key;
   }
   return null;
 }

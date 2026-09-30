@@ -4,10 +4,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GameController } from "../src/game/GameController";
 import { normalize, type Raw } from "../src/game/endstep/normalize";
-import { clickInMode, deriveMode } from "../src/ui/board/modes";
+import { clickInMode, defenderForKey, deriveMode, keyForDefender } from "../src/ui/board/modes";
 import type { WireAction } from "../src/shared/protocol";
 import { coversStops } from "../src/game/endstep/phaseStops";
-import { isFrontRow, isLand } from "../src/ui/board/cards";
+import { isFrontRow, isLand, ptCounterDelta } from "../src/ui/board/cards";
 
 function setup(pendingAction: Raw, extra: Raw = {}) {
   const raw: Raw = {
@@ -71,11 +71,36 @@ test("attacks with several defenders map attacker → defender index", () => {
   });
   let mode = deriveMode(state);
   assert.ok(mode.kind === "attackers" && mode.defenders?.length === 2);
-  mode = { ...mode, currentDefender: 1 };
+  // Click the attacker: it's aimed, not yet attacking.
   mode = clickInMode(mode, "11");
-  assert.ok(mode.kind === "attackers");
+  assert.ok(mode.kind === "attackers" && mode.aiming === "11" && mode.assignments.size === 0);
+  // Then the planeswalker: the attacker goes at it.
+  assert.equal(defenderForKey(mode, "30", state), 1);
+  mode = clickInMode(mode, "30", defenderForKey(mode, "30", state));
+  assert.ok(mode.kind === "attackers" && mode.aiming === null);
+  assert.equal(keyForDefender(mode, 1, state), "30");
   controller.declareAttackers(mode.assignments, true);
   assert.deepEqual(sent[0], { type: "DECLARE_ATTACKERS", attackers: [11], blockers: { 11: 1 }, promptVersion: 5 });
+});
+
+test("aiming an attacker: the opponent's plate is the player, a stray click puts it down", () => {
+  const { state } = setup({
+    type: "DECLARE_ATTACKERS", cardOptions: [{ id: 11 }, { id: 12 }],
+    modeOptions: [{ index: 0, description: "Attack player" }, { index: 1, description: "Attack Jace", cardId: 30 }],
+  });
+  let mode = deriveMode(state);
+  mode = clickInMode(mode, "11");
+  assert.equal(defenderForKey(mode, "player:0", state), null, "can't attack yourself");
+  mode = clickInMode(mode, "player:1", defenderForKey(mode, "player:1", state));
+  assert.ok(mode.kind === "attackers" && mode.assignments.get("11") === 0 && mode.aiming === null);
+  assert.equal(keyForDefender(mode, 0, state), "player:1");
+  // Aim another, then click something that isn't a defender: no attack.
+  mode = clickInMode(mode, "12");
+  mode = clickInMode(mode, "21", null);
+  assert.ok(mode.kind === "attackers" && mode.aiming === null && !mode.assignments.has("12"));
+  // Clicking an attacker already assigned takes it out of the attack.
+  mode = clickInMode(mode, "11");
+  assert.ok(mode.kind === "attackers" && mode.assignments.size === 0 && mode.aiming === null);
 });
 
 test("targets: players are offered by name and sent as -(seat+1)", () => {
@@ -161,4 +186,12 @@ test("command zone: commanders stay, effects are split out with their source car
   const me = state.players[0]!;
   assert.deepEqual(me.commandZone.map((c) => c.id), ["50"]);
   assert.deepEqual(me.effects.map((c) => [c.id, c.effectSourceName]), [["51", "Bear"]]);
+});
+
+test("power/toughness counters count as changing the stats", () => {
+  assert.deepEqual(ptCounterDelta({ P1P1: 2 }), { power: 2, toughness: 2 });
+  assert.deepEqual(ptCounterDelta({ "+1/+1": 3, "-1/-1": 1 }), { power: 2, toughness: 2 });
+  assert.deepEqual(ptCounterDelta({ M1M1: 1, P1P0: 2, CHARGE: 4 }), { power: 1, toughness: -1 });
+  assert.deepEqual(ptCounterDelta({ PLUS1PLUS1: 1 }), { power: 1, toughness: 1 });
+  assert.deepEqual(ptCounterDelta({ LORE: 2 }), { power: 0, toughness: 0 });
 });

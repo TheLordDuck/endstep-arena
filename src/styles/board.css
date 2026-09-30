@@ -260,7 +260,49 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .b.pt { color: #fff; }
 .b.loy { color: #fff; background: #3b3257; }
 .b.dmg { color: #fff; background: #9d2a1c; }
-.b.ctr { color: var(--gold-hi); font-size: calc(var(--cw) * 0.085); }
+/* Counters: pins down the right edge of the card, below its name bar. +1/+1 blue, -1/-1 red,
+   other kinds a color of their own (--pc). */
+.pins { display: none; }
+.side .card .pins:not(:empty) {
+  position: absolute;
+  z-index: 3;
+  top: 22%;
+  right: calc(var(--cw) * -0.07);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  pointer-events: auto;
+}
+.pin {
+  --pc: #9aa4b1;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px 1px 1px;
+  border-radius: 999px;
+  font: 700 calc(var(--cw) * 0.07) / 1 var(--font);
+  color: #fff;
+  background: rgba(12, 10, 8, 0.9);
+  border: 1px solid var(--pc);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.7);
+  cursor: help;
+}
+.pin b {
+  display: grid;
+  place-items: center;
+  min-width: calc(var(--cw) * 0.15);
+  aspect-ratio: 1;
+  padding: 0 2px;
+  border-radius: 999px;
+  font: 800 calc(var(--cw) * 0.1) / 1 var(--font);
+  color: #fff;
+  background: var(--pc);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.pin small { font-size: inherit; text-transform: lowercase; white-space: nowrap; }
+.pin.plus { --pc: #2f8fff; }
+.pin.minus { --pc: #e5412f; }
 
 /* Battlefield: only the top of the card (name bar and art), Arena style.
    Creatures get a big power/toughness; lands, artifacts etc. just the frame. */
@@ -349,7 +391,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .side.opp .slot > .card.linked { bottom: auto; top: calc(var(--bf-w) * (0.02 - var(--li, 0) * 0.12)); }
 .slot > .card.linked:hover { filter: grayscale(0.3) brightness(0.95); z-index: 4; transform: none; }
-.slot > .card.linked .badges, .slot > .card.linked .kws { display: none; }
+.slot > .card.linked .badges, .slot > .card.linked .kws, .slot > .card.linked .pins { display: none; }
 
 /* Keywords an effect gave the permanent (green) or took away (red, struck through), down its
    left edge, Arena style. */
@@ -380,8 +422,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .k.gain { color: #eaffe4; background: linear-gradient(180deg, #3d8a4a, #1f5229); border: 1px solid #8fe39c; }
 .k.lost { color: #ffd9d2; background: rgba(90, 24, 16, 0.92); border: 1px solid #ff8a70; text-decoration: line-through; }
 .b.pt i { font-style: normal; }
-.b.pt i.up { color: #8dff8a; }
-.b.pt i.down { color: #ff7a66; }
+/* Power or toughness changed from the printed value. */
+.b.pt i.mod { color: #5ab8ff; }
 .zextra.col { flex-direction: column; gap: 2px; }
 .zextra .kgain { color: #9be7a2; }
 .zextra .klost { color: #ff9a86; }
@@ -673,7 +715,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .life-float.gain { color: #7ad08a; }
 @keyframes float-up { from { opacity: 0; translate: 0 10px; } 15% { opacity: 1; } to { opacity: 0; translate: 0 -46px; } }
 
-.opp-tiles { position: absolute; top: 52px; right: 16px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; z-index: 0; }
+.opp-tiles { position: absolute; top: calc(var(--plate-h) + 24px); left: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; z-index: 0; }
 .tile {
   display: flex;
   gap: 8px;
@@ -702,10 +744,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
   gap: 16px 12px;
   perspective: 900px;
 }
-.opp-piles { grid-row: 1 / 4; align-self: start; margin-top: calc(var(--plate-h) + 18px); }
+/* The opponent's piles: top right under the corner buttons, as big as yours, mirrored (library
+   nearest the middle). The battlefield rows keep clear of them, as of yours. */
+.opp-piles { grid-column: 3; grid-row: 1 / 4; align-self: start; margin-top: 46px; grid-template-areas: "library graveyard exile"; }
 .me-piles { grid-row: 5 / 8; align-self: end; margin-bottom: calc(var(--plate-h) + 18px); }
 /* One row: exile, graveyard, library (and the command zone when there is one). */
 .piles.has-cmd { --pw: min(calc((var(--gutter) - 60px) / 4), 104px, 11vh); grid-template-columns: repeat(4, var(--pw)); grid-template-areas: "exile graveyard library command"; }
+.opp-piles.has-cmd { grid-template-areas: "command library graveyard exile"; }
 .pile[data-zone="library"] { grid-area: library; }
 .pile[data-zone="graveyard"] { grid-area: graveyard; }
 .pile[data-zone="exile"] { grid-area: exile; }
@@ -947,8 +992,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .stack .card.theirs .face { outline: 2px solid rgba(255, 90, 60, 0.75); outline-offset: -2px; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.6); }
 .stack .card:last-child.mine .face { box-shadow: 0 0 0 3px var(--gold-hi), 0 0 34px 10px rgba(255, 214, 90, 0.55); filter: brightness(1.1); }
 .stack .card:last-child.theirs .face { box-shadow: 0 0 0 3px var(--atk), 0 0 34px 10px rgba(255, 90, 60, 0.45); filter: brightness(1.1); }
-.stack .card:not(:last-child) { filter: brightness(0.78); }
-/* Hover brings an item in front of the pile at full size (and shows it big beside it). */
+.stack .card:not(:last-child) { filter: brightness(0.78); }/* Hover brings an item in front of the pile at full size (and shows it big beside it). */
 .stack .card:hover { scale: 1; filter: none; z-index: 40; }
 /* Resolution order, on the visible top-left corner: 1 resolves next. */
 .stack .card::before {
@@ -1605,6 +1649,12 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .arrow.atk { stroke: var(--atk); }
 .arrow.blk { stroke: var(--blk); }
 .arrow.pending { stroke-dasharray: 10 8; animation: dash 0.8s linear infinite; }
+/* An attacker being aimed: its arrow follows the pointer, and goes solid over a player or
+   planeswalker it can attack. */
+.arrow.aim { opacity: 0.75; stroke-dasharray: 10 8; }
+.arrow.aim.locked { opacity: 1; stroke-dasharray: none; }
+.board.aiming-attack, .board.aiming-target { cursor: crosshair; }
+.board.aiming-attack .side.opp .card.selectable:not(.attacking) .face { box-shadow: 0 0 0 3px var(--atk), 0 0 22px 5px rgba(255, 90, 60, 0.7); animation: none; }
 .ah.atk { fill: var(--atk); }
 .ah.blk { fill: var(--blk); }
 /* Stack arrows: the source card of an ability (violet), and a spell or ability's targets (orange). */

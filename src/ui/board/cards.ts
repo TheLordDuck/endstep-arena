@@ -51,6 +51,7 @@ export function createCardEl(id: string): HTMLElement {
       <img class="img" alt="" draggable="false" decoding="async">
     </div>
     <div class="kws"></div>
+    <div class="pins"></div>
     <div class="badges"></div>
     <span class="fx-mark"></span>`;
   const img = el.querySelector("img")!;
@@ -104,6 +105,7 @@ export function updateCardEl(el: HTMLElement, c: CardView, showStats: boolean): 
   escText(el.querySelector(".ftext")!, c.oracleText ?? "");
 
   const badges: string[] = [];
+  const pins: string[] = [];
   if (showStats) {
     // Sagas show their chapter (lore counters), Classes their level, instead of raw counters.
     const hidden = new Set(["loyalty", ...(saga ? ["lore"] : []), ...(klass ? ["level"] : [])]);
@@ -116,16 +118,20 @@ export function updateCardEl(el: HTMLElement, c: CardView, showStats: boolean): 
       badges.push(`<span class="b lvl" title="Class level ${level}">Lv ${level}</span>`);
     }
     const counters = Object.entries(c.counters).filter(([k]) => !hidden.has(k.toLowerCase()));
-    for (const [k, n] of counters) badges.push(`<span class="b ctr" title="${attr(k)} counters">${counterLabel(k, n)}</span>`);
+    // Counters: a pin each on the card's left edge, with how many.
+    for (const [k, n] of counters) pins.push(counterPin(k, n));
     if (c.damage) badges.push(`<span class="b dmg" title="Damage">${c.damage}</span>`);
     // Endstep sends 0/0 (and loyalty 0) for every card, so stats follow the card's type.
     if (c.loyalty !== undefined && hasType(c, "planeswalker")) badges.push(`<span class="b loy">${attr(c.loyalty)}</span>`);
-    // Power/toughness above the printed value is green, below it red, as in Arena.
+    // Power or toughness that isn't the printed value is blue.
+    // (+1/+1, -1/-1… counters change it too, even when Endstep's base values don't show it.)
     if (c.power !== undefined && c.toughness !== undefined && isFrontRow(c)) {
-      badges.push(`<span class="b pt">${stat(c.power, c.basePower)}/${stat(c.toughness, c.baseToughness)}</span>`);
+      const delta = ptCounterDelta(c.counters);
+      badges.push(`<span class="b pt">${stat(c.power, c.basePower, delta.power !== 0)}/${stat(c.toughness, c.baseToughness, delta.toughness !== 0)}</span>`);
     }
   }
   el.querySelector(".badges")!.innerHTML = badges.join("");
+  el.querySelector(".pins")!.innerHTML = pins.join("");
   // Keywords an effect added (or took away), on the permanent itself.
   const kws = showStats ? [
     ...(c.keywordsGranted ?? []).map((k) => `<span class="k gain" title="Gained ${attr(k)}">${attr(k)}</span>`),
@@ -148,16 +154,44 @@ export function lostKeywords(c: Pick<CardView, "keywordsLost" | "oracleText" | "
   return lost.filter((k) => new RegExp(`\\b${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(c.oracleText!));
 }
 
-function stat(value: number | string, base: number | undefined): string {
-  const cls = typeof value === "number" && base !== undefined && value !== base ? (value > base ? "up" : "down") : "";
-  return cls ? `<i class="${cls}">${attr(value)}</i>` : attr(value);
+function stat(value: number | string, base: number | undefined, byCounters: boolean): string {
+  const modified = byCounters || (typeof value === "number" && base !== undefined && value !== base);
+  return modified ? `<i class="mod">${attr(value)}</i>` : attr(value);
 }
 
-function counterLabel(kind: string, n: number): string {
+/** How much a card's power/toughness counters (+1/+1, -1/-1, +1/+0, P1P1, M0M1…) change it. */
+export function ptCounterDelta(counters: Record<string, number>): { power: number; toughness: number } {
+  let power = 0;
+  let toughness = 0;
+  for (const [kind, n] of Object.entries(counters)) {
+    const k = kind.toUpperCase().replace(/PLUS/g, "P").replace(/MINUS/g, "M");
+    const m = /^([PM+-])(\d+)\/?([PM+-])(\d+)$/.exec(k);
+    if (!m) continue;
+    const sign = (s: string) => (s === "M" || s === "-" ? -1 : 1);
+    power += sign(m[1]!) * Number(m[2]) * n;
+    toughness += sign(m[3]!) * Number(m[4]) * n;
+  }
+  return { power, toughness };
+}
+
+/** Colors for counters other than +1/+1 (blue) and -1/-1 (red), picked by the counter's name so
+    a kind keeps its color everywhere. */
+const PIN_COLORS = ["#3fbf7f", "#b07cff", "#ff9f40", "#2ec4b6", "#ff7eb6", "#e0c341", "#9aa4b1", "#8bc34a"];
+
+/** A counter pin: the count in a colored circle, and which counter it is. */
+function counterPin(kind: string, n: number): string {
   const k = kind.toUpperCase();
-  if (k === "P1P1" || k === "+1/+1" || k === "PLUS1PLUS1") return `+${n}/+${n}`;
-  if (k === "M1M1" || k === "-1/-1" || k === "MINUS1MINUS1") return `-${n}/-${n}`;
-  return `${attr(kind.toLowerCase())} ${n}`;
+  let label = kind.toLowerCase().replace(/_/g, " ");
+  let cls = "";
+  let color = "";
+  if (k === "P1P1" || k === "+1/+1" || k === "PLUS1PLUS1") { label = "+1/+1"; cls = " plus"; }
+  else if (k === "M1M1" || k === "-1/-1" || k === "MINUS1MINUS1") { label = "-1/-1"; cls = " minus"; }
+  else {
+    let h = 0;
+    for (const ch of label) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    color = ` style="--pc:${PIN_COLORS[h % PIN_COLORS.length]}"`;
+  }
+  return `<span class="pin${cls}"${color} title="${n} ${attr(label)} counter${n === 1 ? "" : "s"}"><b>${n}</b><small>${attr(label)}</small></span>`;
 }
 
 const counterCount = (c: CardView, kind: string) =>
