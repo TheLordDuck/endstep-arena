@@ -99,6 +99,18 @@ export class Board {
       rest an Arena "Choose One". Both are local until an ability is picked. */
   private localWheel: { cardId: string; options: WheelOption[] } | null = null;
   private abilityPick: { cardId: string; abilities: AbilityOption[] } | null = null;
+  /** The permanent whose "Add … mana" ability was just activated: a color it then asks for is
+      picked on the wheel over it (Starting Town's "Pay 1 life: Add one mana of any color"). */
+  private manaSource: string | null = null;
+  /** The stack item a prompt is about (a trigger asking yes/no, choosing targets…): the question
+      goes under it instead of on a card of its own. */
+  private promptStackKey: string | null = null;
+  /** The printing (set and number) each card was last seen with, by id and by owner + name: a
+      spell on the stack (or a prompt's card) may come without it, and should keep the art its
+      player chose instead of falling back to the default one. */
+  private printings = new Map<string, { setCode: string; collectorNumber: string }>();
+  /** Per permanent: who blocks it and what targets it (see groupKey). */
+  private situation = new Map<string, string>();
   /** Crowded zones shown a page at a time: the page shown, by zone ("me:others", "opp:full"…). */
   private pages = new Map<string, number>();
   /** Zones laid out in pages this time, for their arrows. */
@@ -251,6 +263,7 @@ export class Board {
         for (const c of zone) this.cardData.set(c.id, c);
       }
     }
+    for (const c of this.cardData.values()) this.rememberPrinting(c);
     for (const c of state.pending?.optionCards ?? []) if (!this.cardData.has(c.id)) this.cardData.set(c.id, c);
 
     this.linkEffects(state);
@@ -271,6 +284,12 @@ export class Board {
       attachedTo.set(c.id, host.id);
       host.attachmentIds.push(c.id);
     }
+    // What else is going on with each permanent, so only the ones in the same situation pile
+    // together: the creatures blocking it, and the stack items targeting it.
+    this.situation.clear();
+    const note = (id: string, what: string) => this.situation.set(id, `${this.situation.get(id) ?? ""}${what};`);
+    for (const c of onBattlefield.values()) for (const a of c.blockingIds) note(a, `blocked:${c.id}`);
+    for (const s of state.stack) for (const t of s.targets) note(t, `target:${s.id}`);
     this.renderBattlefield(this.q(".side.me"), z.me, attachedTo);
     this.renderBattlefield(this.q(".side.opp"), z.opp, attachedTo);
     this.renderHand(z.me);
@@ -340,7 +359,7 @@ export class Board {
     const units = new Map<string, CardView[]>();
     for (const c of cards) {
       if (attachedTo.has(c.id)) continue;
-      const key = (this.held.has(c.id) ? null : groupKey(c, this.localState(c.id), this.effectsByCard.get(c.id)?.length ?? 0)) ?? c.id;
+      const key = (this.held.has(c.id) ? null : groupKey(c, this.localState(c.id) + (this.situation.get(c.id) ?? ""), this.effectsByCard.get(c.id)?.length ?? 0)) ?? c.id;
       const unit = units.get(key);
       if (unit) unit.push(c);
       else units.set(key, [c]);
@@ -572,7 +591,8 @@ export class Board {
     this.stackEls.clear();
     // stack[0] is the top (Endstep auto-yield checks stack[0]); draw the top last so it sits in front.
     const els = stack.slice().reverse().map((s, i) => {
-      const source = s.card ?? (s.sourceCardId ? this.cardData.get(s.sourceCardId) : undefined);
+      const known = s.sourceCardId ? this.cardData.get(s.sourceCardId) : undefined;
+      const source = s.card ? this.withPrinting(known ? { ...known, ...s.card, setCode: s.card.setCode ?? known.setCode, collectorNumber: s.card.collectorNumber ?? known.collectorNumber } : s.card, s.controllerId) : known;
       const card: CardView = {
         ...(source ?? blankCard(s.id, s.name)),
         // A spell keeps its card id, so it animates from the hand onto the stack.
@@ -906,6 +926,8 @@ export class Board {
     // Choices (mulligan, modes, trigger order, yes/no, cards to pick…) take the whole screen,
     // Arena style: a title, the options, and big buttons. Attack defenders stay a small box.
     let arena = false;
+    let focus = false;
+    let stackKey: string | null = null;
     const pick = this.abilityPick;
     if (pick && (!p || p.type === "PRIORITY")) {
       // A permanent's abilities, one card each (Arena's Choose One); picking one activates it.
@@ -930,7 +952,22 @@ export class Board {
         const thumb = src && url ? `<div class="pthumb" data-zoom="${esc(src.id)}" title="${esc(src.name)}"><img src="${esc(url)}" alt="" draggable="false"></div>` : "";
         // With the card's picture there, its name label above the message is redundant.
         const msg = m.kind === "attackers" && m.aiming ? "Click a player or planeswalker to attack" : p.message ?? defaultMessage(p.type, m);
-        html = `<div class="pline">${thumb}<div class="msg">${thumb ? "" : source}${withSymbols(esc(msg))}</div></div>` + controls;
+        focus = !!(src && url) && (m.kind === "targets" || m.kind === "cards" || p.type === "YES_NO");
+        stackKey = focus && !this.stackHidden ? this.stackKeyFor(p) : null;
+        if (stackKey) {
+          // Already on the stack (a trigger, a spell): the question goes right under it.
+          focus = false;
+          const hint = focusHint(m);
+          html = `<div class="ftext"><div class="msg">${withSymbols(esc(msg))}</div>${hint ? `<p>${esc(hint)}</p>` : ""}</div>` + controls;
+        } else if (focus) {
+          // Paying for a card or choosing its targets: Arena shows that card big on the right,
+          // with what to do in large type under it.
+          const hint = focusHint(m);
+          html = `<div class="fbig" data-zoom="${esc(src!.id)}"><img src="${esc(url!)}" alt="${esc(src!.name)}" draggable="false"></div>
+            <div class="ftext"><div class="msg">${withSymbols(esc(msg))}</div>${hint ? `<p>${esc(hint)}</p>` : ""}</div>` + controls;
+        } else {
+          html = `<div class="pline">${thumb}<div class="msg">${thumb ? "" : source}${withSymbols(esc(msg))}</div></div>` + controls;
+        }
       } else {
         const { title, sub } = promptTitle(state, m);
         // A question from a card (a trigger's yes/no, a color, a number…) shows that card beside
@@ -954,12 +991,25 @@ export class Board {
       box.dataset.sig = html;
       const sameBox = m.kind === "order" && box.dataset.orderKey === this.modeKey && this.patchOrderBox(box, m);
       if (!sameBox) box.innerHTML = html;
+      const q = box.querySelector<HTMLInputElement>(".name-q");
+      if (q) {
+        this.fillNameResults(q);
+        q.focus();
+      }
       if (m.kind === "order") box.dataset.orderKey = this.modeKey;
       else delete box.dataset.orderKey;
     }
     box.classList.toggle("show", html !== "");
     box.classList.toggle("center", controls !== "");
     box.classList.toggle("arena", arena);
+    box.classList.toggle("focus", focus);
+    box.classList.toggle("on-stack", !!stackKey);
+    if (this.promptStackKey !== stackKey) {
+      if (this.promptStackKey) this.cardEls.get(this.promptStackKey)?.classList.remove("asking");
+      this.promptStackKey = stackKey;
+    }
+    if (stackKey) this.cardEls.get(stackKey)?.classList.add("asking");
+    this.el.classList.toggle("focus-open", focus);
     box.classList.toggle("peek", arena && this.peeking);
     // The action buttons (Done, Cancel for a card picker) stay above a full-screen choice.
     this.el.classList.toggle("arena-open", arena && !this.peeking);
@@ -987,7 +1037,7 @@ export class Board {
     const tile = (id: string, i: number, top: boolean) => {
       const c = this.cardData.get(id);
       const url = c ? imageUrl(c, "large") : null;
-      const tag = top ? (i === 0 ? "Next" : String(i + 1)) : "";
+      const tag = top && !m.pick ? (i === 0 ? "Next" : String(i + 1)) : "";
       return `<button class="arr-card" data-arr="${esc(id)}" data-zoom="${esc(id)}" style="--i: ${i}">
         ${url ? `<img src="${esc(url)}" alt="${esc(c?.name ?? "")}" draggable="false">` : `<span>${esc(c?.name ?? id)}</span>`}
         ${tag ? `<b class="arr-tag">${tag}</b>` : ""}</button>`;
@@ -997,11 +1047,13 @@ export class Board {
       <div class="arr-row" style="--n: ${Math.max(1, ids.length)}">${ids.map((id, i) => tile(id, i, key === "top")).join("") || '<div class="arr-empty">Drag cards here</div>'}</div>
     </section>`;
     const trayLabel = m.context === "surveil" ? "Graveyard" : "Bottom of Library";
-    const topLabel = m.hasTray ? (m.context === "surveil" ? "Library" : "Top of Library") : m.context === "library_top" ? "Top of Library" : "Order";
+    const topLabel = m.pick ? "Hand" : m.hasTray ? (m.context === "surveil" ? "Library" : "Top of Library") : m.context === "library_top" ? "Top of Library" : "Order";
+    const ready = !m.pick || (m.tray.length >= m.pick.min && m.tray.length <= m.pick.max);
+    const done = m.pick ? `Done · ${m.tray.length}/${m.pick.max}` : "Done";
     return `<div class="arrange${m.hasTray ? " two" : ""}">
         ${m.hasTray ? zone("tray", trayLabel, m.tray) : ""}${zone("top", topLabel, m.top)}
       </div>
-      <div class="choices big"><button class="opt primary" data-arrange-done>Done</button></div>`;
+      <div class="choices big"><button class="opt primary" data-arrange-done ${ready ? "" : "disabled"}>${esc(done)}</button></div>`;
   }
 
   /** Arena's card fan: cards spread in an arc, with a slider under it when they don't all fit.
@@ -1077,7 +1129,7 @@ export class Board {
   private renderManaWheel(state: GameState): void {
     const box = this.q(".mana-wheel");
     const p = state.pending;
-    const fromPrompt = !this.localWheel && p?.type === "CHOOSE_MANA" && !this.awaiting ? wheelFromStrings(p.stringOptions) : null;
+    const fromPrompt = !this.localWheel && p && !this.awaiting ? this.promptWheel(p) : null;
     const options = this.localWheel?.options ?? fromPrompt;
     const cardId = this.localWheel?.cardId ?? p?.sourceCardId;
     if (!options) {
@@ -1093,6 +1145,80 @@ export class Board {
     box.dataset.card = cardId ?? "";
     box.classList.add("show");
     this.placeManaWheel();
+  }
+
+  private rememberPrinting(c: CardView): void {
+    if (c.isToken || c.faceDown || !c.setCode || !c.collectorNumber) return;
+    const printing = { setCode: c.setCode, collectorNumber: c.collectorNumber };
+    this.printings.set(c.id, printing);
+    this.printings.set(`${c.ownerId ?? c.controllerId ?? ""}|${c.name}`, printing);
+  }
+
+  /** A card without its printing gets the one it was last seen with (same id, else the same
+      name from the same player). */
+  private withPrinting(c: CardView, playerId?: string): CardView {
+    if (c.setCode && c.collectorNumber) {
+      this.rememberPrinting(c);
+      return c;
+    }
+    const known = this.printings.get(c.id) ?? this.printings.get(`${c.ownerId ?? c.controllerId ?? playerId ?? ""}|${c.name}`);
+    return known ? { ...c, ...known } : c;
+  }
+
+  /** The stack item a prompt comes from (the topmost one when several match), if it's shown:
+      by card id, else by name (a spell being cast may be on the stack under another id). */
+  private stackKeyFor(p: PendingActionView): string | null {
+    const name = p.sourceCardName ?? (p.sourceCardId ? this.cardData.get(p.sourceCardId)?.name : undefined);
+    let byId: string | null = null;
+    let byName: string | null = null;
+    // stackEls runs bottom to top, so the last match is the one nearest the top.
+    for (const [key, s] of this.stackEls) {
+      if (p.sourceCardId && [s.sourceCardId, s.card?.id, s.id].includes(p.sourceCardId)) byId = key;
+      if (name && (s.card?.name ?? s.name) === name) byName = key;
+    }
+    // A yes/no nobody could match ("Exile Creeping Chill?") is asked by what's resolving: the top
+    // item, when it's yours.
+    const top = [...this.stackEls].pop();
+    const fallback = p.type === "YES_NO" && top && top[1].controllerId === this.state?.players.find((pl) => pl.isViewer)?.id ? top[0] : null;
+    const found = byId ?? byName ?? fallback;
+    return found && this.cardEls.get(found)?.isConnected ? found : null;
+  }
+
+  /** The names matching the search box of a "name a card" prompt: names starting with what's
+      typed first, then names containing it. With no list from Endstep, what's typed is the answer. */
+  private fillNameResults(q: HTMLInputElement): void {
+    const list = q.parentElement?.querySelector<HTMLElement>(".name-results");
+    const p = this.state?.pending;
+    if (!list || p?.type !== "CHOOSE_CARD_NAME") return;
+    const text = q.value.trim();
+    const needle = text.toLowerCase();
+    const LIMIT = 30;
+    let names: string[];
+    if (!p.stringOptions.length) names = text ? [text] : [];
+    else if (!needle) names = [];
+    else {
+      const starts: string[] = [];
+      const has: string[] = [];
+      for (const n of p.stringOptions) {
+        const l = n.toLowerCase();
+        if (l.startsWith(needle)) starts.push(n);
+        else if (l.includes(needle)) has.push(n);
+      }
+      names = [...starts.sort(), ...has.sort()];
+    }
+    const more = names.length > LIMIT ? `<p class="name-more">${names.length - LIMIT} more: keep typing</p>` : "";
+    list.innerHTML = names.slice(0, LIMIT).map((n, i) => `<button class="name-opt${i === 0 ? " first" : ""}" data-string="${esc(n)}">${esc(n)}</button>`).join("")
+      + more
+      + (!names.length ? `<p class="name-more">${needle ? "No card with that name" : `Search ${p.stringOptions.length ? `${p.stringOptions.length} names` : "any card"} · Enter picks the first`}</p>` : "");
+  }
+
+  /** A prompt answered on the mana wheel: a mana choice, or a color asked by a mana ability. */
+  private promptWheel(p: PendingActionView): WheelOption[] | null {
+    if (p.type === "CHOOSE_MANA") return wheelFromStrings(p.stringOptions);
+    if (p.type !== "CHOOSE_COLOR") return null;
+    const src = p.sourceCardId ? this.cardData.get(p.sourceCardId) : undefined;
+    const mana = /\bmana\b/i.test(p.message ?? "") || !!src?.types.includes("Land") || (!!this.manaSource && (!p.sourceCardId || p.sourceCardId === this.manaSource));
+    return mana ? wheelFromStrings(p.stringOptions.length ? p.stringOptions : ["White", "Blue", "Black", "Red", "Green"]) : null;
   }
 
   /** Centers the wheel on its card (or the middle of the table when the card isn't on it), kept
@@ -1112,7 +1238,8 @@ export class Board {
 
   /** The card a prompt comes from (on the table, or just by name). */
   private sourceCard(p: PendingActionView): CardView | undefined {
-    const c = (p.sourceCardId ? this.cardData.get(p.sourceCardId) : undefined) ?? (p.sourceCardName ? blankCard(`src:${p.sourceCardName}`, p.sourceCardName) : undefined);
+    const known = (p.sourceCardId ? this.cardData.get(p.sourceCardId) : undefined) ?? (p.sourceCardName ? blankCard(`src:${p.sourceCardName}`, p.sourceCardName) : undefined);
+    const c = known && this.withPrinting(known, this.state?.players.find((pl) => pl.isViewer)?.id);
     if (c && !this.cardData.has(c.id)) this.cardData.set(c.id, c);
     return c;
   }
@@ -1192,11 +1319,14 @@ export class Board {
     if (m.kind === "order") return this.orderBox(p, m);
     if (m.kind === "arrange") return this.arrangeBox(m);
     // A color of mana is picked on the wheel over its card; the corner just says so.
-    if (p.type === "CHOOSE_MANA" && wheelFromStrings(p.stringOptions)) return "";
+    if (this.promptWheel(p)) return "";
     if (m.kind !== "choice") return "";
     switch (p.type) {
       case "YES_NO": {
-        const labels = p.stringOptions.length >= 2 ? [p.stringOptions[0]!, p.stringOptions[1]!] : ["Yes", "No"];
+        // A yes/no is answered from the action buttons, beside its card on the right. Only
+        // play or draw and dredge keep the whole screen.
+        if (!fullScreenYesNo(p, state)) return "";
+        const labels = yesNoLabels(p);
         return `<div class="choices"><button class="opt primary" data-yes="1">${esc(labels[0])}</button><button class="opt" data-yes="0">${esc(labels[1])}</button></div>`;
       }
       case "MULLIGAN": {
@@ -1249,6 +1379,13 @@ export class Board {
       case "CHOOSE_COLOR":
         return `<div class="choices">${(p.stringOptions.length ? p.stringOptions : ["White", "Blue", "Black", "Red", "Green"])
           .map((c) => `<button class="opt color c-${esc(c.toLowerCase())}" data-string="${esc(c)}">${esc(c)}</button>`).join("")}</div>`;
+      case "CHOOSE_CARD_NAME":
+        // Naming a card: a search box instead of every name in the game. The results are
+        // filled in as you type (fillNameResults), so the box keeps its focus.
+        return `<div class="namepick">
+            <input class="name-q" type="search" placeholder="Type a card name…" autocomplete="off" spellcheck="false">
+            <div class="name-results"></div>
+          </div>`;
       default:
         return `<div class="choices">${p.stringOptions.map((s) => `<button class="opt" data-string="${esc(s)}">${esc(s)}</button>`).join("")}</div>`;
     }
@@ -1276,6 +1413,13 @@ export class Board {
         const endTurn = myTurn && i >= 0 && !TURN_STEPS.slice(i + 1).some((s) => stops.has(s.key));
         buttons.push({ id: "pass", label: myTurn ? (endTurn ? "End turn" : "Next") : "Pass", primary: true });
       }
+    } else if (p.type === "YES_NO" && !fullScreenYesNo(p, state)) {
+      // The answers replace the action buttons, as in Arena: Decline (blue) on top, Take action
+      // (orange) under it. Answers Endstep words its own way keep their words.
+      const [yes, no] = yesNoLabels(p);
+      const plain = /^yes$/i.test(yes) && /^no$/i.test(no);
+      buttons.push({ id: "yes", label: plain ? "Take action" : yes, primary: true });
+      buttons.push({ id: "no", label: plain ? "Decline" : no, primary: true });
     } else if (m.kind === "attackers") {
       buttons.push({ id: "all-attack", label: "All attack" });
       if (m.assignments.size) buttons.push({ id: "clear", label: "Clear" });
@@ -1516,7 +1660,18 @@ export class Board {
     // space right of your turn bar, clear of the action buttons. A choice to make stays centered.
     const prompt = this.q(".prompt");
     for (const k of ["left", "top", "right", "bottom", "max-width"]) prompt.style.removeProperty(k);
-    if (prompt.classList.contains("show") && !prompt.classList.contains("center")) {
+    const asking = this.promptStackKey ? this.cardEls.get(this.promptStackKey) : undefined;
+    if (prompt.classList.contains("on-stack") && asking?.isConnected) {
+      // Under the stack item it's about, centered on it and kept on screen.
+      const box = this.el.getBoundingClientRect();
+      const r = asking.getBoundingClientRect();
+      const w = prompt.offsetWidth;
+      const x = Math.min(box.width - w - 12, Math.max(12, r.left - box.left + r.width / 2 - w / 2));
+      prompt.style.setProperty("left", `${Math.round(x)}px`);
+      prompt.style.setProperty("right", "auto");
+      prompt.style.setProperty("bottom", "auto");
+      prompt.style.setProperty("top", `${Math.round(Math.min(box.height - prompt.offsetHeight - 12, r.bottom - box.top + 12))}px`);
+    } else if (prompt.classList.contains("show") && !prompt.classList.contains("center") && !prompt.classList.contains("focus")) {
       const box = this.el.getBoundingClientRect();
       const bar = this.q(".me-bar");
       const b = bar.getBoundingClientRect();
@@ -1605,7 +1760,10 @@ export class Board {
   }
 
   private anchor(key: string): DOMRect | null {
-    const el = key === PROMPT_KEY ? this.el.querySelector<HTMLElement>(".prompt.show")
+    // A focused prompt's arrows leave from its big card.
+    const el = key === PROMPT_KEY ? this.el.querySelector<HTMLElement>(".prompt.show.focus .fbig")
+        ?? (this.promptStackKey && this.el.querySelector(".prompt.show.on-stack") ? this.cardEls.get(this.promptStackKey) : undefined)
+        ?? this.el.querySelector<HTMLElement>(".prompt.show")
       : key.startsWith("player:")
       ? this.el.querySelector<HTMLElement>(`.life-orb[data-player="${key.slice(7)}"]`) ?? this.el.querySelector<HTMLElement>(`.tile[data-player="${key.slice(7)}"]`)
       : this.cardEls.get(key);
@@ -1711,6 +1869,21 @@ export class Board {
     const el = this.el;
     el.addEventListener("click", (e) => this.onClick(e));
     el.addEventListener("contextmenu", (e) => this.onContextMenu(e));
+    // The "name a card" search box: results as you type; Enter names the first one. Its keys
+    // stay in the box (Endstep's shortcuts mustn't see them).
+    el.addEventListener("input", (e) => {
+      const t = e.target as HTMLElement;
+      if (t.matches(".name-q")) this.fillNameResults(t as HTMLInputElement);
+    });
+    el.addEventListener("keydown", (e) => {
+      const t = e.target as HTMLElement;
+      if (!t.matches(".name-q")) return;
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        t.parentElement?.querySelector<HTMLElement>(".name-opt.first")?.click();
+      }
+    });
     // Hovering a stack item shows its target arrows.
     el.addEventListener("pointerover", (e) => {
       const t = e.target as HTMLElement;
@@ -1828,7 +2001,7 @@ export class Board {
       const wheel = this.localWheel;
       this.localWheel = null;
       if (wheel) this.controller.playCard(wheel.cardId, Number(key));
-      else this.controller.chooseString("CHOOSE_MANA", key);
+      else this.controller.chooseString(state.pending?.type === "CHOOSE_COLOR" ? "CHOOSE_COLOR" : "CHOOSE_MANA", key);
       this.setAwaiting(true);
       this.render(state);
       return;
@@ -1839,6 +2012,8 @@ export class Board {
       return;
     }
     if (btn?.dataset.ability !== undefined && this.abilityPick && !this.awaiting) {
+      const ability = this.abilityPick.abilities.find((a) => a.index === Number(btn.dataset.ability));
+      this.manaSource = ability && /\badd\b/i.test(ability.description) ? this.abilityPick.cardId : null;
       this.controller.playCard(this.abilityPick.cardId, Number(btn.dataset.ability));
       this.abilityPick = null;
       this.setAwaiting(true);
@@ -1943,6 +2118,7 @@ export class Board {
       if (this.state) this.render(this.state);
       return true;
     }
+    this.manaSource = /\badd\b/i.test(option.abilities[0]?.description ?? "") ? cardId : null;
     this.controller.playCard(cardId, option.abilities[0]?.index, keepPriority);
     this.setAwaiting(true);
     return true;
@@ -1958,6 +2134,13 @@ export class Board {
       case "auto-pay": c.autoPay(); break;
       case "cancel": c.cancel(); break;
       case "decline": c.no(); break;
+      case "yes":
+      case "no": {
+        const p = this.state?.pending;
+        if (p?.type !== "YES_NO" || fullScreenYesNo(p, this.state)) return;
+        c.answer(act === "yes", p.stringOptions.length >= 2 ? yesNoLabels(p) : undefined);
+        break;
+      }
       case "clear":
         if (m.kind === "attackers") this.setMode({ ...m, assignments: new Map(), aiming: null });
         if (m.kind === "blockers") this.setMode({ ...m, assignments: new Map(), selectedBlocker: null });
@@ -2040,7 +2223,8 @@ export class Board {
       this.setMode(arrangeMove(m, d.arr, m.top.includes(d.arr) ? "tray" : "top"));
       return true;
     } else if (d.arrangeDone !== undefined && m.kind === "arrange") {
-      c.arrangeCards(m.top);
+      if (m.pick) c.chooseCards(m.tray);
+      else c.arrangeCards(m.top);
     } else if (d.pick !== undefined) {
       this.onSelectKey(d.pick, new MouseEvent("click"));
       return true;
@@ -2495,14 +2679,18 @@ function reconcile(container: Element, wanted: Element[]): void {
 
 /**
  * Cards that look and behave the same pile together (as Endstep groups them).
- * Anything with its own state (attachments, damage, counters, in combat) stays alone.
+ * Attackers and blockers pile too, as long as nothing sets them apart: the same stats, counters,
+ * damage, keywords and effects, attacking the same player, blocked by nobody (or blocking the
+ * same creature), and not targeted. Attachments and face-down cards stay alone.
  */
 function groupKey(c: CardView, local: string, effects: number): string | null {
-  if (c.attachmentIds.length || c.damage || Object.keys(c.counters).length || c.isAttacking || c.isBlocking || c.faceDown) return null;
+  if (c.attachmentIds.length || c.faceDown) return null;
+  const counters = Object.entries(c.counters).sort(([a], [b]) => a.localeCompare(b));
   // Everything that changes how the card looks or what it is doing, including choices still
   // being made (an attacker or blocker you picked but haven't confirmed, a selected target).
   return JSON.stringify([c.name, c.power, c.toughness, c.loyalty, c.tapped, c.summoningSick, c.isToken, c.setCode, c.collectorNumber,
-    c.types, c.controllerId, c.keywordsGranted, c.keywordsLost, local, effects]);
+    c.types, c.controllerId, c.keywordsGranted, c.keywordsLost, counters, c.damage ?? 0,
+    c.isAttacking, c.attackingDefenderId, c.isBlocking, [...c.blockingIds].sort(), local, effects]);
 }
 
 /** Players appear among target options as -(seat + 1). */
@@ -2523,6 +2711,34 @@ function defaultMessage(type: string, m: Mode): string {
     case "cards": return m.mana ? "Pay the cost: tap lands, or Auto pay" : "Choose cards";
     default: return humanize(type);
   }
+}
+
+/** Yes/no questions that keep the full-screen choice: play or draw, and dredge instead of drawing. */
+function fullScreenYesNo(p: PendingActionView, state?: GameState | null): boolean {
+  return isPlayDraw(p, state) || (p.type === "YES_NO" && /\bdredge\b/i.test([p.message ?? "", ...p.stringOptions].join(" ")));
+}
+
+/** The pregame "play or draw?" question: a yes/no from no card, about going first, or any
+    yes/no from no card before the game has started (nothing played yet). */
+function isPlayDraw(p: PendingActionView, state?: GameState | null): boolean {
+  if (p.type !== "YES_NO" || p.sourceCardId) return false;
+  const text = [p.message ?? "", ...p.stringOptions].join(" ");
+  if (/\b(go|play|draw)\w*\s+first\b|\bplay\b[\s\S]*\bdraw\b|\bdraw\b[\s\S]*\bplay\b/i.test(text)) return true;
+  const pregame = !!state && (state.turnNumber ?? 0) <= 1 && !state.stack.length
+    && state.players.every((pl) => !pl.battlefield.length && !pl.graveyard.length && !pl.exile.length);
+  return pregame && !p.sourceCardName;
+}
+
+/** A yes/no's two answers as Endstep words them (Yes first), or plain Yes / No. */
+function yesNoLabels(p: PendingActionView): [string, string] {
+  return p.stringOptions.length >= 2 ? [p.stringOptions[0]!, p.stringOptions[1]!] : ["Yes", "No"];
+}
+
+/** The line under a focused prompt's message: how to do it on this table. */
+function focusHint(m: Mode): string {
+  if (m.kind === "targets") return m.max > 1 && m.max < 99 ? `Click a highlighted target · ${m.selected.length}/${m.max}` : "Click a highlighted target";
+  if (m.kind === "cards") return m.mana ? "Tap your lands, or press Auto pay" : "Click the highlighted cards";
+  return "";
 }
 
 /** A number prompt's values offered as quick picks: the allowed ones, or the whole range when it's
@@ -2546,6 +2762,10 @@ function promptTitle(state: GameState, m: Mode): { title: string; sub: string } 
   const msg = p.message ?? "";
   // A message that only repeats the heading isn't worth a second line.
   const pick = (title: string, fallback: string) => ({ title, sub: msg && msg.toLowerCase() !== title.toLowerCase() ? msg : fallback });
+  if (m.kind === "arrange" && m.pick) {
+    const n = m.pick.max;
+    return { title: "Mulligan", sub: `Choose ${n} card${n === 1 ? "" : "s"} to put on the bottom of your library. Drag or click cards to move them.` };
+  }
   switch (p.type) {
     case "MULLIGAN": {
       const first = state.players.find((pl) => pl.id === state.activePlayerId);
@@ -2572,6 +2792,8 @@ function promptTitle(state: GameState, m: Mode): { title: string; sub: string } 
       return pick(p.sourceCardName ?? "Decide", "");
     case "CHOOSE_COLOR":
       return pick("Choose a Color", "");
+    case "CHOOSE_CARD_NAME":
+      return pick("Name a Card", p.sourceCardName ?? "");
     case "CHOOSE_NUMBER":
       return pick(/\bX\b/.test(msg) ? "Choose X" : "Choose a Number", "");
     default:

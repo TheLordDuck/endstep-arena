@@ -12,6 +12,9 @@ test("CHOOSE_MANA color letters make a wheel; other answers don't", () => {
   assert.deepEqual(wheelFromStrings(["1. Add {B}{G}", "2. Add {R}"])?.map((o) => o.symbols), [["B", "G"], ["R"]]);
   assert.equal(wheelFromStrings(["B"]), null, "one color needs no choice");
   assert.equal(wheelFromStrings(["B", "Spend none"]), null);
+  // "Add one mana of any color" asks by color name.
+  assert.deepEqual(wheelFromStrings(["White", "Blue", "Black", "Red", "Green"])?.map((o) => [o.key, o.symbols]),
+    [["White", ["W"]], ["Blue", ["U"]], ["Black", ["B"]], ["Red", ["R"]], ["Green", ["G"]]]);
 });
 
 test("a dual land's plain mana abilities make a wheel; other costs get ability cards", () => {
@@ -66,4 +69,16 @@ test("an arrangement without a second pile can only be reordered", () => {
   if (mode.kind !== "arrange") return assert.fail("expected arrange");
   assert.equal(arrangeMove(mode, "5", "tray"), mode);
   assert.deepEqual(arrangeMove(mode, "5", "top").top, ["6", "5"]);
+});
+
+test("after a mulligan, cards for the bottom are picked in two piles and sent as the chosen cards", () => {
+  const state = normalize({
+    stack: [], players: [{ hand: [{ id: 1, name: "A" }, { id: 2, name: "B" }, { id: 3, name: "C" }] }, {}],
+    pendingAction: { type: "CHOOSE_CARDS", promptVersion: 2, message: "Put 1 card on the bottom of your library", minCards: 1, maxCards: 1, cardOptions: [{ id: 1 }, { id: 2 }, { id: 3 }] },
+  }, { matchId: "m", viewerSeat: 0, desynced: false });
+  let mode = deriveMode(state);
+  if (mode.kind !== "arrange" || !mode.pick) return assert.fail(`expected a mulligan pick, got ${mode.kind}`);
+  mode = arrangeMove(mode, "2", "tray");
+  assert.deepEqual([mode.top, mode.tray], [["1", "3"], ["2"]]);
+  assert.equal(arrangeMove(mode, "1", "tray"), mode, "no more than asked for");
 });

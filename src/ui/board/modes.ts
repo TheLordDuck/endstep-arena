@@ -22,8 +22,10 @@ export type Mode =
   /** Trigger/attacker/blocker order in a box (first = leftmost); optional triggers can be declined. */
   | { kind: "order"; order: string[]; declined: string[] }
   /** Scry/surveil (and other library arrangements): cards kept on top (first = top), and the
-      ones sent to the other pile (bottom for scry, graveyard for surveil) when there is one. */
-  | { kind: "arrange"; top: string[]; tray: string[]; hasTray: boolean; context: string }
+      ones sent to the other pile (bottom for scry, graveyard for surveil) when there is one.
+      With `pick` (after a mulligan) it's a card choice laid out the same way: the hand on top,
+      the cards picked for the bottom of the library in the tray, sent as the chosen cards. */
+  | { kind: "arrange"; top: string[]; tray: string[]; hasTray: boolean; context: string; pick?: { min: number; max: number } }
   /** Answered from the prompt panel (modes, colors, numbers, yes/no, mulligan). */
   | { kind: "choice"; selectedModes: number[]; number: number }
   /** Not supported by the Arena UI yet: hand the prompt to Endstep's own UI. */
@@ -31,7 +33,7 @@ export type Mode =
 
 const CHOICE_TYPES = new Set([
   "CHOOSE_MODE", "CHOOSE_ABILITY", "CHOOSE_COLOR", "CHOOSE_TYPE", "CHOOSE_MANA", "CHOOSE_PILE",
-  "CHOOSE_NUMBER", "YES_NO", "MULLIGAN",
+  "CHOOSE_NUMBER", "YES_NO", "MULLIGAN", "CHOOSE_CARD_NAME",
 ]);
 
 /** Changes whenever Endstep issues a new prompt, so local selections reset. */
@@ -67,6 +69,10 @@ export function deriveMode(state: GameState | null): Mode {
     }
     case "CHOOSE_CARDS": {
       if (p.contextType === "sideboard") return { kind: "classic", reason: "Sideboarding" };
+      if (isBottomFromHand(state, p)) {
+        const pick = { min: Math.min(p.min, p.optionCardIds.length), max: Math.max(p.min, p.max) };
+        return { kind: "arrange", top: [...p.optionCardIds], tray: [], hasTray: true, context: "mulligan", pick };
+      }
       const valid = new Set(p.optionCardIds);
       const onBoard = battlefieldIds(state);
       const offBoard = [...valid].some((id) => !onBoard.has(id));
@@ -106,6 +112,14 @@ export function deriveMode(state: GameState | null): Mode {
       if (p.type === "CHOOSE_CARD_NAME" && p.stringOptions.length > 0) return { kind: "choice", selectedModes: [], number: 0 };
       return { kind: "classic", reason: humanize(p.type) };
   }
+}
+
+/** Cards from your hand to put on the bottom of your library (the London mulligan). */
+export function isBottomFromHand(state: GameState, p: PendingActionView): boolean {
+  if (p.type !== "CHOOSE_CARDS" || !p.optionCardIds.length) return false;
+  if (/mulligan/i.test(p.contextType ?? "")) return true;
+  const hand = new Set((state.players.find((pl) => pl.isViewer)?.hand ?? []).map((c) => c.id));
+  return /\bbottom\b/i.test(p.message ?? "") && p.optionCardIds.every((id) => hand.has(id));
 }
 
 export const humanize = (s: string) => s.toLowerCase().replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
@@ -182,6 +196,8 @@ export function stepNumber(p: Pick<PendingActionView, "numberMin" | "numberMax" 
     leave the top pile when there is another pile. */
 export function arrangeMove(mode: Extract<Mode, { kind: "arrange" }>, id: string, zone: "top" | "tray", index?: number): Extract<Mode, { kind: "arrange" }> {
   if (zone === "tray" && !mode.hasTray) return mode;
+  // A pick can't take more cards than asked for.
+  if (zone === "tray" && mode.pick && !mode.tray.includes(id) && mode.tray.length >= mode.pick.max) return mode;
   const top = mode.top.filter((x) => x !== id);
   const tray = mode.tray.filter((x) => x !== id);
   if (top.length + tray.length === mode.top.length + mode.tray.length) return mode;

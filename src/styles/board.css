@@ -1213,6 +1213,63 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .pcard img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .prompt .msg.dim { color: var(--muted); font-size: 13px; }
 .prompt .src { display: block; font: 600 11px var(--font); letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
+/* Paying for a card or choosing its targets, Arena style: the card big on the right of the table,
+   glowing, with what to do in large type under it. The stack steps left to make room. */
+.board { --focus-w: min(250px, 28vh); }
+.prompt.focus {
+  right: 26px;
+  bottom: auto;
+  top: 46%;
+  translate: 0 -50%;
+  z-index: 66;
+  width: calc(var(--focus-w) + 36px);
+  max-width: none !important;
+  gap: 12px;
+  padding: 18px 18px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(232, 198, 120, 0.55);
+  background: linear-gradient(180deg, rgba(30, 24, 16, 0.94), rgba(10, 8, 6, 0.96));
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 50px rgba(232, 198, 120, 0.22), 0 24px 60px rgba(0, 0, 0, 0.75);
+  animation: focus-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+@keyframes focus-in { from { opacity: 0; transform: translateX(40px) scale(0.94); } }
+.fbig {
+  width: var(--focus-w);
+  aspect-ratio: 63 / 88;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #1b1712;
+  cursor: help;
+  animation: focus-glow 1.8s ease-in-out infinite;
+}
+.fbig img { width: 100%; height: 100%; object-fit: cover; display: block; }
+@keyframes focus-glow {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(255, 194, 74, 0.8), 0 0 18px rgba(255, 194, 74, 0.35), 0 14px 34px rgba(0, 0, 0, 0.7); }
+  50% { box-shadow: 0 0 0 2px var(--target), 0 0 34px rgba(255, 194, 74, 0.7), 0 14px 34px rgba(0, 0, 0, 0.7); }
+}
+.ftext { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.prompt.focus .msg {
+  padding-bottom: 6px;
+  font: 700 clamp(17px, 1.5vw, 22px) / 1.25 "Cinzel", Georgia, serif;
+  color: #fff4dc;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
+  border-bottom: 1px solid;
+  border-image: linear-gradient(90deg, transparent, rgba(232, 198, 120, 0.85), transparent) 1;
+}
+.ftext p { margin: 0; font-size: 13px; color: var(--target); }
+/* A prompt about a stack item (a trigger's yes/no, its targets): the question sits right under
+   that item, which glows like the focused card. */
+.prompt.on-stack {
+  z-index: 66;
+  max-width: min(320px, 26vw) !important;
+  padding: 12px 18px;
+  border: 1px solid rgba(232, 198, 120, 0.55);
+  background: linear-gradient(180deg, rgba(30, 24, 16, 0.94), rgba(10, 8, 6, 0.96));
+  box-shadow: 0 0 40px rgba(232, 198, 120, 0.2), 0 18px 44px rgba(0, 0, 0, 0.75);
+}
+.prompt.on-stack .msg { font: 700 clamp(15px, 1.3vw, 19px) / 1.25 "Cinzel", Georgia, serif; color: #fff4dc; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9); }
+.stack .card.asking .face { animation: focus-glow 1.8s ease-in-out infinite; filter: brightness(1.1); }
+.board.focus-open .stack-dock { right: calc(var(--focus-w) + 36px + 26px + 18px); }
 .prompt.center {
   /* A choice to make is modal: over everything, stack and hand included. */
   z-index: 67;
@@ -1334,6 +1391,32 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 }
 .numquick button:hover { border-color: var(--gold); }
 .numquick button.on { border-color: var(--gold-hi); background: linear-gradient(180deg, var(--gold-hi), var(--gold)); color: #231a0c; }
+/* Naming a card: a search box with the matching names under it. */
+.namepick { display: flex; flex-direction: column; align-items: center; gap: 12px; width: min(560px, 80vw); }
+.name-q {
+  width: 100%;
+  padding: 14px 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(232, 198, 120, 0.6);
+  background: rgba(12, 10, 8, 0.92);
+  font: 600 20px var(--font);
+  color: #fff4dc;
+  outline: none;
+  box-shadow: 0 0 30px rgba(232, 198, 120, 0.15);
+}
+.name-q:focus { border-color: var(--gold-hi); box-shadow: 0 0 0 3px rgba(232, 198, 120, 0.25), 0 0 30px rgba(232, 198, 120, 0.25); }
+.name-results { display: flex; flex-direction: column; gap: 4px; width: 100%; max-height: 46vh; overflow-y: auto; }
+.name-opt {
+  padding: 9px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--glass-line);
+  background: var(--glass);
+  text-align: left;
+  font: 600 15px var(--font);
+  color: var(--text);
+}
+.name-opt:hover, .name-opt.first { border-color: var(--gold); background: rgba(60, 46, 28, 0.9); color: #fff; }
+.name-more { margin: 4px 0 0; text-align: center; font-size: 13px; color: var(--muted); }
 .numrange { font-size: 12px; letter-spacing: 0.06em; color: var(--muted); }
 
 /* Mulligan: the opening hand, big and gently fanned. */
@@ -1638,6 +1721,9 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   font-size: 13px;
 }
 .dock .secondary:hover:not(:disabled) { border-color: var(--gold); }
+/* A yes/no's Decline: as big as Take action, in blue. */
+.dock .primary[data-act="no"]:not(:disabled) { background: linear-gradient(180deg, #7cb8f2, #3a86d4 60%, #2462a8); color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }
+.dock.has-priority .primary[data-act="no"]:not(:disabled) { animation: none; }
 .dock button:disabled { cursor: default; }
 .board.awaiting .dock { opacity: 0.6; }
 

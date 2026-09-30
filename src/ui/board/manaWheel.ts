@@ -16,12 +16,16 @@ const COLOR_LETTER = /^[WUBRGC]$/i;
 /** Mana symbols in rules text, e.g. "{B}{G}" → ["B", "G"]; {T} and costs aren't mana made. */
 const symbolsIn = (text: string) => [...text.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]!.toUpperCase()).filter((s) => s !== "T" && s !== "Q");
 
-/** CHOOSE_MANA options as slices, or null when one of them isn't mana (then buttons are used). */
+const COLOR_NAME: Record<string, string> = { white: "W", blue: "U", black: "B", red: "R", green: "G", colorless: "C" };
+
+/** CHOOSE_MANA (or a mana ability's CHOOSE_COLOR) options as slices, or null when one of them
+    isn't mana (then buttons are used). */
 export function wheelFromStrings(options: string[]): WheelOption[] | null {
   if (options.length < 2) return null;
   const out = options.map((o) => {
     const first = o.split("\n")[0]!.trim();
-    const symbols = COLOR_LETTER.test(first) ? [first.toUpperCase()] : symbolsIn(first);
+    const named = COLOR_NAME[first.toLowerCase()];
+    const symbols = named ? [named] : COLOR_LETTER.test(first) ? [first.toUpperCase()] : symbolsIn(first);
     return { key: o, symbols, title: first };
   });
   return out.every((o) => o.symbols.length) ? out : null;
