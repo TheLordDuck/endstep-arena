@@ -1,5 +1,5 @@
 // Packs dist/ into releases/endstep-arena-ui-<version>.zip, the file to upload to the Chrome Web
-// Store or Edge Add-ons. Run through `npm run package`, which makes a fresh production build first.
+// Store or Edge Add-ons. Run through `pnpm run package`, which makes a fresh production build first.
 // No dependencies: a plain zip (deflate) written with Node's zlib.
 import { crc32, deflateRawSync } from "node:zlib";
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
@@ -8,7 +8,7 @@ import { join, relative } from "node:path";
 const manifest = JSON.parse(readFileSync("dist/manifest.json", "utf8"));
 // A dev build talks to the local dev server: never ship it.
 if (manifest.name.includes("(dev)") || manifest.background || manifest.host_permissions) {
-  console.error("dist/ is a dev build. Run `npm run package` (it builds for production first).");
+  console.error("dist/ is a dev build. Run `pnpm run package` (it builds for production first).");
   process.exit(1);
 }
 

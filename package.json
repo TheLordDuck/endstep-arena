@@ -4,6 +4,7 @@
   "private": true,
   "description": "Chromium extension that layers a modern, Arena-style game UI on top of endstep.cc",
   "type": "module",
+  "packageManager": "pnpm@11.7.0",
   "scripts": {
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",

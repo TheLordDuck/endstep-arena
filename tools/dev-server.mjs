@@ -1,4 +1,4 @@
-// Dev-only sink for the extension's dev bridge (`npm run build:dev`).
+// Dev-only sink for the extension's dev bridge (`pnpm build:dev`).
 // Writes what the live tab sees into .devlog/ so it can be inspected offline:
 //   frames.ndjson  every game socket frame (in/out), parsed
 //   state.json     latest normalized GameState

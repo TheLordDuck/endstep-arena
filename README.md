@@ -30,8 +30,8 @@ endstep.cc tab.
 ## Install (development)
 
 ```sh
-npm install
-npm run build        # or: npm run watch
+pnpm install
+pnpm build           # or: pnpm watch
 ```
 
 Then open `chrome://extensions` (or `edge://extensions`), enable **Developer mode**,
@@ -79,7 +79,7 @@ to see (your morphs, cards you exiled face down) show their front the same way. 
 
 ## Development
 
-* `npm run build:dev` + `npm run dev-server`: the dev build reports frames and state
+* `pnpm build:dev` + `pnpm dev-server`: the dev build reports frames and state
   to `.devlog/` so they can be inspected offline.
 * `node build.mjs --harness` builds `dist-harness/harness.html#<scenario>`
   (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `graveyard`, `crowded`, `reveal`, `x`): the board
@@ -88,7 +88,7 @@ to see (your morphs, cards you exiled face down) show their front the same way. 
 ## Publishing
 
 1. Bump `version` in `public/manifest.json` (every upload needs a higher one).
-2. `npm run package` builds for production and writes `releases/endstep-arena-ui-<version>.zip`
+2. `pnpm run package` builds for production and writes `releases/endstep-arena-ui-<version>.zip`
    (it refuses a dev build).
 3. Upload that zip in the [Chrome Web Store developer dashboard](https://chrome.google.com/webstore/devconsole)
    (or [Edge Add-ons](https://partner.microsoft.com/dashboard/microsoftedge/overview), same zip).
@@ -128,10 +128,10 @@ src/ui/board/                  Arena board: keyed cards + FLIP, modes.ts (target
 
 | Command | What it does |
 | --- | --- |
-| `npm run build` | Bundle to `dist/` |
-| `npm run watch` | Rebuild on change (inline source maps) |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Adapter tests (delta merge, resync, routing) |
+| `pnpm build` | Bundle to `dist/` |
+| `pnpm watch` | Rebuild on change (inline source maps) |
+| `pnpm typecheck` | `tsc --noEmit` |
+| `pnpm test` | Adapter tests (delta merge, resync, routing) |
 
 ## Roadmap
 
