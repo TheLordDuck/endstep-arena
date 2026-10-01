@@ -84,6 +84,8 @@ export class Board {
   /** Stack card element id → its stack item (for source/target arrows). */
   private stackEls = new Map<string, StackItemView>();
   private hoverStack: string | null = null;
+  /** The result screen is set aside to look at the battlefield. */
+  private endPeek = false;
   /** The ids Endstep may target a stack item by (its stack id, a spell's card id) → its element id. */
   private stackAlias = new Map<string, string>();
   /** Hold priority (the dock toggle, or H): what you cast or activate doesn't pass priority after. */
@@ -191,6 +193,7 @@ export class Board {
       <div class="confirm" role="dialog"></div>
       <div class="viewer"></div>
       <div class="banner"></div>
+      <div class="endgame"></div>
       <div class="toast"></div>
       <div class="classic-chip"></div>`;
     this.bindEvents();
@@ -896,16 +899,11 @@ export class Board {
     orb.classList.toggle("out", p.hasLost || p.hasConceded);
     // The player's Endstep avatar (framed as they chose); without one, their commander's art; and
     // under either, Endstep's logo, which shows if there's no picture or it can't load.
-    const avatar = avatarPicture(p.username, () => this.state && this.render(this.state));
-    const commander = p.commandZone[0];
-    const art = commander ? imageUrl(commander, "art_crop") : null;
-    const pic = avatar ?? (art ? { url: art, size: "cover", position: "50% 30%" } : null);
-    const avatarSig = JSON.stringify([pic, p.name]);
-    if (orb.dataset.avatar !== avatarSig) {
-      orb.dataset.avatar = avatarSig;
+    const avatarHtml = this.avatarHtml(p);
+    if (orb.dataset.avatar !== avatarHtml) {
+      orb.dataset.avatar = avatarHtml;
       orb.querySelector(".avatar")?.remove();
-      const style = pic ? `background-image: url(&quot;${esc(pic.url)}&quot;); background-size: ${esc(pic.size)}; background-position: ${esc(pic.position)}` : "";
-      orb.insertAdjacentHTML("afterbegin", `<div class="avatar" title="${esc(p.name)}">${ENDSTEP_LOGO}${pic ? `<div class="pic" style="${style}"></div>` : ""}</div>`);
+      orb.insertAdjacentHTML("afterbegin", avatarHtml);
     }
     const life = String(p.life ?? "–");
     if (orb.dataset.life !== life) {
@@ -1003,10 +1001,37 @@ export class Board {
     this.prevActive = state.activePlayerId;
     this.prevPhase = state.phase;
 
-    if (state.status === "COMPLETE") {
-      const won = state.winnerId !== undefined && state.winnerId === me?.id;
-      this.banner(state.winnerId === undefined ? "Game over" : won ? "Victory" : "Defeat", won ? "mine" : "theirs", true);
+    this.renderEnd(state, me);
+  }
+
+  /** A player's picture: their Endstep avatar (framed as they chose); without one, their
+      commander's art; and under either, Endstep's logo, which shows if there's no picture or it
+      can't load. */
+  private avatarHtml(p: PlayerView): string {
+    const avatar = avatarPicture(p.username, () => this.state && this.render(this.state));
+    const commander = p.commandZone[0];
+    const art = commander ? imageUrl(commander, "art_crop") : null;
+    const pic = avatar ?? (art ? { url: art, size: "cover", position: "50% 30%" } : null);
+    const style = pic ? `background-image: url(&quot;${esc(pic.url)}&quot;); background-size: ${esc(pic.size)}; background-position: ${esc(pic.position)}` : "";
+    return `<div class="avatar" title="${esc(p.name)}">${ENDSTEP_LOGO}${pic ? `<div class="pic" style="${style}"></div>` : ""}</div>`;
+  }
+
+  /** The game is over, Arena style: the table dims behind your picture, big, with Victory or
+      Defeat under it and the way back to Endstep. "View battlefield" (top right) sets it aside. */
+  private renderEnd(state: GameState, me: PlayerView | null | undefined): void {
+    const box = this.q(".endgame");
+    const over = state.status === "COMPLETE";
+    if (!over) this.endPeek = false;
+    const won = state.winnerId !== undefined && state.winnerId === me?.id;
+    const title = state.winnerId === undefined ? "Game over" : won ? "Victory" : "Defeat";
+    const html = !over ? "" : `<button class="end-peek" data-ui="end-peek"><span class="p-view">View battlefield</span><span class="p-back">Back to result</span></button>
+      <div class="end-body">${me ? this.avatarHtml(me) : ""}<h2>${title}</h2>
+        <button class="end-back" data-ui="hide">Back to Endstep</button></div>`;
+    if (box.dataset.sig !== html) {
+      box.dataset.sig = html;
+      box.innerHTML = html;
     }
+    box.className = `endgame${over ? " show" : ""}${won ? " won" : state.winnerId === undefined ? "" : " lost"}${this.endPeek ? " peek" : ""}`;
   }
 
   private banner(text: string, kind: string, sticky = false): void {
@@ -1085,7 +1110,8 @@ export class Board {
       const q = box.querySelector<HTMLInputElement>(".name-q");
       if (q) {
         this.fillNameResults(q);
-        q.focus();
+        // Without scrolling: focusing the box (or typing in it) must not push the screen up.
+        q.focus({ preventScroll: true });
       }
       if (m.kind === "order") box.dataset.orderKey = this.modeKey;
       else delete box.dataset.orderKey;
@@ -1985,6 +2011,12 @@ export class Board {
   private bindEvents(): void {
     const el = this.el;
     el.addEventListener("click", (e) => this.onClick(e));
+    // The board and its full-screen choices never scroll; a browser bringing a text box into
+    // view (the "name a card" search) is put back at once.
+    el.addEventListener("scroll", (e) => {
+      const t = e.target as HTMLElement;
+      if (t === el || t.classList?.contains("prompt")) { t.scrollTop = 0; t.scrollLeft = 0; }
+    }, true);
     el.addEventListener("contextmenu", (e) => this.onContextMenu(e));
     // The "name a card" search box: results as you type; Enter names the first one. Its keys
     // stay in the box (Endstep's shortcuts mustn't see them).
@@ -2159,6 +2191,7 @@ export class Board {
       if (btn.dataset.ui === "back") { this.classicDismissedFor = this.modeKey; this.render(state); }
       if (btn.dataset.ui === "close-viewer") this.closeViewer();
       if (btn.dataset.ui === "stack-toggle") { this.stackHidden = !this.stackHidden; this.render(state); }
+      if (btn.dataset.ui === "end-peek") { this.endPeek = !this.endPeek; this.render(state); }
       if (btn.dataset.ui === "peek") { this.peeking = !this.peeking; this.render(state); }
       if (btn.dataset.ui === "confirm-cancel") this.hideConfirm();
       if (btn.dataset.ui === "ability-cancel") { this.abilityPick = null; this.peeking = false; this.render(state); }

@@ -1022,7 +1022,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .stack .card.theirs::before { background: radial-gradient(circle at 35% 30%, #ff8a70, var(--atk)); color: #fff; }
 /* Abilities: the source card with a ribbon and the ability text on a parchment plate. */
-.stack .card.ability .face img { filter: saturate(0.45) brightness(0.62); }
 .stack .card.ability.trigger .face::before { background: linear-gradient(90deg, transparent, #c9b6ff 12%, #8f74e8 88%, transparent); color: #1a1238; }
 .stack .card.ability .face::before {
   content: attr(data-kind-long);
@@ -1364,8 +1363,10 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   box-shadow: 0 0 30px rgba(232, 198, 120, 0.15);
 }
 .name-q:focus { border-color: var(--gold-hi); box-shadow: 0 0 0 3px rgba(232, 198, 120, 0.25), 0 0 30px rgba(232, 198, 120, 0.25); }
-.name-results { display: flex; flex-direction: column; gap: 4px; width: 100%; max-height: 46vh; overflow-y: auto; }
+/* A fixed height, so the title and the search box stay put as the matches come and go. */
+.name-results { display: flex; flex-direction: column; gap: 4px; width: 100%; height: 46vh; overflow-y: auto; }
 .name-opt {
+  flex: none;
   padding: 9px 18px;
   border-radius: 10px;
   border: 1px solid var(--glass-line);
@@ -1954,6 +1955,78 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   cursor: grab;
 }
 .muted { color: var(--muted); }
+
+/* ---------- Game over ---------- */
+/* Arena style: the table dims, your picture big in the middle with Victory or Defeat under it,
+   then the way back to Endstep. "View battlefield" (top right) sets the screen aside. */
+.endgame {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  display: none;
+  place-items: center;
+  background: radial-gradient(ellipse 70% 65% at 50% 45%, rgba(10, 8, 6, 0.78), rgba(2, 2, 1, 0.94));
+  backdrop-filter: blur(3px);
+  animation: fade-in 0.45s ease;
+}
+.endgame.show { display: grid; }
+.end-body { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+.endgame .avatar {
+  position: relative;
+  left: auto;
+  translate: none;
+  width: min(300px, 38vh);
+  height: min(300px, 38vh);
+  border: 4px solid var(--gold-hi);
+  box-shadow: 0 0 0 6px rgba(0, 0, 0, 0.6), 0 0 70px rgba(232, 198, 120, 0.55), 0 24px 60px rgba(0, 0, 0, 0.8);
+}
+.endgame.lost .avatar { border-color: #c9483a; box-shadow: 0 0 0 6px rgba(0, 0, 0, 0.6), 0 0 60px rgba(255, 90, 60, 0.4), 0 24px 60px rgba(0, 0, 0, 0.8); filter: grayscale(0.55) brightness(0.85); }
+.endgame h2 {
+  margin: 0;
+  padding: 0 60px 10px;
+  font: 700 clamp(40px, 6vw, 84px) / 1.1 "Cinzel", Georgia, serif;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold-hi);
+  text-shadow: 0 0 30px rgba(232, 198, 120, 0.6), 0 4px 18px rgba(0, 0, 0, 0.9);
+  border-bottom: 2px solid;
+  border-image: linear-gradient(90deg, transparent, rgba(232, 198, 120, 0.9), transparent) 1;
+}
+.endgame.lost h2 { color: #ff9c8a; text-shadow: 0 0 30px rgba(255, 90, 60, 0.5), 0 4px 18px rgba(0, 0, 0, 0.9); border-image: linear-gradient(90deg, transparent, rgba(255, 110, 80, 0.9), transparent) 1; }
+.end-back {
+  min-width: 240px;
+  height: 56px;
+  padding: 0 34px;
+  border: 0;
+  border-radius: 999px;
+  font: 700 18px "Cinzel", Georgia, serif;
+  letter-spacing: 0.05em;
+  color: #231a0c;
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold) 60%, #b99545);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+.end-back:hover { transform: translateY(-2px); filter: brightness(1.1); }
+.end-peek {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  padding: 10px 24px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  background: rgba(10, 8, 6, 0.8);
+  font: 600 16px var(--font);
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+  pointer-events: auto;
+}
+.end-peek:hover { background: rgba(60, 46, 28, 0.95); border-color: var(--gold-hi); }
+.end-peek .p-back { display: none; }
+/* Looking at the battlefield: only the button to come back stays. */
+.endgame.peek { background: none; backdrop-filter: none; pointer-events: none; }
+.endgame.peek .end-body { display: none; }
+.endgame.peek .end-peek .p-view { display: none; }
+.endgame.peek .end-peek .p-back { display: inline; }
 
 .banner {
   position: absolute;

@@ -120,6 +120,8 @@ const scenarios: Record<string, Scenario> = {
       t.pendingAction = { type: "PRIORITY", promptVersion: 6, cardOptions: [] };
     };
   },
+  won: (s) => { s.status = "COMPLETE"; s.winnerId = "0"; s.pendingAction = null; },
+  lost: (s) => { s.status = "COMPLETE"; s.winnerId = "1"; s.pendingAction = null; },
   attack: (s) => {
     const [me] = players(s);
     s.phase = "DECLARE_ATTACKERS";
