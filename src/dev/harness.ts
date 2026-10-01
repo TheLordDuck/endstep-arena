@@ -87,6 +87,41 @@ const scenarios: Record<string, Scenario> = {
     s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
     void opp;
   },
+  // Casting Counterspell at an opponent's spell: stack items are targeted by their stack id.
+  counter: (s) => {
+    const [me, opp] = players(s);
+    const angel = byName(opp!, "Serra Angel");
+    s.stack = [
+      { stackTargetId: 952, isAbility: true, abilityDescription: "When Serra Angel attacks, you gain 2 life.", sourceCard: { id: angel.id, name: "Serra Angel", controllerId: "1", types: ["Creature"] } },
+      { stackTargetId: 950, isAbility: false, sourceCard: { id: 951, name: "Lava Dart", controllerId: "1", types: ["Instant"] }, targets: [{ id: -1, zone: "Player" }] },
+    ];
+    const counterspell = (me!.hand as Raw[])[2]!;
+    s.priorityPlayerId = "0";
+    s.pendingAction = { type: "CHOOSE_TARGETS", promptVersion: 4, contextType: "targets_stack", message: "Choose target spell", sourceCardId: counterspell.id, sourceCardName: "Counterspell",
+      min: 1, max: 1, mandatory: true, cardOptions: [{ id: 950, name: "Lava Dart", zone: "Stack", types: ["Instant"] }] };
+  },
+  // A fetched land asks for life while the fetch's ability is still on the stack.
+  shock: (s) => {
+    const [me] = players(s);
+    const fountain = card("Hallowed Fountain", { typeLine: "Land — Plains Island" });
+    bf(me!).push(fountain);
+    s.stack = [{ stackTargetId: 970, isAbility: true, abilityDescription: "Search your library for a Plains or Island card, put it onto the battlefield, then shuffle.", sourceCard: { id: 971, name: "Flooded Strand", controllerId: "0", types: ["Land"] } }];
+    s.pendingAction = { type: "YES_NO", promptVersion: 5, message: "Pay 2 life?", sourceCardId: fountain.id, sourceCardName: "Hallowed Fountain" };
+  },
+  // A Clue sacrificed for its own ability: gone from the table, its ability on the stack.
+  clue: (s) => {
+    const [me] = players(s);
+    const clue = card("Clue", { typeLine: "Token Artifact — Clue", isToken: true, tokenSetCode: "tmkm", tokenCollectorNumber: "14" });
+    bf(me!).push(clue);
+    return (t) => {
+      const mine = players(t)[0]!;
+      mine.battlefield = bf(mine).filter((c) => c.id !== clue.id);
+      t.stack = [{ stackTargetId: 980, isAbility: true, abilityDescription: "{2}, Sacrifice this artifact: Draw a card.", sourceCard: { id: clue.id, name: "Clue", controllerId: "0", types: ["Artifact"] } }];
+      t.pendingAction = { type: "PRIORITY", promptVersion: 6, cardOptions: [] };
+    };
+  },
+  won: (s) => { s.status = "COMPLETE"; s.winnerId = "0"; s.pendingAction = null; },
+  lost: (s) => { s.status = "COMPLETE"; s.winnerId = "1"; s.pendingAction = null; },
   attack: (s) => {
     const [me] = players(s);
     s.phase = "DECLARE_ATTACKERS";

@@ -72,6 +72,8 @@ Revealed cards (from a hand, a library…) pop up near the top of the table for 
 (✕ closes them; right-click a card to enlarge). A card revealed from the opponent's hand stays
 face up there, with an eye mark, while it's still in that hand; face-down cards you're allowed
 to see (your morphs, cards you exiled face down) show their front the same way. Keywords an effect gave a permanent show in green on it, lost ones in red.
+| **H** or *Hold priority* | Keep priority after what you cast or activate, until switched off |
+| *End turn* (under the action buttons) | Pass priority for the rest of your turn |
 | **Alt+Shift+A** or *Classic UI* | Switch between the Arena board and Endstep's UI |
 | **Alt+Shift+D** or *Debug* | Debug panel (game state, events, network, raw) |
 
