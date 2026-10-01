@@ -210,6 +210,16 @@ const scenarios: Record<string, Scenario> = {
     s.pendingAction = { type: "CHOOSE_CARDS", promptVersion: 16, sourceCardName: "Scapeshift", message: "Search for land cards.", min: 0, max: 6,
       cardOptions: names.map((n, i) => ({ id: 980 + i, name: n, typeLine: "Land", zone: "LIBRARY" })) };
   },
+  // Learn: the Lessons in the sideboard and the hand, offered together as Endstep sends them.
+  learn: (s) => {
+    const [me] = players(s);
+    const lessons = ["Environmental Sciences", "Pest Summoning", "Mascot Exhibition", "Containment Breach"];
+    s.pendingAction = { type: "CHOOSE_CARDS", promptVersion: 19, sourceCardName: "Eyetwitch", message: "Learn", min: 0, max: 1,
+      cardOptions: [
+        ...lessons.map((n, i) => ({ id: 970 + i, name: n, typeLine: "Sorcery — Lesson", zone: "Sideboard" })),
+        ...((me!.hand as Raw[] | undefined) ?? []).map((c) => ({ ...c, zone: "Hand" })),
+      ] };
+  },
   // A long graveyard, to browse (click the pile).
   graveyard: (s) => {
     const [me] = players(s);

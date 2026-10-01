@@ -7,7 +7,9 @@ import type { GameState, ModeOption, PendingActionView } from "../../game/GameSt
 export type Mode =
   | { kind: "idle" }
   | { kind: "targets"; valid: Set<string>; selected: string[]; min: number; max: number; mandatory: boolean }
-  | { kind: "cards"; valid: Set<string>; selected: string[]; min: number; max: number; mandatory: boolean; mana: boolean; offBoard: boolean }
+  /** With `learn`, the choice is shown in two steps: the Lessons first, then (on request) the
+      hand cards, one of which is discarded to draw a card. `valid` holds the step's cards. */
+  | { kind: "cards"; valid: Set<string>; selected: string[]; min: number; max: number; mandatory: boolean; mana: boolean; offBoard: boolean; learn?: LearnChoice & { discarding: boolean } }
   /** With several defenders (a planeswalker or battle in play), clicking an attacker "aims" it:
       an arrow follows the pointer until a player or planeswalker is clicked. */
   | { kind: "attackers"; valid: Set<string>; assignments: Map<string, number>; defenders?: ModeOption[]; currentDefender: number; aiming: string | null }
@@ -55,6 +57,12 @@ function battlefieldIds(state: GameState): Set<string> {
 export function deriveMode(state: GameState | null): Mode {
   const p = state?.pending;
   if (!state || !p) return { kind: "idle" };
+  const learn = learnChoice(state, p);
+  if (learn) {
+    // With no Lesson to get, the only thing to do is discard and draw.
+    const base: Extract<Mode, { kind: "cards" }> = { kind: "cards", valid: new Set(), selected: [], min: Math.min(p.min, 1), max: 1, mandatory: p.mandatory, mana: false, offBoard: true };
+    return learnStep({ ...base, learn: { ...learn, discarding: false } }, learn.lessons.length === 0);
+  }
   switch (p.type) {
     case "PRIORITY":
       return { kind: "idle" };
@@ -122,6 +130,36 @@ export function isBottomFromHand(state: GameState, p: PendingActionView): boolea
   if (/mulligan/i.test(p.contextType ?? "")) return true;
   const hand = new Set((state.players.find((pl) => pl.isViewer)?.hand ?? []).map((c) => c.id));
   return /\bbottom\b/i.test(p.message ?? "") && p.optionCardIds.every((id) => hand.has(id));
+}
+
+export interface LearnChoice {
+  /** Lesson cards outside the game that can be put into the hand. */
+  lessons: string[];
+  /** Hand cards that can be discarded to draw a card. */
+  hand: string[];
+}
+
+/** Learn, as Endstep asks it: one card to choose ("Learn a Lesson", asked as targets or as
+    cards) among the Lessons in the sideboard and the cards in hand (a hand card is discarded,
+    then a card is drawn). */
+export function learnChoice(state: GameState, p: PendingActionView): LearnChoice | null {
+  if ((p.type !== "CHOOSE_CARDS" && p.type !== "CHOOSE_TARGETS") || p.max !== 1 || p.contextType === "sideboard") return null;
+  // Only cards are offered, never a player.
+  const ids = p.optionCardIds;
+  if (!ids.length || p.stringOptions.length || ids.some((id) => /^-\d+$/.test(id))) return null;
+  const inHand = new Set((state.players.find((pl) => pl.isViewer)?.hand ?? []).map((c) => c.id));
+  const zone = (id: string) => (p.optionZones[id] ?? "").toLowerCase();
+  const hand = ids.filter((id) => zone(id) === "hand" || inHand.has(id));
+  const lessons = ids.filter((id) => !hand.includes(id));
+  const fromSideboard = lessons.length > 0 && lessons.every((id) => zone(id) === "sideboard");
+  const named = /\blearn/i.test(`${p.message ?? ""} ${p.contextType ?? ""}`);
+  return fromSideboard || named ? { lessons, hand } : null;
+}
+
+/** Shows a learn choice's other step (the Lessons, or the hand to discard from), nothing picked. */
+export function learnStep(mode: Extract<Mode, { kind: "cards" }>, discarding: boolean): Mode {
+  if (!mode.learn) return mode;
+  return { ...mode, valid: new Set(discarding ? mode.learn.hand : mode.learn.lessons), selected: [], learn: { ...mode.learn, discarding } };
 }
 
 export const humanize = (s: string) => s.toLowerCase().replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());

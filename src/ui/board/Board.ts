@@ -7,7 +7,7 @@
 import type { AbilityOption, CardView, GameState, PendingActionView, PlayerView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
 import { createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
-import { arrangeMove, canConfirm, clickInMode, defenderForKey, deriveMode, humanize, keyForDefender, promptKey, stepNumber, type Mode } from "./modes";
+import { arrangeMove, canConfirm, clickInMode, defenderForKey, deriveMode, humanize, keyForDefender, learnStep, promptKey, stepNumber, type Mode } from "./modes";
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
 import { currentStep, stepIndex, stepLabel, TURN_STEPS } from "./phases";
 import type { PhaseStops, StopSide } from "../../game/endstep/phaseStops";
@@ -1458,8 +1458,20 @@ export class Board {
       // Cards from a library, graveyard or exile: an Arena fan to pick from (orange = picked).
       // Cancel (when the choice can be declined) goes under the fan; Submit stays bottom right.
       const sel = m.kind === "cards" || m.kind === "targets" ? m.selected : [];
+      const off = this.awaiting ? "disabled" : "";
+      if (m.kind === "cards" && m.learn) {
+        // Learn: two buttons under the fan, one showing the sideboard's Lessons, the other the
+        // hand to discard from (the one shown is lit). No Cancel here.
+        const { lessons, hand, discarding } = m.learn;
+        const tab = (step: string, label: string, on: boolean, n: number) =>
+          `<button class="opt ${on ? "primary" : "alt"}" data-learn="${step}" ${this.awaiting || !n ? "disabled" : ""}>${label}</button>`;
+        const cards = p.optionCards.filter((c) => m.valid.has(c.id)).map((c) => this.cardData.get(c.id) ?? c);
+        return this.fanHtml(`pick:${this.modeKey}:${discarding ? "discard" : "lessons"}`, cards,
+          (c) => `data-pick="${esc(c.id)}"`, (c) => (sel.includes(c.id) ? "on" : "selectable"))
+          + `<div class="choices big">${tab("lessons", "Show sideboard", !discarding, lessons.length)}${tab("discard", "Show hand", discarding, hand.length)}</div>`;
+      }
       const cancel = (m.kind === "cards" || m.kind === "targets") && !m.mandatory
-        ? `<div class="choices big"><button class="opt primary" data-act="decline" ${this.awaiting ? "disabled" : ""}>Cancel</button></div>` : "";
+        ? `<div class="choices big"><button class="opt primary" data-act="decline" ${off}>Cancel</button></div>` : "";
       return this.fanHtml(`pick:${this.modeKey}`, p.optionCards.filter((c) => !isPlayerId(c.id)),
         (c) => `data-pick="${esc(c.id)}"`, (c) => (sel.includes(c.id) ? "on" : "selectable")) + cancel;
     }
@@ -2320,6 +2332,8 @@ export class Board {
         if (m.kind === "attackers") c.declareAttackers(m.assignments, !!m.defenders);
         else if (m.kind === "blockers") c.declareBlockers(m.assignments);
         else if (m.kind === "targets") c.chooseTargets(m.selected);
+        // Learn may be asked as a target choice: it's answered the way it was asked.
+        else if (m.kind === "cards" && this.state?.pending?.type === "CHOOSE_TARGETS") c.chooseTargets(m.selected);
         else if (m.kind === "cards") c.chooseCards(m.selected);
         else return;
         break;
@@ -2393,6 +2407,9 @@ export class Board {
     } else if (d.arrangeDone !== undefined && m.kind === "arrange") {
       if (m.pick) c.chooseCards(m.tray);
       else c.arrangeCards(m.top);
+    } else if (d.learn !== undefined && m.kind === "cards") {
+      this.setMode(learnStep(m, d.learn === "discard"));
+      return true;
     } else if (d.pick !== undefined) {
       this.onSelectKey(d.pick, new MouseEvent("click"));
       return true;
@@ -2959,6 +2976,10 @@ function promptTitle(state: GameState, m: Mode): { title: string; sub: string } 
     case "CHOOSE_NUMBER":
       return pick(/\bX\b/.test(msg) ? "Choose X" : "Choose a Number", "");
     default:
+      if (m.kind === "cards" && m.learn) {
+        return { title: "Learn", sub: m.learn.discarding ? "Choose a card to discard, then draw a card."
+          : `Choose a Lesson to put into your hand${m.learn.hand.length ? ", or discard a card to draw a card" : ""}.` };
+      }
       if (m.kind === "targets" || m.kind === "cards") {
         // "Choose Up To 6", with Endstep's message ("Search for land cards.") under it.
         const noun = m.kind === "targets" ? "Target" : "a Card";
