@@ -80,7 +80,7 @@ const scenarios: Record<string, Scenario> = {
     s.stack = [
       { stackTargetId: 900, isAbility: false, sourceCard: { id: 900, name: "Counterspell", controllerId: "1", types: ["Instant"] }, targets: [{ id: 901, zone: "Stack" }] },
       { stackTargetId: 902, isAbility: true, abilityDescription: "Target creature gets +1/+1 until end of turn.", targets: [{ id: 111, zone: "Battlefield" }], sourceCard: { id: 110, name: "Tarmogoyf", controllerId: "0", types: ["Creature"] } },
-      { stackTargetId: 901, isAbility: false, sourceCard: { id: 901, name: "Lightning Bolt", controllerId: "0", types: ["Instant"] }, targets: [{ id: -2, zone: "Player" }] },
+      { stackTargetId: 901, isAbility: false, xValue: 3, sourceCard: { id: 901, name: "Fireball", controllerId: "0", types: ["Sorcery"] }, targets: [{ id: -2, zone: "Player" }] },
     ];
     (me!.hand as Raw[]).shift();
     s.priorityPlayerId = "0";

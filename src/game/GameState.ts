@@ -102,6 +102,8 @@ export interface StackItemView {
   sourceCardId?: string;
   /** Card ids, or "player:<seat>" for players. */
   targets: string[];
+  /** The value chosen for X, when Endstep sends it with the item. */
+  x?: number;
 }
 
 export interface AbilityOption {
