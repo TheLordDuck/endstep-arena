@@ -84,6 +84,13 @@ export class Board {
   /** Stack card element id → its stack item (for source/target arrows). */
   private stackEls = new Map<string, StackItemView>();
   private hoverStack: string | null = null;
+  /** The ids Endstep may target a stack item by (its stack id, a spell's card id) → its element id. */
+  private stackAlias = new Map<string, string>();
+  /** Hold priority (the dock toggle, or H): what you cast or activate doesn't pass priority after. */
+  private holdPriority = false;
+  /** "End turn" was pressed on this turn: priority is passed for you until the turn is over. */
+  private skipTurn: number | null = null;
+  private skipSeq: number | undefined;
   private hoverPerm: string | null = null;
   private drag: { id: string; startX: number; startY: number; el: HTMLElement; active: boolean } | null = null;
   /** The stack tray is tucked away (the player asked for a clear view of the battlefield). */
@@ -109,6 +116,8 @@ export class Board {
       spell on the stack (or a prompt's card) may come without it, and should keep the art its
       player chose instead of falling back to the default one. */
   private printings = new Map<string, { setCode: string; collectorNumber: string }>();
+  /** Tokens seen on the table, by id and by "<controller>|<name>", for their art once they're gone. */
+  private tokens = new Map<string, CardView>();
   /** Per permanent: who blocks it and what targets it (see groupKey). */
   private situation = new Map<string, string>();
   /** Crowded zones shown a page at a time: the page shown, by zone ("me:others", "opp:full"…). */
@@ -211,7 +220,27 @@ export class Board {
       this.abilityPick = null;
       this.hideMenu();
     }
+    this.autoSkip(state);
     this.render(prev);
+  }
+
+  /** After "End turn": passes priority at every stop left in your turn (and attacks with nothing).
+      An opponent's spell or ability, or any other question, hands the turn back to you. */
+  private autoSkip(state: GameState): void {
+    if (this.skipTurn === null) return;
+    const me = state.players.find((pl) => pl.isViewer);
+    const p = state.pending;
+    const top = state.stack[0];
+    if (state.turnNumber !== this.skipTurn || state.activePlayerId !== me?.id || state.status === "COMPLETE" || (top && top.controllerId !== me?.id)) {
+      this.skipTurn = null;
+      return;
+    }
+    if (!p || state.seq === this.skipSeq) return;
+    if (p.type === "PRIORITY") this.controller.passPriority();
+    else if (p.type === "DECLARE_ATTACKERS") this.controller.declareAttackers(new Map(), false);
+    else return;
+    this.skipSeq = state.seq;
+    this.setAwaiting(true);
   }
 
   toast(message: string): void {
@@ -295,7 +324,8 @@ export class Board {
     this.renderHand(z.me);
     this.renderSideHand(state);
     this.renderOppHand(z.opp);
-    this.renderStack(state.stack, z.me?.id);
+    const casting = this.pendingStackItem(state, z.me);
+    this.renderStack(casting ? [casting, ...state.stack] : state.stack, z.me?.id);
     this.renderPiles(this.q(".me-piles"), z.me);
     this.renderPiles(this.q(".opp-piles"), z.opp);
 
@@ -587,12 +617,51 @@ export class Board {
     }
   }
 
+  /** The card a prompt is about when it isn't on the stack yet (a spell being cast, a trigger
+      choosing its targets): shown as the top stack item, so the stack is the one place to look. */
+  private pendingStackItem(state: GameState, me: PlayerView | null): StackItemView | null {
+    const p = state.pending;
+    const m = this.mode;
+    // Also a question asked while something else resolves (pay life for the land you fetched, a
+    // "may" effect): the card asking sits on top, over the item that brought it.
+    if (!p || p.type === "PRIORITY" || !(m.kind === "targets" || m.kind === "cards" || p.type === "YES_NO")) return null;
+    // A tucked-away stack keeps the big card beside the table instead.
+    if (this.stackHidden && state.stack.length) return null;
+    const src = p.sourceCardId || p.sourceCardName ? this.sourceCard(p) : undefined;
+    if (!src || !imageUrl(src)) return null;
+    // Already there (same checks as stackKeyFor).
+    if (state.stack.some((s) => (!!p.sourceCardId && [s.sourceCardId, s.card?.id, s.id].includes(p.sourceCardId)) || (s.card?.name ?? s.name) === src.name)) return null;
+    const onBattlefield = state.players.some((pl) => pl.battlefield.some((c) => c.id === src.id));
+    // A spell being cast keeps its card's id from the hand to the stack, so one card moves there
+    // and stays (no swapping it for a copy while it's paid for). A card shown somewhere else
+    // (a permanent, a graveyard's top card) stays where it is and gets a copy.
+    const elsewhere = state.players.some((pl) => [pl.battlefield, pl.graveyard, pl.exile, pl.commandZone, pl.effects, pl.libraryTop, pl === me ? [] : pl.hand ?? []]
+      .some((zone) => zone.some((c) => c.id === src.id)));
+    const own = !elsewhere && !src.id.startsWith("src:");
+    return {
+      id: own ? src.id : `pending:${src.id}`,
+      name: onBattlefield ? p.message ?? src.name : src.name,
+      isAbility: onBattlefield,
+      card: own ? src : { ...src, id: `pending:${src.id}` },
+      controllerId: me?.id,
+      sourceCardId: src.id,
+      targets: [],
+    };
+  }
+
   private renderStack(stack: StackItemView[], meId: string | undefined): void {
     this.stackEls.clear();
+    this.stackAlias.clear();
     // stack[0] is the top (Endstep auto-yield checks stack[0]); draw the top last so it sits in front.
     const els = stack.slice().reverse().map((s, i) => {
-      const known = s.sourceCardId ? this.cardData.get(s.sourceCardId) : undefined;
-      const source = s.card ? this.withPrinting(known ? { ...known, ...s.card, setCode: s.card.setCode ?? known.setCode, collectorNumber: s.card.collectorNumber ?? known.collectorNumber } : s.card, s.controllerId) : known;
+      // The stack's copy of a card may come without what makes it a token (its art is looked up
+      // differently), so that is taken from the permanent itself, or from when it was last seen
+      // (a token that died and left a trigger behind).
+      const known = (s.sourceCardId ? this.cardData.get(s.sourceCardId) : undefined)
+        ?? (s.card ? this.tokens.get(s.card.id) ?? this.tokens.get(`${s.controllerId ?? ""}|${s.card.name}`) : undefined);
+      const merged = known && s.card ? { ...known, ...Object.fromEntries(Object.entries(s.card).filter(([, v]) => v !== undefined)) } as CardView : s.card;
+      if (merged && known?.isToken) Object.assign(merged, { isToken: true, isCopyOfRealCard: known.isCopyOfRealCard });
+      const source = merged ? this.withPrinting(merged, s.controllerId) : known;
       const card: CardView = {
         ...(source ?? blankCard(s.id, s.name)),
         // A spell keeps its card id, so it animates from the hand onto the stack.
@@ -601,16 +670,34 @@ export class Board {
         tapped: false, isAttacking: false, isBlocking: false,
       };
       this.cardData.set(card.id, card);
+      // An ability that was shown while it asked its question (as "pending") keeps that card
+      // now that it's really on the stack, instead of blinking out and back in.
+      const asked = `ab:pending:${s.sourceCardId}`;
+      const was = s.isAbility && !this.cardEls.has(card.id) && !stack.some((x) => x.id === `pending:${s.sourceCardId}`) ? this.cardEls.get(asked) : undefined;
+      if (was) {
+        this.cardEls.delete(asked);
+        this.cardEls.set(card.id, was);
+        was.dataset.id = card.id;
+      }
       const el = this.card(card, false);
       el.classList.toggle("ability", s.isAbility);
       el.dataset.stackText = s.isAbility ? s.name : "";
+      // A triggered ability ("When…", "Whenever…", "At…") or an activated one: the ribbon says which.
+      const triggered = s.isAbility && /^\s*(when|whenever|at)\b/i.test(s.name);
+      const face = el.querySelector<HTMLElement>(".face");
+      if (face) face.dataset.kindLong = s.id.startsWith("pending:") ? "Ability" : triggered ? "Triggered ability" : "Activated ability";
+      el.classList.toggle("trigger", triggered);
       el.dataset.controller = s.controllerId ?? "";
       // 1 = top of the stack, resolves next.
       el.dataset.order = String(stack.length - i);
       el.style.setProperty("--si", String(i));
+      // Its place in the pile, fixed: a card that came from the hand still carries the hand's layering.
+      el.style.zIndex = String(i + 1);
       el.classList.toggle("mine", !!meId && s.controllerId === meId);
       el.classList.toggle("theirs", !!s.controllerId && s.controllerId !== meId);
       this.stackEls.set(card.id, s);
+      this.stackAlias.set(s.id, card.id);
+      if (!s.isAbility && s.card) this.stackAlias.set(s.card.id, card.id);
       return el;
     });
     const box = this.q(".stack");
@@ -707,7 +794,8 @@ export class Board {
     this.el.classList.toggle("aiming-target", mode.kind === "targets");
     for (const [id, el] of this.cardEls) {
       const c = this.cardData.get(id);
-      const selectable = this.isSelectable(id);
+      const key = this.stackEls.has(id) ? this.stackTargetKey(id) : id;
+      const selectable = this.isSelectable(key);
       const linked = this.linked.has(id) && !!el.closest(".slot");
       el.classList.toggle("linked", linked);
       if (!linked) el.style.removeProperty("--li");
@@ -717,7 +805,7 @@ export class Board {
       el.classList.toggle("playable", playable.has(id) && !this.awaiting);
       el.classList.toggle("selectable", selectable);
       el.classList.toggle("selected",
-        ((mode.kind === "targets" || mode.kind === "cards") && mode.selected.includes(id)) ||
+        ((mode.kind === "targets" || mode.kind === "cards") && mode.selected.includes(key)) ||
         (mode.kind === "blockers" && mode.selectedBlocker === id));
       el.classList.toggle("attacking", !!c?.isAttacking || !!attackingAssigned?.has(id) || (mode.kind === "attackers" && mode.aiming === id));
       el.classList.toggle("aiming", mode.kind === "attackers" && mode.aiming === id);
@@ -736,6 +824,20 @@ export class Board {
       plate.classList.toggle("selectable", this.isSelectable(key));
       plate.classList.toggle("selected", (mode.kind === "targets" && mode.selected.includes(key)));
     }
+  }
+
+  /** A card's element: its own, or the stack item Endstep knows by that id. */
+  private elFor(key: string): HTMLElement | undefined {
+    return this.cardEls.get(key) ?? this.cardEls.get(this.stackAlias.get(key) ?? "");
+  }
+
+  /** The id a stack item is chosen by in the current prompt (countering a spell, copying it…). */
+  private stackTargetKey(elId: string): string {
+    const m = this.mode;
+    if (m.kind === "targets" || m.kind === "cards") {
+      for (const [alias, id] of this.stackAlias) if (id === elId && m.valid.has(alias)) return alias;
+    }
+    return elId;
   }
 
   private isSelectable(key: string): boolean {
@@ -926,7 +1028,6 @@ export class Board {
     // Choices (mulligan, modes, trigger order, yes/no, cards to pick…) take the whole screen,
     // Arena style: a title, the options, and big buttons. Attack defenders stay a small box.
     let arena = false;
-    let focus = false;
     let stackKey: string | null = null;
     const pick = this.abilityPick;
     if (pick && (!p || p.type === "PRIORITY")) {
@@ -952,22 +1053,12 @@ export class Board {
         const thumb = src && url ? `<div class="pthumb" data-zoom="${esc(src.id)}" title="${esc(src.name)}"><img src="${esc(url)}" alt="" draggable="false"></div>` : "";
         // With the card's picture there, its name label above the message is redundant.
         const msg = m.kind === "attackers" && m.aiming ? "Click a player or planeswalker to attack" : p.message ?? defaultMessage(p.type, m);
-        focus = !!(src && url) && (m.kind === "targets" || m.kind === "cards" || p.type === "YES_NO");
-        stackKey = focus && !this.stackHidden ? this.stackKeyFor(p) : null;
-        if (stackKey) {
-          // Already on the stack (a trigger, a spell): the question goes right under it.
-          focus = false;
-          const hint = focusHint(m);
-          html = `<div class="ftext"><div class="msg">${withSymbols(esc(msg))}</div>${hint ? `<p>${esc(hint)}</p>` : ""}</div>` + controls;
-        } else if (focus) {
-          // Paying for a card or choosing its targets: Arena shows that card big on the right,
-          // with what to do in large type under it.
-          const hint = focusHint(m);
-          html = `<div class="fbig" data-zoom="${esc(src!.id)}"><img src="${esc(url!)}" alt="${esc(src!.name)}" draggable="false"></div>
-            <div class="ftext"><div class="msg">${withSymbols(esc(msg))}</div>${hint ? `<p>${esc(hint)}</p>` : ""}</div>` + controls;
-        } else {
-          html = `<div class="pline">${thumb}<div class="msg">${thumb ? "" : source}${withSymbols(esc(msg))}</div></div>` + controls;
-        }
+        // The card it's about is on the stack (a spell being cast, a trigger choosing targets):
+        // that item glows, and the line needs no picture of it.
+        const about = !!(src && url) && (m.kind === "targets" || m.kind === "cards" || p.type === "YES_NO");
+        stackKey = about && !this.stackHidden ? this.stackKeyFor(p) : null;
+        const pic = stackKey ? "" : thumb;
+        html = `<div class="pline">${pic}<div class="msg">${pic ? "" : source}${withSymbols(esc(msg))}</div></div>` + controls;
       } else {
         const { title, sub } = promptTitle(state, m);
         // A question from a card (a trigger's yes/no, a color, a number…) shows that card beside
@@ -990,7 +1081,7 @@ export class Board {
     if (box.dataset.sig !== html && !this.orderDrag?.active && !this.arrDrag?.active) {
       box.dataset.sig = html;
       const sameBox = m.kind === "order" && box.dataset.orderKey === this.modeKey && this.patchOrderBox(box, m);
-      if (!sameBox) box.innerHTML = html;
+      if (!sameBox) this.swapHtml(box, html);
       const q = box.querySelector<HTMLInputElement>(".name-q");
       if (q) {
         this.fillNameResults(q);
@@ -1002,14 +1093,11 @@ export class Board {
     box.classList.toggle("show", html !== "");
     box.classList.toggle("center", controls !== "");
     box.classList.toggle("arena", arena);
-    box.classList.toggle("focus", focus);
-    box.classList.toggle("on-stack", !!stackKey);
     if (this.promptStackKey !== stackKey) {
       if (this.promptStackKey) this.cardEls.get(this.promptStackKey)?.classList.remove("asking");
       this.promptStackKey = stackKey;
     }
     if (stackKey) this.cardEls.get(stackKey)?.classList.add("asking");
-    this.el.classList.toggle("focus-open", focus);
     box.classList.toggle("peek", arena && this.peeking);
     // The action buttons (Done, Cancel for a card picker) stay above a full-screen choice.
     this.el.classList.toggle("arena-open", arena && !this.peeking);
@@ -1069,6 +1157,27 @@ export class Board {
       <div class="fan-cards">${tiles || '<p class="muted">No cards</p>'}</div>
       <div class="fan-slider" data-fan-slider><div class="fan-thumb">◂ ▸</div></div>
     </div>`;
+  }
+
+  /** Replaces a box's content, keeping the cards already shown (a fan's cards, the card that
+      asked): picking one only changes its glow, so nothing reloads or flies back into place. */
+  private swapHtml(box: HTMLElement, html: string): void {
+    const key = (el: HTMLElement) => `${el.closest<HTMLElement>(".fan")?.dataset.fan ?? ""}|${el.dataset.zoom}|${el.querySelector("img")?.getAttribute("src") ?? ""}`;
+    const sel = ".fan[data-fan] .fcard[data-zoom], .pcard[data-zoom]";
+    const shown = new Map([...box.querySelectorAll<HTMLElement>(sel)].map((el) => [key(el), el]));
+    const next = document.createElement("template");
+    next.innerHTML = html;
+    for (const el of next.content.querySelectorAll<HTMLElement>(sel)) {
+      const k = key(el);
+      const keep = shown.get(k);
+      if (!keep) continue;
+      shown.delete(k);
+      // Same card: take the new state (picked or not, its place in the fan), keep the layout.
+      for (const a of [...keep.attributes]) if (a.name !== "style" && !el.hasAttribute(a.name)) keep.removeAttribute(a.name);
+      for (const a of [...el.attributes]) if (a.name !== "style") keep.setAttribute(a.name, a.value);
+      el.replaceWith(keep);
+    }
+    box.replaceChildren(next.content);
   }
 
   /** Places every fan's cards along its arc around the scroll position, and its slider thumb. */
@@ -1148,6 +1257,10 @@ export class Board {
   }
 
   private rememberPrinting(c: CardView): void {
+    if (c.isToken && !c.faceDown) {
+      this.tokens.set(c.id, c);
+      this.tokens.set(`${c.controllerId ?? ""}|${c.name}`, c);
+    }
     if (c.isToken || c.faceDown || !c.setCode || !c.collectorNumber) return;
     const printing = { setCode: c.setCode, collectorNumber: c.collectorNumber };
     this.printings.set(c.id, printing);
@@ -1176,10 +1289,10 @@ export class Board {
       if (p.sourceCardId && [s.sourceCardId, s.card?.id, s.id].includes(p.sourceCardId)) byId = key;
       if (name && (s.card?.name ?? s.name) === name) byName = key;
     }
-    // A yes/no nobody could match ("Exile Creeping Chill?") is asked by what's resolving: the top
-    // item, when it's yours.
+    // A yes/no that names no card at all is asked by what's resolving: the top item, when it's
+    // yours. One that names a card (the land you fetched asking for life) is about that card.
     const top = [...this.stackEls].pop();
-    const fallback = p.type === "YES_NO" && top && top[1].controllerId === this.state?.players.find((pl) => pl.isViewer)?.id ? top[0] : null;
+    const fallback = p.type === "YES_NO" && !p.sourceCardId && !p.sourceCardName && p.contextType !== "replacement" && top && top[1].controllerId === this.state?.players.find((pl) => pl.isViewer)?.id ? top[0] : null;
     const found = byId ?? byName ?? fallback;
     return found && this.cardEls.get(found)?.isConnected ? found : null;
   }
@@ -1238,7 +1351,10 @@ export class Board {
 
   /** The card a prompt comes from (on the table, or just by name). */
   private sourceCard(p: PendingActionView): CardView | undefined {
-    const known = (p.sourceCardId ? this.cardData.get(p.sourceCardId) : undefined) ?? (p.sourceCardName ? blankCard(`src:${p.sourceCardName}`, p.sourceCardName) : undefined);
+    // A token already gone (a Clue sacrificed to pay for its own ability) keeps its art.
+    const me = this.state?.players.find((pl) => pl.isViewer)?.id ?? "";
+    const known = (p.sourceCardId ? this.cardData.get(p.sourceCardId) ?? this.tokens.get(p.sourceCardId) : undefined)
+      ?? (p.sourceCardName ? this.tokens.get(`${me}|${p.sourceCardName}`) ?? blankCard(`src:${p.sourceCardName}`, p.sourceCardName) : undefined);
     const c = known && this.withPrinting(known, this.state?.players.find((pl) => pl.isViewer)?.id);
     if (c && !this.cardData.has(c.id)) this.cardData.set(c.id, c);
     return c;
@@ -1307,7 +1423,12 @@ export class Board {
   private choiceControls(state: GameState): string {
     const p = state.pending!;
     const m = this.mode;
-    if ((m.kind === "cards" && m.offBoard) || (m.kind === "targets" && p.optionCardIds.some((id) => !isPlayerId(id) &&!this.cardEls.get(id)?.isConnected))) {
+    // A pile's top card is drawn, but it's still a card in a graveyard or exile: it goes in the fan.
+    const onTable = (id: string) => {
+      const el = this.elFor(id);
+      return !!el?.isConnected && !el.closest(".pile");
+    };
+    if ((m.kind === "cards" && m.offBoard) || (m.kind === "targets" && p.optionCardIds.some((id) => !isPlayerId(id) && !onTable(id)))) {
       // Cards from a library, graveyard or exile: an Arena fan to pick from (orange = picked).
       // Cancel (when the choice can be declined) goes under the fan; Submit stays bottom right.
       const sel = m.kind === "cards" || m.kind === "targets" ? m.selected : [];
@@ -1396,7 +1517,7 @@ export class Board {
     const m = this.mode;
     const me = state.players.find((pl) => pl.isViewer);
     const myTurn = !!me && state.activePlayerId === me.id;
-    const buttons: { id: string; label: string; primary?: boolean; disabled?: boolean }[] = [];
+    const buttons: { id: string; label: string; primary?: boolean; disabled?: boolean; on?: boolean }[] = [];
 
     if (state.status === "COMPLETE" || m.kind === "classic") {
       // nothing
@@ -1412,7 +1533,10 @@ export class Board {
         const stops = this.hooks.phaseStops().myTurn;
         const endTurn = myTurn && i >= 0 && !TURN_STEPS.slice(i + 1).some((s) => stops.has(s.key));
         buttons.push({ id: "pass", label: myTurn ? (endTurn ? "End turn" : "Next") : "Pass", primary: true });
+        // Under the rest (the dock stacks upward): skip what's left of your turn, as Endstep's own button does.
+        if (myTurn && !endTurn && state.turnNumber !== undefined) buttons.unshift({ id: "end-turn", label: "End turn" });
       }
+      buttons.push({ id: "hold", label: this.holdPriority ? "Holding priority (H)" : "Hold priority (H)", on: this.holdPriority });
     } else if (p.type === "YES_NO" && !fullScreenYesNo(p, state)) {
       // The answers replace the action buttons, as in Arena: Decline (blue) on top, Take action
       // (orange) under it. Answers Endstep words its own way keep their words.
@@ -1439,7 +1563,7 @@ export class Board {
     }
     // Endstep says when the last action can be taken back.
     if (p?.canUndo && buttons.length) buttons.push({ id: "undo", label: "↶ Undo" });
-    const html = buttons.map((b) => `<button class="${b.primary ? "primary" : "secondary"}" data-act="${b.id}" ${b.disabled || this.awaiting ? "disabled" : ""}>${esc(b.label)}</button>`).join("");
+    const html = buttons.map((b) => `<button class="${b.primary ? "primary" : "secondary"}${b.on ? " on" : ""}" data-act="${b.id}" ${b.disabled || this.awaiting ? "disabled" : ""}>${esc(b.label)}</button>`).join("");
     const dock = this.q(".dock");
     if (dock.dataset.sig !== html) {
       dock.dataset.sig = html;
@@ -1660,18 +1784,7 @@ export class Board {
     // space right of your turn bar, clear of the action buttons. A choice to make stays centered.
     const prompt = this.q(".prompt");
     for (const k of ["left", "top", "right", "bottom", "max-width"]) prompt.style.removeProperty(k);
-    const asking = this.promptStackKey ? this.cardEls.get(this.promptStackKey) : undefined;
-    if (prompt.classList.contains("on-stack") && asking?.isConnected) {
-      // Under the stack item it's about, centered on it and kept on screen.
-      const box = this.el.getBoundingClientRect();
-      const r = asking.getBoundingClientRect();
-      const w = prompt.offsetWidth;
-      const x = Math.min(box.width - w - 12, Math.max(12, r.left - box.left + r.width / 2 - w / 2));
-      prompt.style.setProperty("left", `${Math.round(x)}px`);
-      prompt.style.setProperty("right", "auto");
-      prompt.style.setProperty("bottom", "auto");
-      prompt.style.setProperty("top", `${Math.round(Math.min(box.height - prompt.offsetHeight - 12, r.bottom - box.top + 12))}px`);
-    } else if (prompt.classList.contains("show") && !prompt.classList.contains("center") && !prompt.classList.contains("focus")) {
+    if (prompt.classList.contains("show") && !prompt.classList.contains("center")) {
       const box = this.el.getBoundingClientRect();
       const bar = this.q(".me-bar");
       const b = bar.getBoundingClientRect();
@@ -1760,13 +1873,13 @@ export class Board {
   }
 
   private anchor(key: string): DOMRect | null {
-    // A focused prompt's arrows leave from its big card.
-    const el = key === PROMPT_KEY ? this.el.querySelector<HTMLElement>(".prompt.show.focus .fbig")
-        ?? (this.promptStackKey && this.el.querySelector(".prompt.show.on-stack") ? this.cardEls.get(this.promptStackKey) : undefined)
+    // A prompt's arrows leave from the stack item it's about, else from its text.
+    const asking = this.promptStackKey ? this.cardEls.get(this.promptStackKey) : undefined;
+    const el = key === PROMPT_KEY ? (asking?.isConnected && !asking.closest(".stack-dock.collapsed") ? asking : undefined)
         ?? this.el.querySelector<HTMLElement>(".prompt.show")
       : key.startsWith("player:")
       ? this.el.querySelector<HTMLElement>(`.life-orb[data-player="${key.slice(7)}"]`) ?? this.el.querySelector<HTMLElement>(`.tile[data-player="${key.slice(7)}"]`)
-      : this.cardEls.get(key);
+      : this.elFor(key);
     // Not shown (e.g. on another page of a crowded zone): no arrow.
     if (!el?.isConnected || !el.getClientRects().length) return null;
     // A hidden stack: point at its "◂ Stack" pill instead of the tucked-away item.
@@ -1779,8 +1892,8 @@ export class Board {
     const r = this.anchor(key);
     if (!r) return null;
     // The prompt text: arrows leave from its left edge, toward the board.
-    if (key === PROMPT_KEY) return { x: r.left - origin.left, y: r.top + r.height / 2 - origin.top };
-    const el = key.startsWith("player:") ? null : this.cardEls.get(key);
+    if (key === PROMPT_KEY && !this.promptStackKey) return { x: r.left - origin.left, y: r.top + r.height / 2 - origin.top };
+    const el = key.startsWith("player:") ? null : this.elFor(key);
     if (el?.parentElement?.classList.contains("stack") && !el.closest(".stack-dock.collapsed")) {
       // Items under the top only show their top-left corner, so aim there.
       const covered = el !== el.parentElement.lastElementChild;
@@ -1860,6 +1973,10 @@ export class Board {
     if (!state || this.awaiting) return null;
     if (m.kind === "attackers" && m.aiming) return { from: m.aiming, kind: "atk", accepts: (k) => defenderForKey(m, k, state) !== null };
     if (m.kind !== "targets" || m.selected.length >= m.max || this.el.querySelector(".prompt .fan")) return null;
+    // The legend rule (which of your copies to keep) isn't a spell aiming at something: no arrow.
+    const copies = [...m.valid].map((id) => this.cardData.get(id));
+    const sameName = copies.length > 1 && copies.every((c) => !!c && c.name === copies[0]?.name && c.controllerId === copies[0]?.controllerId && /legendary/i.test(c.typeLine ?? ""));
+    if (sameName || /legend/i.test(state.pending?.message ?? "")) return null;
     return { from: PROMPT_KEY, kind: "tgt", accepts: (k) => m.valid.has(k) && !m.selected.includes(k) };
   }
 
@@ -1962,6 +2079,15 @@ export class Board {
           return;
         }
       }
+      // H: hold priority on or off (not while typing a card name).
+      if ((e.key === "h" || e.key === "H") && this.el.classList.contains("live") && !e.ctrlKey && !e.altKey && !e.metaKey && !(e.target as HTMLElement | null)?.closest?.("input, textarea, [contenteditable]")) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        this.holdPriority = !this.holdPriority;
+        this.toast(this.holdPriority ? "Holding priority" : "Priority passes after you cast");
+        if (this.state) this.render(this.state);
+        return;
+      }
       if (e.key === "Escape" && this.el.classList.contains("live")) {
         if (m.kind === "attackers" && m.aiming) this.setMode({ ...m, aiming: null });
         this.hideMenu();
@@ -1975,7 +2101,7 @@ export class Board {
 
   private keyFromTarget(t: HTMLElement): string | null {
     const card = t.closest<HTMLElement>(".card[data-id]");
-    if (card && !card.closest(".pile")) return card.dataset.id!;
+    if (card && !card.closest(".pile")) return card.closest(".stack") ? this.stackTargetKey(card.dataset.id!) : card.dataset.id!;
     const plate = t.closest<HTMLElement>(".plate[data-player], .life-orb[data-player], .tile[data-player]");
     if (plate?.dataset.player) return playerTargetKey(Number(plate.dataset.player));
     return null;
@@ -2014,7 +2140,7 @@ export class Board {
     if (btn?.dataset.ability !== undefined && this.abilityPick && !this.awaiting) {
       const ability = this.abilityPick.abilities.find((a) => a.index === Number(btn.dataset.ability));
       this.manaSource = ability && /\badd\b/i.test(ability.description) ? this.abilityPick.cardId : null;
-      this.controller.playCard(this.abilityPick.cardId, Number(btn.dataset.ability));
+      this.controller.playCard(this.abilityPick.cardId, Number(btn.dataset.ability), this.holdPriority);
       this.abilityPick = null;
       this.setAwaiting(true);
       this.render(state);
@@ -2119,7 +2245,7 @@ export class Board {
       return true;
     }
     this.manaSource = /\badd\b/i.test(option.abilities[0]?.description ?? "") ? cardId : null;
-    this.controller.playCard(cardId, option.abilities[0]?.index, keepPriority);
+    this.controller.playCard(cardId, option.abilities[0]?.index, keepPriority || this.holdPriority);
     this.setAwaiting(true);
     return true;
   }
@@ -2130,6 +2256,15 @@ export class Board {
     switch (act) {
       case "undo": c.undo(); break;
       case "pass": c.passPriority(); break;
+      case "hold":
+        this.holdPriority = !this.holdPriority;
+        if (this.state) this.render(this.state);
+        return;
+      case "end-turn":
+        this.skipTurn = this.state?.turnNumber ?? null;
+        this.skipSeq = this.state?.seq;
+        c.passPriority();
+        break;
       case "resolve-all": c.resolveStack(); break;
       case "auto-pay": c.autoPay(); break;
       case "cancel": c.cancel(); break;
@@ -2612,7 +2747,7 @@ export class Board {
     }
     if (cmd === "concede") return this.showConcede(id);
     if (cmd === "play") {
-      this.controller.playCard(id, arg ? Number(arg) : undefined);
+      this.controller.playCard(id, arg ? Number(arg) : undefined, this.holdPriority);
       this.setAwaiting(true);
     } else if (cmd === "select") {
       this.onSelectKey(id, new MouseEvent("click"));
@@ -2644,7 +2779,7 @@ export class Board {
     // Rebuilt only when something changed, so hovering and scrolling aren't interrupted.
     if (box.dataset.sig !== html) {
       box.dataset.sig = html;
-      box.innerHTML = html;
+      this.swapHtml(box, html);
     }
     box.classList.add("open");
     this.layoutFans();
@@ -2734,12 +2869,6 @@ function yesNoLabels(p: PendingActionView): [string, string] {
   return p.stringOptions.length >= 2 ? [p.stringOptions[0]!, p.stringOptions[1]!] : ["Yes", "No"];
 }
 
-/** The line under a focused prompt's message: how to do it on this table. */
-function focusHint(m: Mode): string {
-  if (m.kind === "targets") return m.max > 1 && m.max < 99 ? `Click a highlighted target · ${m.selected.length}/${m.max}` : "Click a highlighted target";
-  if (m.kind === "cards") return m.mana ? "Tap your lands, or press Auto pay" : "Click the highlighted cards";
-  return "";
-}
 
 /** A number prompt's values offered as quick picks: the allowed ones, or the whole range when it's
     small (as Endstep's own picker does); none for a wide range. */

@@ -60,7 +60,9 @@ export function deriveMode(state: GameState | null): Mode {
       return { kind: "idle" };
     case "CHOOSE_TARGETS": {
       // Players are -(seat + 1) on the wire, whether listed as ids or by name.
-      const valid = new Set(p.optionCardIds.map((id) => (/^-\d+$/.test(id) ? playerTargetKey(-Number(id) - 1) : id)));
+      // (A stack item's own id is never a player, whatever its sign.)
+      const onStack = new Set(state.stack.map((s) => s.id));
+      const valid = new Set(p.optionCardIds.map((id) => (/^-\d+$/.test(id) && !onStack.has(id) ? playerTargetKey(-Number(id) - 1) : id)));
       for (const name of p.stringOptions) {
         const i = state.players.findIndex((pl) => (pl.targetName ?? pl.name) === name);
         if (i >= 0) valid.add(playerTargetKey(i));
