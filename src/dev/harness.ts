@@ -297,6 +297,30 @@ const scenarios: Record<string, Scenario> = {
     bf(opp!).push(card("Runed Halo", { typeLine: "Enchantment", chosenMarks: [{ kind: "NAME", value: "Emrakul, the Promised End" }] }),
       creature("Voice of All", 2, 2, { chosenMarks: [{ kind: "COLOR", value: "Red" }] }));
   },
+  // Forty cards in hand: each shows a sliver, and sliding along the hand goes through them.
+  bighand: (s) => {
+    const [me] = players(s);
+    const names = ["Lightning Bolt", "Counterspell", "Island", "Serra Angel", "Llanowar Elves", "Brainstorm", "Opt", "Mountain", "Tarmogoyf", "Dark Ritual"];
+    me!.hand = Array.from({ length: 40 }, (_, i) => card(names[i % names.length]!));
+    me!.handSize = 40;
+    s.pendingAction = { type: "PRIORITY", promptVersion: 21, cardOptions: (me!.hand as Raw[]).filter((_, i) => i % 3 === 0).map((c) => ({ id: c.id, zone: "HAND" })) };
+  },
+  // A full graveyard, a dozen of its cards castable from there (the side hand).
+  bigyard: (s) => {
+    const [me] = players(s);
+    const names = ["Faithless Looting", "Lingering Souls", "Deep Analysis", "Think Twice", "Opt", "Brainstorm", "Lightning Bolt", "Counterspell"];
+    me!.graveyard = Array.from({ length: 30 }, (_, i) => card(names[i % names.length]!));
+    s.pendingAction = { type: "PRIORITY", promptVersion: 22, cardOptions: (me!.graveyard as Raw[]).filter((_, i) => i % 8 < 3).map((c) => ({ id: c.id, zone: "GRAVEYARD", playableAbilities: [{ index: 0, description: "Flashback" }] })) };
+  },
+  // Emblems: ours (Chandra's), and the opponent's Narset emblem, which only weighs on us.
+  emblem: (s) => {
+    const [me, opp] = players(s);
+    (me!.commandZone as Raw[]).push(
+      card("Chandra, Torch of Defiance's emblem", { types: ["Emblem"], effectSourceName: "Chandra, Torch of Defiance", oracleText: "Whenever you cast a spell, this emblem deals 5 damage to any target." }));
+    (opp!.commandZone as Raw[]).push(
+      card("Narset Transcendent's emblem", { types: ["Emblem"], effectSourceName: "Narset Transcendent", oracleText: "Your opponents can't cast noncreature spells." }),
+      card("Elspeth, Knight-Errant's emblem", { types: ["Emblem"], effectSourceName: "Elspeth, Knight-Errant", oracleText: "Artifacts, creatures, enchantments, and lands you control have indestructible." }));
+  },
   // Casting Indomitable Creativity: X, as Endstep asks it (minValue/maxValue).
   x: (s) => {
     s.pendingAction = { type: "CHOOSE_NUMBER", promptVersion: 18, sourceCardName: "Indomitable Creativity", message: "Choose a value for X",
@@ -365,6 +389,21 @@ if (nextStep) {
   nextStep(raw);
   state = build({ seq: ++seq });
   board.update(state);
+}
+
+// Dev hook: `?point=x,y` moves the pointer there once the board is up (for screenshots of hovers).
+// (`?click=x,y` clicks there first: open a pile, then hover a card of it.)
+const at = (name: string) => new URLSearchParams(location.search).get(name)?.split(",").map(Number);
+// (Headless screenshots don't run transitions: with a hook, states are shown at once.)
+if (location.search) root.querySelector("style")!.textContent += " * { transition: none !important; }";
+const click = at("click");
+if (click?.length === 2) (root.elementFromPoint(click[0]!, click[1]!) as HTMLElement | null)?.click();
+const point = at("point");
+if (point?.length === 2) {
+  for (const type of ["pointerover", "pointermove"]) {
+    root.elementFromPoint(point[0]!, point[1]!)?.dispatchEvent(
+      new PointerEvent(type, { clientX: point[0], clientY: point[1], bubbles: true, composed: true }));
+  }
 }
 
 // Dev hook: the current raw state, to build a follow-up state from in a test script.

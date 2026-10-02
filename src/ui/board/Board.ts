@@ -72,6 +72,8 @@ export class Board {
   private effectsByCard = new Map<string, CardView[]>();
   /** Effects whose source card isn't on the table: shown on the player's plate. */
   private looseEffects = new Map<string, CardView[]>();
+  /** Emblems (and effects whose card isn't in sight), by the player on whose side each is shown. */
+  private emblems = new Map<string, { fx: CardView; owner: PlayerView }[]>();
   /** Cards exiled "until this leaves the battlefield", drawn under the permanent holding them. */
   private exileLinks = new ExileLinks();
   private linked: ReadonlyMap<string, string> = new Map();
@@ -142,6 +144,10 @@ export class Board {
   private fanPos = new Map<string, number>();
   /** Your hand's order, left to right, as you arranged it. */
   private handOrder: string[] = [];
+  /** The hand card under the pointer (see hitHand): raised, with its neighbours moved aside. */
+  private handHover: string | null = null;
+  /** The same for a card fan (a pile being looked at, cards to choose from): the fan and the card's place in it. */
+  private fanHover: { key: string; index: number } | null = null;
   /** Scry/surveil: a card being dragged between the piles. */
   private arrDrag: { id: string; startX: number; startY: number; el: HTMLElement; active: boolean } | null = null;
   private arrowsTimer = 0;
@@ -160,6 +166,7 @@ export class Board {
       <div class="lifebar opp-bar"><div class="track-half left"></div><div class="life-orb opp-life"></div><div class="track-half right"></div></div>
       <div class="mana-pool opp-mana"></div>
       <section class="side opp">
+        <div class="emblems"></div>
         <div class="row back"><div class="cluster lands"></div><div class="cluster others"></div><div class="cluster full"></div></div>
         <div class="row front"></div>
       </section>
@@ -167,6 +174,7 @@ export class Board {
         <div class="turn-label"></div>
       </div>
       <section class="side me">
+        <div class="emblems"></div>
         <div class="row front"></div>
         <div class="row back"><div class="cluster lands"></div><div class="cluster others"></div><div class="cluster full"></div></div>
       </section>
@@ -331,6 +339,8 @@ export class Board {
     for (const s of state.stack) for (const t of s.targets) note(t, `target:${s.id}`);
     this.renderBattlefield(this.q(".side.me"), z.me, attachedTo);
     this.renderBattlefield(this.q(".side.opp"), z.opp, attachedTo);
+    this.renderEmblems(this.q(".side.me .emblems"), z.me);
+    this.renderEmblems(this.q(".side.opp .emblems"), z.opp);
     this.renderHand(z.me);
     this.renderSideHand(state);
     this.renderOppHand(z.opp);
@@ -469,6 +479,24 @@ export class Board {
     reconcile(side.querySelector(".cluster.others")!, back);
   }
 
+  /** A side's emblems: a shield each with its source's art; hover shows the source and the text. */
+  private renderEmblems(box: HTMLElement, player: PlayerView | null): void {
+    const html = (player ? this.emblems.get(player.id) ?? [] : []).map(({ fx, owner }) => {
+      const source = emblemSource(fx);
+      const key = `emblem:${fx.id}`;
+      this.cardData.set(key, { ...blankCard(key, source), typeLine: "Emblem", oracleText: fx.oracleText });
+      const url = imageUrl({ ...blankCard(key, source), setCode: fx.setCode, collectorNumber: fx.collectorNumber }, "art_crop");
+      const whose = owner === player ? "" : ` (${owner.name}'s)`;
+      const text = `${source} emblem${whose}${fx.oracleText ? `: ${fx.oracleText}` : ""}`;
+      return `<div class="emblem${owner === player ? "" : " foreign"}" data-zoom="${esc(key)}" data-stack-text="${esc(text)}" title="${esc(text)}">
+        <span>✦</span>${url ? `<img src="${esc(url)}" alt="" draggable="false">` : ""}</div>`;
+    }).join("");
+    if (box.dataset.sig !== html) {
+      box.dataset.sig = html;
+      box.innerHTML = html;
+    }
+  }
+
   private renderHand(me: PlayerView | null): void {
     const hand = me?.hand ?? [];
     // The player's own order (cards dragged sideways within the hand); new cards join on the right.
@@ -489,6 +517,9 @@ export class Board {
       if (!from || !c) continue;
       this.sideIds.add(c.id);
       const el = this.card(c, false);
+      // The zone is named once, on the last card of each run from it (the one lying on the others).
+      if (els.at(-1)?.dataset.from === from) els.at(-1)!.classList.remove("from-head");
+      el.classList.add("from-head");
       el.dataset.from = from;
       els.push(el);
     }
@@ -505,8 +536,18 @@ export class Board {
   private linkEffects(state: GameState): void {
     this.effectsByCard.clear();
     this.looseEffects.clear();
+    this.emblems.clear();
+    const me = state.players.find((pl) => pl.isViewer);
     for (const p of state.players) {
       for (const fx of p.effects) {
+        // An emblem is its own thing on the table, Arena style: a shield at the edge of a side.
+        // Its owner's side, unless it only speaks of their opponents ("Your opponents can't…"):
+        // then it sits with the player it weighs on.
+        if (isEmblem(fx)) {
+          const side = onOpponents(fx) ? (p === me ? this.focusedOpp : me?.id) ?? p.id : p.id;
+          this.emblems.set(side, [...(this.emblems.get(side) ?? []), { fx, owner: p }]);
+          continue;
+        }
         const name = fx.effectSourceName;
         const named = (cards: CardView[]) => (name ? cards.find((c) => c.name === name) : undefined);
         const source = named(p.battlefield) ?? state.players.map((o) => named(o.battlefield)).find(Boolean) ?? named(p.graveyard) ?? named(p.exile);
@@ -1289,10 +1330,13 @@ export class Board {
       const pos = Math.max(min, Math.min(max, this.fanPos.get(key) ?? min));
       this.fanPos.set(key, pos);
       fan.classList.toggle("static", !scrolls);
+      // The card under the pointer is raised whole; the ones lying on it move aside to stay in view.
+      const hover = this.fanHover?.key === key && this.fanHover.index < n ? this.fanHover.index : -1;
       cards.forEach((c, i) => {
         const d = i - pos;
         const out = Math.abs(d) > half + 0.5;
-        c.style.transform = `translateX(${(d * step).toFixed(1)}px) translateY(${(d * d * cw * 0.03).toFixed(1)}px) rotate(${(d * 3.2).toFixed(2)}deg)`;
+        c.classList.toggle("hover", i === hover);
+        c.style.transform = `translateX(${(d * step + (hover >= 0 && i > hover ? cw * 0.38 : 0)).toFixed(1)}px) translateY(${(d * d * cw * 0.03).toFixed(1)}px) rotate(${(d * 3.2).toFixed(2)}deg)`;
         // Each card lies on the one to its left, so every name (top left) stays readable.
         c.style.zIndex = String(i + 1);
         c.style.opacity = out ? "0" : "1";
@@ -1923,6 +1967,7 @@ export class Board {
     this.fan(main, mainWidth * 0.92, mainWidth / 2);
     if (sideSpan) side.style.setProperty("--cx", `${width - sideSpan / 2}px`);
     this.fan(this.q(".opp-hand"), this.q(".opp-hand").clientWidth * 0.9, null);
+    this.applyHandHover();
     this.placeManaWheel();
     this.layoutFans();
   }
@@ -1969,14 +2014,109 @@ export class Board {
     const maxSpan = Math.max(cw, Math.min(maxWidth, n * cw * 0.92));
     const step = n > 1 ? Math.min(cw * 0.92, (maxSpan - cw) / (n - 1)) : 0;
     const spread = Math.min(4, 36 / n);
+    // A big hand keeps a shallow arc: its outer cards would otherwise sink out of sight.
+    const half = (n - 1) / 2;
+    const sink = Math.min(1, (cw * 0.45) / (half * half * spread * 0.9 || 1));
     items.forEach((it, i) => {
       const t = i - (n - 1) / 2;
       it.style.setProperty("--x", `${t * step}px`);
-      it.style.setProperty("--r", `${t * spread}deg`);
-      it.style.setProperty("--y", `${Math.abs(t) * Math.abs(t) * spread * 0.9}px`);
+      it.style.setProperty("--r", `${t * spread * Math.max(0.6, Math.min(1, 1 - (n - 9) * 0.05))}deg`);
+      it.style.setProperty("--y", `${Math.abs(t) * Math.abs(t) * spread * 0.9 * sink}px`);
       it.style.zIndex = String(i + 1);
     });
     return cw + step * (n - 1);
+  }
+
+  /**
+   * The card of your hand at a point, as the fan is laid out at rest (each card's own box, tilted
+   * as it is; the rightmost wins where they overlap). Hovering goes by this rather than by the
+   * element under the pointer: the raised card is enlarged and its neighbours move aside, so with
+   * a big hand (forty cards, each showing a sliver) the picture would hide the cards beside it and
+   * the pointer could never reach them. This way every card keeps its sliver of the row, wherever
+   * the cards are drawn: sliding along the hand goes through them one by one, as in Arena.
+   */
+  private hitHand(hand: HTMLElement, x: number, y: number): string | null {
+    const box = hand.getBoundingClientRect();
+    const items = [...hand.children] as HTMLElement[];
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i]!;
+      const w = it.offsetWidth;
+      const h = it.offsetHeight;
+      // The card turns around a point below it (transform-origin: 50% 120%): turn the pointer back.
+      const r = -(parseFloat(it.style.getPropertyValue("--r")) || 0) * Math.PI / 180;
+      const dx = x - (box.left + it.offsetLeft + w / 2);
+      const dy = y - (box.top + it.offsetTop + h * 1.2);
+      const ux = dx * Math.cos(r) - dy * Math.sin(r);
+      const uy = dx * Math.sin(r) + dy * Math.cos(r);
+      if (Math.abs(ux) <= w / 2 && uy >= -1.2 * h && uy <= -0.2 * h) return it.dataset.id ?? null;
+    }
+    return null;
+  }
+
+  private updateHandHover(e: PointerEvent): void {
+    if (this.drag || this.arrDrag || this.orderDrag) return;
+    // (The board lives in a shadow root: the real target is the first of the composed path.)
+    const t = e.composedPath()[0];
+    const card = t instanceof Element ? t.closest<HTMLElement>(".hand.mine .card[data-id]") : null;
+    // On the raised picture, above the row: it stays up.
+    this.setHandHover(card ? this.hitHand(card.parentElement!, e.clientX, e.clientY) ?? (card.classList.contains("hover") ? card.dataset.id! : null) : null);
+    // A fan's cards the same way (see layoutFans for where each one lies).
+    const fcard = t instanceof Element ? t.closest<HTMLElement>(".fan[data-fan] .fcard") : null;
+    const fan = fcard?.closest<HTMLElement>(".fan[data-fan]");
+    const index = fan ? this.hitFan(fan, e.clientX, e.clientY) ?? (fcard!.classList.contains("hover") ? Number(fcard!.dataset.fi) : null) : null;
+    const next = fan && index !== null ? { key: fan.dataset.fan!, index } : null;
+    if (next?.key !== this.fanHover?.key || next?.index !== this.fanHover?.index) {
+      this.fanHover = next;
+      this.layoutFans();
+    }
+  }
+
+  /** The card of a fan at a point, as the fan lies at rest (each card on the one to its left). */
+  private hitFan(fan: HTMLElement, x: number, y: number): number | null {
+    const cards = [...fan.querySelectorAll<HTMLElement>(".fcard")];
+    const box = fan.querySelector<HTMLElement>(".fan-cards")?.getBoundingClientRect();
+    const w = cards[0]?.offsetWidth ?? 0;
+    const h = cards[0]?.offsetHeight ?? 0;
+    if (!box || !w) return null;
+    const pos = this.fanPos.get(fan.dataset.fan!) ?? 0;
+    for (let i = cards.length - 1; i >= 0; i--) {
+      if (cards[i]!.style.opacity === "0") continue;
+      const d = i - pos;
+      // Turned around a point below it (transform-origin: 50% 110%), then moved along the arc.
+      const r = -(d * 3.2) * Math.PI / 180;
+      const dx = x - (box.left + cards[i]!.offsetLeft + w / 2 + d * w * 0.62);
+      const dy = y - (box.top + cards[i]!.offsetTop + h * 1.1 + d * d * w * 0.03);
+      const ux = dx * Math.cos(r) - dy * Math.sin(r);
+      const uy = dx * Math.sin(r) + dy * Math.cos(r);
+      if (Math.abs(ux) <= w / 2 && uy >= -1.1 * h && uy <= -0.1 * h) return i;
+    }
+    return null;
+  }
+
+  private setHandHover(id: string | null): void {
+    if (id === this.handHover) return;
+    this.handHover = id;
+    this.applyHandHover();
+  }
+
+  /** Raises the hovered hand card and, in a crowded hand, moves the cards on each side away from
+      it, so the ones next to it show more than a sliver. */
+  private applyHandHover(): void {
+    const hands = [this.q(".my-hand"), this.q(".side-hand")].map((hand) => [...hand.children] as HTMLElement[]);
+    if (!hands.some((items) => items.some((it) => it.dataset.id === this.handHover))) this.handHover = null;
+    for (const items of hands) this.applyHover(items);
+  }
+
+  private applyHover(items: HTMLElement[]): void {
+    const at = items.findIndex((it) => it.dataset.id === this.handHover);
+    const x = (it: HTMLElement | undefined) => parseFloat(it?.style.getPropertyValue("--x") ?? "") || 0;
+    const cw = items[0]?.offsetWidth ?? 0;
+    const step = items.length > 1 ? x(items[1]) - x(items[0]) : cw;
+    const gap = Math.max(0, Math.min(cw * 0.5, cw * 0.55 - step));
+    items.forEach((it, i) => {
+      it.classList.toggle("hover", i === at);
+      it.style.setProperty("--push", `${at < 0 || i === at ? 0 : i < at ? -gap : gap}px`);
+    });
   }
 
   private scheduleArrows(): void {
@@ -2131,7 +2271,7 @@ export class Board {
       // Hovering a permanent or a stack item shows it big beside it (unless a right-click zoom
       // is pinned or a card is being dragged).
       // (Revealed cards are small, on the right: they enlarge on hover too.)
-      const perm = t.closest<HTMLElement>(".side .card[data-id], .stack .card[data-id], .opp-hand .card.known[data-id], .reveal .rcard[data-zoom]");
+      const perm = t.closest<HTMLElement>(".side .card[data-id], .stack .card[data-id], .opp-hand .card.known[data-id], .reveal .rcard[data-zoom], .emblem[data-zoom]");
       const permId = perm?.dataset.id ?? perm?.dataset.zoom ?? null;
       if (permId === this.hoverPerm || this.zoomPinned || this.drag?.active) return;
       this.hoverPerm = permId;
@@ -2140,6 +2280,8 @@ export class Board {
       else this.hideZoom();
     });
     el.addEventListener("pointerleave", () => {
+      if (!this.drag) this.setHandHover(null);
+      if (this.fanHover) { this.fanHover = null; this.layoutFans(); }
       if (this.hoverPerm === null || this.zoomPinned) return;
       this.hoverPerm = null;
       this.hideZoom();
@@ -2517,8 +2659,10 @@ export class Board {
     }
     if (e.button !== 0) return;
     // (Also a playable card in the hand of a player you control, dragged down from the top.)
-    const card = (e.target as HTMLElement).closest<HTMLElement>(".hand.mine .card[data-id], .opp-hand .card.playable[data-id]");
+    let card = (e.target as HTMLElement).closest<HTMLElement>(".hand.mine .card[data-id], .opp-hand .card.playable[data-id]");
     if (!card) return;
+    // In your hand, the card that's raised is the one picked up.
+    if (card.closest(".hand.mine")) card = this.cardEls.get(this.hitHand(card.parentElement!, e.clientX, e.clientY) ?? this.handHover ?? "") ?? card;
     // Your hand can be rearranged at any time; playing a card (or one from the side hand) needs priority.
     if (!card.closest(".my-hand") && (this.mode.kind !== "idle" || this.awaiting)) return;
     e.preventDefault();
@@ -2564,6 +2708,7 @@ export class Board {
   private onPointerMove(e: PointerEvent): void {
     // Always kept, so an arrow that starts aiming (a new target prompt) starts at the pointer.
     this.aimPoint = { x: e.clientX, y: e.clientY };
+    this.updateHandHover(e);
     if (this.aimSource()) {
       cancelAnimationFrame(this.aimFrame);
       this.aimFrame = requestAnimationFrame(() => this.drawArrows());
@@ -3112,6 +3257,19 @@ function pileEdge(thick: number): string {
   for (let i = 1; i <= thick; i++) layers.push(`0 ${i}px 0 ${i % 2 ? "#2b2219" : "#4a3c2b"}`);
   // A list of shadows can't contain "none".
   return layers.join(", ") || "0 0 0 transparent";
+}
+
+/** An emblem among the command zone's effects (Endstep types it "Emblem"). */
+const isEmblem = (fx: CardView) => fx.types.some((t) => /emblem/i.test(t)) || /\bemblem\b/i.test(fx.name);
+
+/** The card an emblem came from: its source's name, or its own without "'s emblem". */
+const emblemSource = (fx: CardView) => fx.effectSourceName || fx.name.replace(/(['’]s)?\s+(emblem|effect)\s*$/i, "").trim() || fx.name;
+
+/** An emblem that only speaks of its owner's opponents ("Your opponents can't cast noncreature
+    spells."), with nothing about "you" beyond that. */
+function onOpponents(fx: CardView): boolean {
+  const text = fx.oracleText ?? "";
+  return /\bopponents?\b/i.test(text) && !/\byou(r|rs)?\b/i.test(text.replace(/\byour opponents?\b/gi, ""));
 }
 
 /** "Name: what it does" for an effect/emblem. */

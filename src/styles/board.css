@@ -80,6 +80,27 @@ button { font: inherit; color: inherit; cursor: pointer; }
   padding: 0 16px;
 }
 .side.opp { grid-row: 3; }
+/* Emblems: a shield each with the source's art, at the left edge of the side they belong on,
+   level with the creatures (which are centered, so that edge is free). Red-rimmed when the
+   emblem is another player's, sitting on the side it weighs on. */
+.emblems { position: absolute; z-index: 6; left: 16px; display: flex; flex-direction: column; gap: 8px; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.75)); }
+.side.me .emblems { top: 4px; }
+.side.opp .emblems { bottom: 4px; flex-direction: column-reverse; }
+.emblem {
+  --shield: polygon(7% 0, 93% 0, 100% 9%, 96% 60%, 50% 100%, 4% 60%, 0 9%);
+  position: relative;
+  width: calc(var(--bf-w) * 0.66);
+  aspect-ratio: 1 / 0.84;
+  display: grid;
+  place-items: center;
+  clip-path: var(--shield);
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold));
+  color: #231a0c;
+  font-size: calc(var(--bf-w) * 0.26);
+  cursor: help;
+}
+.emblem.foreign { background: linear-gradient(180deg, #ff8a70, var(--atk)); }
+.emblem img { position: absolute; inset: 3px; width: calc(100% - 6px); height: calc(100% - 6px); object-fit: cover; clip-path: var(--shield); }
 .side.me { grid-row: 5; }
 
 .row {
@@ -525,11 +546,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .hand.mine .card .face { transform-origin: 50% 120%; transition: transform 0.16s ease, rotate 0.16s ease, box-shadow 0.18s ease; }
 /* The card itself keeps its tilt in the fan (turning it would move its corners out from under
    the pointer); the picture turns back upright instead. */
-.hand.mine .card:hover { z-index: 100 !important; }
-.hand.mine .card:hover .face { rotate: calc(var(--r, 0deg) * -1); transform: translateY(calc(var(--hand-h) * -0.42)) scale(1.4); }
+.hand.mine .card.hover { z-index: 100 !important; }
+.hand.mine .card.hover .face { rotate: calc(var(--r, 0deg) * -1); transform: translateY(calc(var(--hand-h) * -0.42)) scale(1.4); }
 .hand.mine .card.dragging .face { transform: none; }
+/* The raised card of your hand (and of the side hand) is picked by the board (.hover, see
+   hitHand), not by :hover: in a crowded hand the cards on each side of it move away (--push), Arena style. */
+.hand.mine .card { transform: translateX(var(--push, 0px)); transition: transform 0.14s ease; }
 /* The zone label of a side-hand card would sit on the raised picture. */
-.side-hand .card:hover::after { opacity: 0; }
+.side-hand .card.hover::after { opacity: 0; }
 .hand.mine .card.dragging {
   transition: none;
   transform: scale(1.05);
@@ -541,6 +565,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .hand.mine .card.dragging:not(.playable).over-table { filter: grayscale(0.7) brightness(0.7) drop-shadow(0 18px 24px rgba(0, 0, 0, 0.6)); }
 
 /* Side hand: playable cards from the graveyard, exile, command zone or library top. */
+.side-hand .card[data-from]:not(.from-head)::after { display: none; }
 .side-hand .card[data-from]::after {
   content: attr(data-from);
   position: absolute;
@@ -1943,8 +1968,9 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .fcard.selectable .fimg, .fcard.playable .fimg { box-shadow: 0 0 0 3px #5fc2ff, 0 0 22px 4px rgba(80, 180, 255, 0.6), 0 12px 28px rgba(0, 0, 0, 0.7); }
 .fcard.on { cursor: pointer; }
 .fcard.on .fimg { box-shadow: 0 0 0 3px #ffb347, 0 0 26px 6px rgba(255, 150, 40, 0.75), 0 12px 28px rgba(0, 0, 0, 0.7); }
-.fcard:hover { z-index: 150 !important; }
-.fcard:hover .fimg { transform: translateY(-14px) scale(1.06); }
+/* (.hover is set by the board, see hitFan: the card at the pointer as the fan lies at rest.) */
+.fcard.hover { z-index: 150 !important; }
+.fcard.hover .fimg { transform: translateY(-14px) scale(1.06); }
 .fan .muted { align-self: center; margin-top: 60px; }
 .fan-slider { position: relative; width: min(340px, 40%); height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.28); cursor: pointer; }
 .fan.static .fan-slider { visibility: hidden; }
