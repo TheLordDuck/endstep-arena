@@ -179,6 +179,8 @@ function toStackItem(v: unknown, index: number): StackItemView | null {
     controllerId: str(v.controllerId) ?? source?.controllerId,
     sourceCardId: source?.id ?? str(v.sourceCardId),
     targets: arr(v.targets).map(targetKey).filter((x): x is string => !!x),
+    // Not confirmed in the bundle: the likely names, on the item or on its card.
+    x: num(v.xValue ?? v.x ?? v.chosenX ?? (isObj(v.sourceCard) ? v.sourceCard.xValue ?? v.sourceCard.x ?? v.sourceCard.chosenX : undefined)),
   };
 }
 

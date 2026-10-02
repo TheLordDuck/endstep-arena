@@ -7,7 +7,7 @@
 import type { AbilityOption, CardView, GameState, PendingActionView, PlayerView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
 import { createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
-import { arrangeMove, canConfirm, clickInMode, defenderForKey, deriveMode, humanize, keyForDefender, promptKey, stepNumber, type Mode } from "./modes";
+import { arrangeMove, canConfirm, clickInMode, defenderForKey, deriveMode, humanize, keyForDefender, learnStep, promptKey, stepNumber, type Mode } from "./modes";
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
 import { currentStep, stepIndex, stepLabel, TURN_STEPS } from "./phases";
 import type { PhaseStops, StopSide } from "../../game/endstep/phaseStops";
@@ -88,6 +88,11 @@ export class Board {
   private endPeek = false;
   /** The ids Endstep may target a stack item by (its stack id, a spell's card id) → its element id. */
   private stackAlias = new Map<string, string>();
+  /** The X you chose for what you're casting, by source card id and by "name:<card name>": shown
+      on its stack item when Endstep doesn't send the value itself. */
+  private chosenX = new Map<string, number>();
+  /** The chosenX keys shown on a stack item so far: forgotten once that item is gone. */
+  private xShown = new Set<string>();
   /** Hold priority (the dock toggle, or H): what you cast or activate doesn't pass priority after. */
   private holdPriority = false;
   /** "End turn" was pressed on this turn: priority is passed for you until the turn is over. */
@@ -652,9 +657,50 @@ export class Board {
     };
   }
 
+  /** A CHOOSE_NUMBER prompt that asks for X (rather than any other number). */
+  private asksX(p: PendingActionView): boolean {
+    return /\bX\b/.test(p.message ?? "") || /\{X\}/.test(this.promptCost(p));
+  }
+
+  /** The mana cost of the card a prompt is about; a prompt may only name it, so any card seen
+      with that name will do. */
+  private promptCost(p: PendingActionView): string {
+    const src = this.sourceCard(p);
+    if (src?.manaCost) return src.manaCost;
+    const name = p.sourceCardName ?? src?.name;
+    if (name) for (const c of this.cardData.values()) if (c.name === name && c.manaCost) return c.manaCost;
+    return "";
+  }
+
+  private rememberX(p: PendingActionView, n: number, keep = false): void {
+    const name = p.sourceCardName ?? this.sourceCard(p)?.name;
+    for (const key of [p.sourceCardId, name && `name:${name}`]) if (key && !(keep && this.chosenX.has(key))) this.chosenX.set(key, n);
+  }
+
+  /** Answers a CHOOSE_NUMBER prompt, keeping an X for the stack item it's paid for. */
+  private chooseNumber(p: PendingActionView, n: number): void {
+    if (this.asksX(p)) this.rememberX(p, n);
+    this.controller.chooseNumber(n);
+  }
+
+  /** X as the payment tells it, when it wasn't chosen here: "Pay {1}{G}" for a card that costs
+      {X}{G} makes X = 1 (read when the payment is first asked, before any of it is paid). */
+  private xFromPayment(p: PendingActionView): void {
+    const paying = /^\s*Pay\s+((?:\{[^}]+\})+)/i.exec(p.message ?? "")?.[1];
+    const cost = this.promptCost(p);
+    const xs = cost.match(/\{X\}/g)?.length ?? 0;
+    if (!paying || !xs) return;
+    const generic = (s: string) => [...s.matchAll(/\{(\d+)\}/g)].reduce((n, m) => n + Number(m[1]), 0);
+    const x = (generic(paying) - generic(cost)) / xs;
+    if (Number.isInteger(x) && x >= 0) this.rememberX(p, x, true);
+  }
+
   private renderStack(stack: StackItemView[], meId: string | undefined): void {
     this.stackEls.clear();
     this.stackAlias.clear();
+    const pending = this.state?.pending;
+    if (pending?.type === "PAY_MANA") this.xFromPayment(pending);
+    const xKeys = new Set<string>();
     // stack[0] is the top (Endstep auto-yield checks stack[0]); draw the top last so it sits in front.
     const els = stack.slice().reverse().map((s, i) => {
       // The stack's copy of a card may come without what makes it a token (its art is looked up
@@ -689,10 +735,20 @@ export class Board {
       const triggered = s.isAbility && /^\s*(when|whenever|at)\b/i.test(s.name);
       const face = el.querySelector<HTMLElement>(".face");
       if (face) face.dataset.kindLong = s.id.startsWith("pending:") ? "Ability" : triggered ? "Triggered ability" : "Activated ability";
+      // What was paid for X: Endstep's value, else the one you chose when casting it.
+      const mine = !!meId && s.controllerId === meId;
+      let x = s.x;
+      if (mine) for (const key of [s.sourceCardId, s.card?.id, `name:${card.name}`]) {
+        if (!key || !this.chosenX.has(key)) continue;
+        xKeys.add(key);
+        x ??= this.chosenX.get(key);
+      }
+      if (face) {
+        if (x === undefined) delete face.dataset.x;
+        else face.dataset.x = `X = ${x}`;
+      }
       el.classList.toggle("trigger", triggered);
       el.dataset.controller = s.controllerId ?? "";
-      // 1 = top of the stack, resolves next.
-      el.dataset.order = String(stack.length - i);
       el.style.setProperty("--si", String(i));
       // Its place in the pile, fixed: a card that came from the hand still carries the hand's layering.
       el.style.zIndex = String(i + 1);
@@ -703,6 +759,11 @@ export class Board {
       if (!s.isAbility && s.card) this.stackAlias.set(s.card.id, card.id);
       return el;
     });
+    // An X is spent once its item has left the stack (and nothing is still being cast).
+    if (!pending || pending.type === "PRIORITY") {
+      for (const key of this.xShown) if (!xKeys.has(key)) this.chosenX.delete(key);
+      this.xShown = xKeys;
+    } else for (const key of xKeys) this.xShown.add(key);
     const box = this.q(".stack");
     reconcile(box, els);
     box.classList.toggle("has-items", stack.length > 0);
@@ -1458,8 +1519,20 @@ export class Board {
       // Cards from a library, graveyard or exile: an Arena fan to pick from (orange = picked).
       // Cancel (when the choice can be declined) goes under the fan; Submit stays bottom right.
       const sel = m.kind === "cards" || m.kind === "targets" ? m.selected : [];
+      const off = this.awaiting ? "disabled" : "";
+      if (m.kind === "cards" && m.learn) {
+        // Learn: two buttons under the fan, one showing the sideboard's Lessons, the other the
+        // hand to discard from (the one shown is lit). No Cancel here.
+        const { lessons, hand, discarding } = m.learn;
+        const tab = (step: string, label: string, on: boolean, n: number) =>
+          `<button class="opt ${on ? "primary" : "alt"}" data-learn="${step}" ${this.awaiting || !n ? "disabled" : ""}>${label}</button>`;
+        const cards = p.optionCards.filter((c) => m.valid.has(c.id)).map((c) => this.cardData.get(c.id) ?? c);
+        return this.fanHtml(`pick:${this.modeKey}:${discarding ? "discard" : "lessons"}`, cards,
+          (c) => `data-pick="${esc(c.id)}"`, (c) => (sel.includes(c.id) ? "on" : "selectable"))
+          + `<div class="choices big">${tab("lessons", "Show sideboard", !discarding, lessons.length)}${tab("discard", "Show hand", discarding, hand.length)}</div>`;
+      }
       const cancel = (m.kind === "cards" || m.kind === "targets") && !m.mandatory
-        ? `<div class="choices big"><button class="opt primary" data-act="decline" ${this.awaiting ? "disabled" : ""}>Cancel</button></div>` : "";
+        ? `<div class="choices big"><button class="opt primary" data-act="decline" ${off}>Cancel</button></div>` : "";
       return this.fanHtml(`pick:${this.modeKey}`, p.optionCards.filter((c) => !isPlayerId(c.id)),
         (c) => `data-pick="${esc(c.id)}"`, (c) => (sel.includes(c.id) ? "on" : "selectable")) + cancel;
     }
@@ -1507,7 +1580,7 @@ export class Board {
       case "CHOOSE_NUMBER": {
         // X and other numbers: a big dial with − / + (↑/↓, Shift for 5), and every value as a
         // quick pick when there are few (digit keys pick them); Enter or the button confirms.
-        const x = /\bX\b/.test(p.message ?? "") || /\{X\}/.test(this.sourceCard(p)?.manaCost ?? "");
+        const x = this.asksX(p);
         const quick = quickNumbers(p);
         const atMin = stepNumber(p, m.number, -1) === m.number;
         const atMax = stepNumber(p, m.number, 1) === m.number;
@@ -2106,7 +2179,7 @@ export class Board {
         if (e.key === "Enter") {
           e.preventDefault();
           e.stopImmediatePropagation();
-          this.controller.chooseNumber(m.number);
+          this.chooseNumber(p, m.number);
           this.setAwaiting(true);
           return;
         }
@@ -2320,6 +2393,8 @@ export class Board {
         if (m.kind === "attackers") c.declareAttackers(m.assignments, !!m.defenders);
         else if (m.kind === "blockers") c.declareBlockers(m.assignments);
         else if (m.kind === "targets") c.chooseTargets(m.selected);
+        // Learn may be asked as a target choice: it's answered the way it was asked.
+        else if (m.kind === "cards" && this.state?.pending?.type === "CHOOSE_TARGETS") c.chooseTargets(m.selected);
         else if (m.kind === "cards") c.chooseCards(m.selected);
         else return;
         break;
@@ -2381,7 +2456,7 @@ export class Board {
       this.setMode({ ...m, number: Number(d.numSet) });
       return true;
     } else if (d.numConfirm !== undefined && m.kind === "choice") {
-      c.chooseNumber(m.number);
+      this.chooseNumber(p, m.number);
     } else if (d.string !== undefined) {
       const type = p.type === "CHOOSE_ABILITY" || p.type === "YES_NO" || p.type === "MULLIGAN" ? null : p.type;
       if (!type) return false;
@@ -2393,6 +2468,9 @@ export class Board {
     } else if (d.arrangeDone !== undefined && m.kind === "arrange") {
       if (m.pick) c.chooseCards(m.tray);
       else c.arrangeCards(m.top);
+    } else if (d.learn !== undefined && m.kind === "cards") {
+      this.setMode(learnStep(m, d.learn === "discard"));
+      return true;
     } else if (d.pick !== undefined) {
       this.onSelectKey(d.pick, new MouseEvent("click"));
       return true;
@@ -2959,6 +3037,10 @@ function promptTitle(state: GameState, m: Mode): { title: string; sub: string } 
     case "CHOOSE_NUMBER":
       return pick(/\bX\b/.test(msg) ? "Choose X" : "Choose a Number", "");
     default:
+      if (m.kind === "cards" && m.learn) {
+        return { title: "Learn", sub: m.learn.discarding ? "Choose a card to discard, then draw a card."
+          : `Choose a Lesson to put into your hand${m.learn.hand.length ? ", or discard a card to draw a card" : ""}.` };
+      }
       if (m.kind === "targets" || m.kind === "cards") {
         // "Choose Up To 6", with Endstep's message ("Search for land cards.") under it.
         const noun = m.kind === "targets" ? "Target" : "a Card";

@@ -56,6 +56,7 @@ reload icon on the extension card and refresh the endstep.cc tab.
 | Big button (bottom-right) | Pass / Next / Resolve / Attack / Block / Done |
 | Click a graveyard, exile or command pile | Browse it as a fan of cards (flashback etc. can be cast from there) |
 | Choosing cards from a library, graveyard or exile | Click cards in the fan (orange = picked), then **Submit**; scroll with the wheel or the slider |
+| Learn | **Show sideboard** fans out your Lessons, **Show hand** the cards you can discard to draw instead; click a card, then **Submit** |
 | **View battlefield** (top right of a mulligan, Choose One, trigger order…) | Set the choice aside to look at the table; click again to go back |
 | Scry / surveil: click or drag a card between the two piles | Keep it on top (leftmost = next) or send it to the bottom / graveyard; drag within a pile to reorder |
 | Click a permanent with several abilities | Pick one of its ability cards (Choose One); a land that makes several colors opens the mana wheel instead |
@@ -82,7 +83,7 @@ to see (your morphs, cards you exiled face down) show their front the same way. 
 * `pnpm build:dev` + `pnpm dev-server`: the dev build reports frames and state
   to `.devlog/` so they can be inspected offline.
 * `node build.mjs --harness` builds `dist-harness/harness.html#<scenario>`
-  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `graveyard`, `crowded`, `reveal`, `x`): the board
+  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`): the board
   rendered from fixture states, with no live match needed.
 
 ## Publishing

@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GameController } from "../src/game/GameController";
 import { normalize, type Raw } from "../src/game/endstep/normalize";
-import { clickInMode, defenderForKey, deriveMode, keyForDefender } from "../src/ui/board/modes";
+import { clickInMode, defenderForKey, deriveMode, keyForDefender, learnStep } from "../src/ui/board/modes";
 import type { WireAction } from "../src/shared/protocol";
 import { coversStops } from "../src/game/endstep/phaseStops";
 import { isFrontRow, isLand, ptCounterDelta } from "../src/ui/board/cards";
@@ -194,4 +194,34 @@ test("power/toughness counters count as changing the stats", () => {
   assert.deepEqual(ptCounterDelta({ M1M1: 1, P1P0: 2, CHARGE: 4 }), { power: 1, toughness: -1 });
   assert.deepEqual(ptCounterDelta({ PLUS1PLUS1: 1 }), { power: 1, toughness: 1 });
   assert.deepEqual(ptCounterDelta({ LORE: 2 }), { power: 0, toughness: 0 });
+});
+
+test("learn: Lessons first, then the hand to discard from; either is sent as the chosen card", () => {
+  const { state, controller, sent } = setup({
+    type: "CHOOSE_CARDS", promptVersion: 7, message: "Learn", min: 0, max: 1,
+    cardOptions: [{ id: 70, name: "Pest Summoning", zone: "Sideboard" }, { id: 31, name: "Bolt", zone: "Hand" }],
+  });
+  let mode = deriveMode(state);
+  assert.ok(mode.kind === "cards" && mode.learn && !mode.learn.discarding);
+  assert.deepEqual([...mode.valid], ["70"]);
+  assert.equal(clickInMode(mode, "31"), mode, "hand cards aren't offered with the Lessons");
+  mode = learnStep(clickInMode(mode, "70") as typeof mode, true);
+  assert.ok(mode.kind === "cards" && mode.learn?.discarding);
+  assert.deepEqual([[...mode.valid], mode.selected], [["31"], []]);
+  mode = clickInMode(mode, "31");
+  assert.ok(mode.kind === "cards");
+  controller.chooseCards(mode.selected);
+  assert.deepEqual(sent[0], { type: "CHOOSE_CARDS", orderedCards: [31], promptVersion: 7 });
+  // No Lesson left: straight to the discard. A plain search isn't a learn.
+  const none = deriveMode(setup({ type: "CHOOSE_CARDS", message: "Learn", min: 0, max: 1, cardOptions: [{ id: 31, zone: "Hand" }] }).state);
+  assert.ok(none.kind === "cards" && none.learn?.discarding);
+  const search = deriveMode(setup({ type: "CHOOSE_CARDS", min: 0, max: 1, cardOptions: [{ id: 80, zone: "Library" }] }).state);
+  assert.ok(search.kind === "cards" && !search.learn);
+  // As a live match asks it: a target choice named "Learn a Lesson", hand cards known by id.
+  const live = setup({ type: "CHOOSE_TARGETS", promptVersion: 8, message: "Learn a Lesson", min: 0, max: 1, sourceCardName: "Eyetwitch",
+    cardOptions: [{ id: 70, name: "Pest Summoning" }, { id: 31, name: "Archon" }] },
+    { players: [{ name: "Me", life: 20, battlefield: [], hand: [{ id: 31, name: "Archon" }] }, { name: "Opp", life: 20, battlefield: [] }] });
+  const lm = deriveMode(live.state);
+  assert.ok(lm.kind === "cards" && lm.learn);
+  assert.deepEqual([lm.learn.lessons, lm.learn.hand], [["70"], ["31"]]);
 });

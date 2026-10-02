@@ -1002,25 +1002,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .stack .card.selectable { filter: none; }
 .stack .card.selectable .face { outline-color: var(--target); box-shadow: 0 0 0 3px var(--target), 0 0 22px 5px rgba(255, 194, 74, 0.65); animation: pulse 1.4s ease-in-out infinite; }
 .stack .card.selected .face { outline-color: var(--picked); box-shadow: 0 0 0 3px var(--picked), 0 0 22px 5px rgba(255, 138, 42, 0.7); animation: none; }
-/* Resolution order, on the visible top-left corner: 1 resolves next. */
-.stack .card::before {
-  content: attr(data-order);
-  position: absolute;
-  z-index: 3;
-  top: calc(var(--cw) * -0.07);
-  left: calc(var(--cw) * -0.05);
-  width: calc(var(--cw) * 0.16);
-  aspect-ratio: 1;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  font: 800 calc(var(--cw) * 0.085) / 1 "Cinzel", Georgia, serif;
-  color: #231a0c;
-  background: radial-gradient(circle at 35% 30%, var(--gold-hi), var(--gold));
-  border: 2px solid rgba(12, 10, 8, 0.9);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
-}
-.stack .card.theirs::before { background: radial-gradient(circle at 35% 30%, #ff8a70, var(--atk)); color: #fff; }
 /* Abilities: the source card with a ribbon and the ability text on a parchment plate. */
 .stack .card.ability.trigger .face::before { background: linear-gradient(90deg, transparent, #c9b6ff 12%, #8f74e8 88%, transparent); color: #1a1238; }
 .stack .card.ability .face::before {
@@ -1052,6 +1033,23 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: linear-gradient(180deg, #efe3c4, #d9c8a0);
   border: 1px solid rgba(90, 68, 40, 0.6);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+/* What was paid for X, on a tab under the card's mana cost. */
+.stack .card .face[data-x]::after {
+  content: attr(data-x);
+  position: absolute;
+  z-index: 2;
+  top: 13%;
+  right: -2px;
+  padding: calc(var(--cw) * 0.015) calc(var(--cw) * 0.05) calc(var(--cw) * 0.015) calc(var(--cw) * 0.06);
+  border-radius: 999px 0 0 999px;
+  font: 800 calc(var(--cw) * 0.085) / 1.2 "Cinzel", Georgia, serif;
+  letter-spacing: 0.04em;
+  color: #231a0c;
+  background: linear-gradient(90deg, var(--gold-hi), var(--gold));
+  border: 2px solid rgba(12, 10, 8, 0.9);
+  border-right: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
 }
 
 /* ---------- Turn tracks ---------- */

@@ -80,7 +80,7 @@ const scenarios: Record<string, Scenario> = {
     s.stack = [
       { stackTargetId: 900, isAbility: false, sourceCard: { id: 900, name: "Counterspell", controllerId: "1", types: ["Instant"] }, targets: [{ id: 901, zone: "Stack" }] },
       { stackTargetId: 902, isAbility: true, abilityDescription: "Target creature gets +1/+1 until end of turn.", targets: [{ id: 111, zone: "Battlefield" }], sourceCard: { id: 110, name: "Tarmogoyf", controllerId: "0", types: ["Creature"] } },
-      { stackTargetId: 901, isAbility: false, sourceCard: { id: 901, name: "Lightning Bolt", controllerId: "0", types: ["Instant"] }, targets: [{ id: -2, zone: "Player" }] },
+      { stackTargetId: 901, isAbility: false, xValue: 3, sourceCard: { id: 901, name: "Fireball", controllerId: "0", types: ["Sorcery"] }, targets: [{ id: -2, zone: "Player" }] },
     ];
     (me!.hand as Raw[]).shift();
     s.priorityPlayerId = "0";
@@ -209,6 +209,16 @@ const scenarios: Record<string, Scenario> = {
       "Steam Vents", "Valakut, the Molten Pinnacle", "Mountain", "Mountain", "Stomping Ground", "Misty Rainforest"];
     s.pendingAction = { type: "CHOOSE_CARDS", promptVersion: 16, sourceCardName: "Scapeshift", message: "Search for land cards.", min: 0, max: 6,
       cardOptions: names.map((n, i) => ({ id: 980 + i, name: n, typeLine: "Land", zone: "LIBRARY" })) };
+  },
+  // Learn: the Lessons in the sideboard and the hand, offered together as Endstep sends them.
+  learn: (s) => {
+    const [me] = players(s);
+    const lessons = ["Environmental Sciences", "Pest Summoning", "Mascot Exhibition", "Containment Breach"];
+    s.pendingAction = { type: "CHOOSE_CARDS", promptVersion: 19, sourceCardName: "Eyetwitch", message: "Learn", min: 0, max: 1,
+      cardOptions: [
+        ...lessons.map((n, i) => ({ id: 970 + i, name: n, typeLine: "Sorcery — Lesson", zone: "Sideboard" })),
+        ...((me!.hand as Raw[] | undefined) ?? []).map((c) => ({ ...c, zone: "Hand" })),
+      ] };
   },
   // A long graveyard, to browse (click the pile).
   graveyard: (s) => {
