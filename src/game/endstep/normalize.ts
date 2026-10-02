@@ -4,6 +4,7 @@
 import type {
   AbilityOption,
   CardView,
+  ChosenMark,
   ModeOption,
   CombatLink,
   GameState,
@@ -57,6 +58,12 @@ function words(v: unknown): string[] | undefined {
   return out.length ? out : undefined;
 }
 
+/** Endstep's `chosenMarks`: [{ kind, value }], or undefined when there are none. */
+function chosenMarks(v: unknown): ChosenMark[] | undefined {
+  const out = arr(v).filter(isObj).map((m) => ({ kind: str(m.kind) ?? "", value: str(m.value) ?? "" })).filter((m) => m.value);
+  return out.length ? out : undefined;
+}
+
 const idOf =(v: unknown): string | undefined => (isObj(v) ? str(v.id) : str(v));
 
 export function toCard(v: unknown): CardView | null {
@@ -93,6 +100,7 @@ export function toCard(v: unknown): CardView | null {
     counters: toCounters(v.counters),
     keywordsGranted: words(v.keywordsGranted),
     keywordsLost: words(v.keywordsLost),
+    chosen: chosenMarks(v.chosenMarks),
     // Endstep lists them on the host as `attachedCards`, and each aura/equipment names its host in `attachedTo`.
     attachmentIds: arr(v.attachedCards ?? v.attachments).map(idOf).filter((x): x is string => !!x),
     attachedToId: idOf(v.attachedTo),
@@ -144,6 +152,8 @@ function toPlayer(v: unknown, index: number, viewerSeat: number, peeks: Map<stri
     // The account name, as Endstep's own player popup and profile links use it: `name`.
     username: str(p.name ?? p.username),
     isViewer: index === viewerSeat,
+    // Endstep's `controlledBySeat`: the seat playing this player's turn for them.
+    controlledBy: (num(p.controlledBySeat) ?? -1) >= 0 && p.controlledBySeat !== index ? String(p.controlledBySeat) : undefined,
     life: num(p.life),
     poison: num(p.poisonCounters) ?? 0,
     energy: num(p.energyCounters) ?? 0,

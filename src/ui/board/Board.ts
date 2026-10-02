@@ -6,7 +6,7 @@
 
 import type { AbilityOption, CardView, GameState, PendingActionView, PlayerView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
-import { createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
+import { chosenLabels, createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
 import { arrangeMove, canConfirm, clickInMode, defenderForKey, deriveMode, humanize, keyForDefender, learnStep, promptKey, stepNumber, type Mode } from "./modes";
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
 import { currentStep, stepIndex, stepLabel, TURN_STEPS } from "./phases";
@@ -19,6 +19,8 @@ const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => `&#${c.ch
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 /** How long a reveal stays on screen (ms), unless closed sooner. */
 const REVEAL_MS = 12_000;
+/** A prompt answered from the search box: naming a card, or a type among more than a screenful. */
+const searchedChoice = (p: PendingActionView) => p.type === "CHOOSE_CARD_NAME" || (p.type === "CHOOSE_TYPE" && p.stringOptions.length > 12);
 /** Arrow key for the prompt text (target arrows start there). */
 const PROMPT_KEY = "prompt";
 /** Endstep's logo (the site's own icon), for a player without an avatar picture. */
@@ -99,7 +101,7 @@ export class Board {
   private skipTurn: number | null = null;
   private skipSeq: number | undefined;
   private hoverPerm: string | null = null;
-  private drag: { id: string; startX: number; startY: number; el: HTMLElement; active: boolean } | null = null;
+  private drag: { id: string; startX: number; startY: number; el: HTMLElement; active: boolean; theirs: boolean } | null = null;
   /** The stack tray is tucked away (the player asked for a clear view of the battlefield). */
   private stackHidden = false;
   /** Reordering in the order box: the tile being dragged along the row. */
@@ -643,7 +645,8 @@ export class Board {
     // A spell being cast keeps its card's id from the hand to the stack, so one card moves there
     // and stays (no swapping it for a copy while it's paid for). A card shown somewhere else
     // (a permanent, a graveyard's top card) stays where it is and gets a copy.
-    const elsewhere = state.players.some((pl) => [pl.battlefield, pl.graveyard, pl.exile, pl.commandZone, pl.effects, pl.libraryTop, pl === me ? [] : pl.hand ?? []]
+    // (The hand of a player you control counts as yours: you cast from it.)
+    const elsewhere = state.players.some((pl) => [pl.battlefield, pl.graveyard, pl.exile, pl.commandZone, pl.effects, pl.libraryTop, pl === me || (!!me && pl.controlledBy === me.id) ? [] : pl.hand ?? []]
       .some((zone) => zone.some((c) => c.id === src.id)));
     const own = !elsewhere && !src.id.startsWith("src:");
     return {
@@ -942,6 +945,7 @@ export class Board {
       p.energy ? `<span class="chip energy" title="Energy">⚡ ${p.energy}</span>` : "",
       p.hasMonarch ? '<span class="chip" title="Monarch">♛</span>' : "",
       p.hasInitiative ? '<span class="chip" title="Initiative">Init</span>' : "",
+      p.controlledBy !== undefined ? '<span class="chip" title="Another player makes this player\'s decisions">Controlled</span>' : "",
       !p.isViewer ? `<span class="chip" title="Cards in hand">✋ ${p.handSize ?? "?"}</span>` : "",
       ...(this.looseEffects.get(p.id) ?? []).map((fx) => `<span class="chip fx" title="${esc(effectText(fx))}">✦ ${esc(fx.effectSourceName || fx.name)}</span>`),
     ].join("");
@@ -1385,17 +1389,20 @@ export class Board {
   }
 
   /** The names matching the search box of a "name a card" prompt: names starting with what's
-      typed first, then names containing it. With no list from Endstep, what's typed is the answer. */
+      typed first, then names containing it. With no list from Endstep, what's typed is the answer.
+      A long list of types (Cavern of Souls' creature types) is searched the same way, and shown
+      whole until something is typed. */
   private fillNameResults(q: HTMLInputElement): void {
     const list = q.parentElement?.querySelector<HTMLElement>(".name-results");
     const p = this.state?.pending;
-    if (!list || p?.type !== "CHOOSE_CARD_NAME") return;
+    if (!list || !p || !searchedChoice(p)) return;
+    const types = p.type === "CHOOSE_TYPE";
     const text = q.value.trim();
     const needle = text.toLowerCase();
-    const LIMIT = 30;
+    const LIMIT = types ? p.stringOptions.length : 30;
     let names: string[];
     if (!p.stringOptions.length) names = text ? [text] : [];
-    else if (!needle) names = [];
+    else if (!needle) names = types ? [...p.stringOptions].sort() : [];
     else {
       const starts: string[] = [];
       const has: string[] = [];
@@ -1407,9 +1414,9 @@ export class Board {
       names = [...starts.sort(), ...has.sort()];
     }
     const more = names.length > LIMIT ? `<p class="name-more">${names.length - LIMIT} more: keep typing</p>` : "";
-    list.innerHTML = names.slice(0, LIMIT).map((n, i) => `<button class="name-opt${i === 0 ? " first" : ""}" data-string="${esc(n)}">${esc(n)}</button>`).join("")
+    list.innerHTML = names.slice(0, LIMIT).map((n, i) => `<button class="name-opt${i === 0 && needle ? " first" : ""}" data-string="${esc(n)}">${esc(n)}</button>`).join("")
       + more
-      + (!names.length ? `<p class="name-more">${needle ? "No card with that name" : `Search ${p.stringOptions.length ? `${p.stringOptions.length} names` : "any card"} · Enter picks the first`}</p>` : "");
+      + (!names.length ? `<p class="name-more">${needle ? (types ? "No type with that name" : "No card with that name") : `Search ${p.stringOptions.length ? `${p.stringOptions.length} names` : "any card"} · Enter picks the first`}</p>` : "");
   }
 
   /** A prompt answered on the mana wheel: a mana choice, or a color asked by a mana ability. */
@@ -1607,6 +1614,13 @@ export class Board {
             <div class="name-results"></div>
           </div>`;
       default:
+        // A long list of types (every creature type, for Cavern of Souls): the same search box.
+        if (searchedChoice(p)) {
+          return `<div class="namepick">
+            <input class="name-q" type="search" placeholder="Type a type…" autocomplete="off" spellcheck="false">
+            <div class="name-results"></div>
+          </div>`;
+        }
         return `<div class="choices">${p.stringOptions.map((s) => `<button class="opt" data-string="${esc(s)}">${esc(s)}</button>`).join("")}</div>`;
     }
   }
@@ -2332,8 +2346,9 @@ export class Board {
       this.setMode(next);
       return;
     }
-    // Priority: one click activates a permanent; hand cards are played by dragging.
-    if (m.kind === "idle" && !this.cardEls.get(key)?.closest(".hand")) this.tryPlay(key, e.ctrlKey);
+    // Priority: one click activates a permanent; hand cards are played by dragging. (A card in
+    // the hand of a player you control, Emrakul's way, is played with a click: it stays up there.)
+    if (m.kind === "idle" && !this.cardEls.get(key)?.closest(".hand.mine")) this.tryPlay(key, e.ctrlKey);
   }
 
   /** Plays/activates a card if Endstep lists it as playable; asks which ability when there are several. */
@@ -2501,16 +2516,22 @@ export class Board {
       return;
     }
     if (e.button !== 0) return;
-    const card = (e.target as HTMLElement).closest<HTMLElement>(".hand.mine .card[data-id]");
+    // (Also a playable card in the hand of a player you control, dragged down from the top.)
+    const card = (e.target as HTMLElement).closest<HTMLElement>(".hand.mine .card[data-id], .opp-hand .card.playable[data-id]");
     if (!card) return;
     // Your hand can be rearranged at any time; playing a card (or one from the side hand) needs priority.
     if (!card.closest(".my-hand") && (this.mode.kind !== "idle" || this.awaiting)) return;
     e.preventDefault();
-    this.drag = { id: card.dataset.id!, startX: e.clientX, startY: e.clientY, el: card, active: false };
+    this.drag = { id: card.dataset.id!, startX: e.clientX, startY: e.clientY, el: card, active: false, theirs: !!card.closest(".opp-hand") };
   }
 
   private dropY(): number {
     return this.q(".my-hand").getBoundingClientRect().top - 20;
+  }
+
+  /** The dragged card is over the table: above your hand, and out of their hand for one of theirs. */
+  private overTable(d: NonNullable<Board["drag"]>, y: number): boolean {
+    return y < this.dropY() && (!d.theirs || y > this.q(".opp-hand").getBoundingClientRect().bottom + 20);
   }
 
   /** Measures the row once when a tile starts moving: the tiles never change places in the
@@ -2597,7 +2618,7 @@ export class Board {
       this.hideMenu();
     }
     d.el.style.translate = `${dx}px ${dy}px`;
-    const over = e.clientY < this.dropY();
+    const over = this.overTable(d, e.clientY);
     this.el.classList.toggle("drop-ready", over && d.el.classList.contains("playable"));
     d.el.classList.toggle("over-table", over);
   }
@@ -2647,7 +2668,7 @@ export class Board {
     this.suppressClickUntil = performance.now() + 250;
     this.el.classList.remove("drop-ready");
     d.el.classList.remove("dragging", "over-table");
-    const over = e.clientY < this.dropY();
+    const over = this.overTable(d, e.clientY);
     // Released within the hand: the card moves to where it was dropped.
     const hand = this.q(".my-hand");
     if (!over && d.el.parentElement === hand) {
@@ -2705,6 +2726,7 @@ export class Board {
     const gained = c.keywordsGranted ?? [];
     const lost = lostKeywords(c);
     const notes = [
+      ...chosenLabels(c).map(([label, value]) => `<span class="kchosen">${esc(label)}: ${esc(value)}</span>`),
       gained.length ? `<span class="kgain">Gained: ${esc(gained.join(", "))}</span>` : "",
       lost.length ? `<span class="klost">Lost: ${esc(lost.join(", "))}</span>` : "",
       held.length ? `<span>Exiled with it: ${esc(held.map((h) => h.name).join(", "))}</span>` : "",
@@ -2935,7 +2957,7 @@ function groupKey(c: CardView, local: string, effects: number): string | null {
   // Everything that changes how the card looks or what it is doing, including choices still
   // being made (an attacker or blocker you picked but haven't confirmed, a selected target).
   return JSON.stringify([c.name, c.power, c.toughness, c.loyalty, c.tapped, c.summoningSick, c.isToken, c.setCode, c.collectorNumber,
-    c.types, c.controllerId, c.keywordsGranted, c.keywordsLost, counters, c.damage ?? 0,
+    c.types, c.controllerId, c.keywordsGranted, c.keywordsLost, c.chosen, counters, c.damage ?? 0,
     c.isAttacking, c.attackingDefenderId, c.isBlocking, [...c.blockingIds].sort(), local, effects]);
 }
 

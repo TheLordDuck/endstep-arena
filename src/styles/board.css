@@ -420,12 +420,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
   cursor: help;
 }
 .k.gain { color: #eaffe4; background: linear-gradient(180deg, #3d8a4a, #1f5229); border: 1px solid #8fe39c; }
+.k.chosen { color: #231a0c; background: linear-gradient(180deg, var(--gold-hi), var(--gold)); border: 1px solid rgba(12, 10, 8, 0.9); }
 .k.lost { color: #ffd9d2; background: rgba(90, 24, 16, 0.92); border: 1px solid #ff8a70; text-decoration: line-through; }
 .b.pt i { font-style: normal; }
 /* Power or toughness changed from the printed value. */
 .b.pt i.mod { color: #5ab8ff; }
 .zextra.col { flex-direction: column; gap: 2px; }
 .zextra .kgain { color: #9be7a2; }
+.zextra .kchosen { color: var(--gold-hi); }
 .zextra .klost { color: #ff9a86; }
 
 /* Effects from the command zone, shown on the card that created them:
@@ -592,6 +594,17 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* Only their bottom shows, and each card covers the right of the one before it, so the eye goes
    at the bottom-left corner, where it stays in sight. */
 .opp-hand .card.known::after { right: auto; top: auto; left: calc(var(--cw) * 0.04); bottom: calc(var(--cw) * 0.04); width: 20px; border-width: 2px; box-shadow: 0 0 10px rgba(232, 198, 120, 0.55), 0 2px 6px rgba(0, 0, 0, 0.8); }
+/* A card of theirs you may play (you control them): no "seen" eye, it's lit as playable. */
+.opp-hand .card.known.playable::after { display: none; }
+/* It's played with a click, or dragged down onto the table like a card of your own hand. */
+.opp-hand .card.playable { cursor: grab; touch-action: none; }
+.opp-hand:has(.card.dragging) { z-index: 200; }
+.opp-hand .card.dragging {
+  rotate: 0deg;
+  z-index: 200 !important;
+  cursor: grabbing;
+  filter: drop-shadow(0 18px 24px rgba(0, 0, 0, 0.6));
+}
 .opp-hand .card {
   --cw: var(--ohand-w);
   position: absolute;

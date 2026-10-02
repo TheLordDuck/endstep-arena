@@ -268,6 +268,35 @@ const scenarios: Record<string, Scenario> = {
       { type: "CARD_REVEALED", sequenceNumber: 502, playerName: "Opponent", toZone: "LIBRARY", cardName: "Emrakul, the Aeons Torn", cardId: 994 },
     ];
   },
+  // Emrakul, the Promised End: we play the opponent's turn. Their hand is sent face up, they are
+  // `controlledBySeat` us, and the prompt offers their cards.
+  control: (s) => {
+    const [, opp] = players(s);
+    const swamp = card("Swamp", { typeLine: "Basic Land — Swamp" });
+    const rite = card("Dark Ritual", { typeLine: "Instant" });
+    opp!.hand = [rite, swamp, card("Thoughtseize", { typeLine: "Sorcery" }), card("Griselbrand", { typeLine: "Legendary Creature — Demon" })];
+    opp!.handSize = 4;
+    opp!.controlledBySeat = 0;
+    s.activePlayerId = "1";
+    s.priorityPlayerId = "1";
+    s.pendingAction = { type: "PRIORITY", promptVersion: 19, cardOptions: [
+      { id: rite.id, zone: "HAND", playableAbilities: [{ index: 0, description: "Cast Dark Ritual", cost: "{B}" }] },
+      { id: swamp.id, zone: "HAND", playableAbilities: [{ index: 0, description: "Play Swamp" }] },
+    ] };
+  },
+  // Cavern of Souls: a creature type among all of them, searched like a card name.
+  type: (s) => {
+    s.pendingAction = { type: "CHOOSE_TYPE", promptVersion: 20, sourceCardName: "Cavern of Souls", message: "Choose a creature type",
+      stringOptions: ["Human", "Elf", "Goblin", "Merfolk", "Zombie", "Eldrazi", "Elemental", "Elephant", "Elk", "Angel", "Demon", "Dragon", "Wizard", "Warrior", "Sliver", "Spirit", "Soldier", "Vampire"] };
+  },
+  // Permanents with a choice made for them: a creature type, a named card, colors.
+  chosen: (s) => {
+    const [me, opp] = players(s);
+    bf(me!).push(land("Cavern of Souls", { typeLine: "Land", chosenMarks: [{ kind: "TYPE", value: "Eldrazi" }] }),
+      card("Pithing Needle", { typeLine: "Artifact", chosenMarks: [{ kind: "NAME", value: "Jace, the Mind Sculptor" }] }));
+    bf(opp!).push(card("Runed Halo", { typeLine: "Enchantment", chosenMarks: [{ kind: "NAME", value: "Emrakul, the Promised End" }] }),
+      creature("Voice of All", 2, 2, { chosenMarks: [{ kind: "COLOR", value: "Red" }] }));
+  },
   // Casting Indomitable Creativity: X, as Endstep asks it (minValue/maxValue).
   x: (s) => {
     s.pendingAction = { type: "CHOOSE_NUMBER", promptVersion: 18, sourceCardName: "Indomitable Creativity", message: "Choose a value for X",

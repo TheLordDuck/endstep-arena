@@ -41,6 +41,9 @@ export interface CardView {
   /** Keywords an effect gave this permanent, and printed ones it lost (as Endstep sends them). */
   keywordsGranted?: string[];
   keywordsLost?: string[];
+  /** What was chosen for this permanent as it entered or resolved (a creature type for Cavern of
+      Souls, a card name for Pithing Needle, a color…), as Endstep's `chosenMarks` lists it. */
+  chosen?: ChosenMark[];
   attachmentIds: string[];
   /** The permanent this aura/equipment is attached to. */
   attachedToId?: string;
@@ -57,6 +60,12 @@ export interface CardView {
   oracleText?: string;
 }
 
+export interface ChosenMark {
+  /** "TYPE", "NAME", "COLOR", "NUMBER", "EVEN_ODD", "DIRECTION"… */
+  kind: string;
+  value: string;
+}
+
 export interface PlayerView {
   /** Seat index as a string, which is how Endstep's activePlayerId/priorityPlayerId refer to players. */
   id: PlayerId;
@@ -67,6 +76,8 @@ export interface PlayerView {
   /** Account name (Endstep's `player.name`, as its player popup uses it), used to look up the avatar. */
   username?: string;
   isViewer: boolean;
+  /** The player making this one's decisions for now (Emrakul, Mindslaver), when it isn't them. */
+  controlledBy?: PlayerId;
   life?: number;
   poison: number;
   energy: number;

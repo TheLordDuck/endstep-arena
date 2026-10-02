@@ -75,7 +75,7 @@ const escText = (el: Element, text: string) => {
 export function updateCardEl(el: HTMLElement, c: CardView, showStats: boolean): void {
   const sig = JSON.stringify([c.name, c.faceDown, c.peeked, c.isToken, c.setCode, c.collectorNumber, c.power, c.toughness,
     c.isCopyOfRealCard, c.backFace, c.tokenSetCode, c.tokenCollectorNumber, c.color, c.basePower, c.baseToughness,
-    c.loyalty, c.damage, c.classLevel, c.counters, c.types, c.typeLine, c.manaCost, c.keywordsGranted, c.keywordsLost, showStats]);
+    c.loyalty, c.damage, c.classLevel, c.counters, c.types, c.typeLine, c.manaCost, c.keywordsGranted, c.keywordsLost, c.chosen, showStats]);
   const ce = el as CardElement;
   if (ce._sig === sig) return;
   ce._sig = sig;
@@ -132,13 +132,28 @@ export function updateCardEl(el: HTMLElement, c: CardView, showStats: boolean): 
   }
   el.querySelector(".badges")!.innerHTML = badges.join("");
   el.querySelector(".pins")!.innerHTML = pins.join("");
-  // Keywords an effect added (or took away), on the permanent itself.
+  // Keywords an effect added (or took away), on the permanent itself; and what was chosen for it
+  // (Cavern of Souls' creature type, the card a Pithing Needle names…), as Endstep shows it.
   const kws = showStats ? [
+    ...chosenLabels(c).map(([label, value]) => `<span class="k chosen" title="${attr(label)}: ${attr(value)}">${attr(value)}</span>`),
     ...(c.keywordsGranted ?? []).map((k) => `<span class="k gain" title="Gained ${attr(k)}">${attr(k)}</span>`),
     ...lostKeywords(c).map((k) => `<span class="k lost" title="Lost ${attr(k)}">${attr(k)}</span>`),
   ] : [];
   el.querySelector(".kws")!.innerHTML = kws.join("");
   el.classList.toggle("modified", kws.length > 0);
+}
+
+/** What was chosen for a permanent, as [label, values] (colors chosen together make one entry). */
+export function chosenLabels(c: Pick<CardView, "chosen">): [string, string][] {
+  const LABELS: Record<string, string> = { TYPE: "Chosen type", NAME: "Named card", COLOR: "Chosen color", NUMBER: "Chosen number", EVEN_ODD: "Chosen odd or even", DIRECTION: "Chosen direction" };
+  const out: [string, string][] = [];
+  for (const m of c.chosen ?? []) {
+    const label = LABELS[m.kind] ?? "Chosen";
+    const last = out.at(-1);
+    if (m.kind === "COLOR" && last?.[0] === label) last[1] += `, ${m.value}`;
+    else out.push([label, m.value]);
+  }
+  return out;
 }
 
 const attr = (v: unknown) => String(v).replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
