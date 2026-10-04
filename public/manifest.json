@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Endstep Arena UI",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A modern, card-first game UI layered on top of endstep.cc matches. Visual only; Endstep's server stays the source of truth.",
   "icons": {
     "16": "icons/icon-16.png",
