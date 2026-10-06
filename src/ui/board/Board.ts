@@ -6,11 +6,12 @@
 
 import type { AbilityOption, CardView, GameState, PendingActionView, PlayerView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
-import { chosenLabels, createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
+import { CARD_BACK_URL, chosenLabels, createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
 import { arrangeMove, canConfirm, clickInMode, defenderForKey, deriveMode, humanize, keyForDefender, learnStep, promptKey, stepNumber, type Mode } from "./modes";
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
 import { currentStep, stepIndex, stepLabel, TURN_STEPS } from "./phases";
 import type { PhaseStops, StopSide } from "../../game/endstep/phaseStops";
+import { REPLAY_SPEEDS, type ReplayCommand, type ReplayStatus } from "../../game/ReplayPlayer";
 import { avatarPicture } from "../../game/endstep/avatars";
 import { ExileLinks } from "../../game/exileLinks";
 import { HandKnowledge } from "../../game/handKnowledge";
@@ -43,6 +44,9 @@ export interface BoardHooks {
   tableMenu(): Promise<string[] | null>;
   /** Runs one of those items through Endstep's menu (its window shows while the board steps aside). */
   runTableItem(label: string): void;
+  /** Drives the replay being watched (play, step, seek…). */
+  replay(cmd: ReplayCommand): void;
+  leaveReplay(): void;
 }
 
 export class Board {
@@ -75,7 +79,7 @@ export class Board {
   /** Emblems (and effects whose card isn't in sight), by the player on whose side each is shown. */
   private emblems = new Map<string, { fx: CardView; owner: PlayerView }[]>();
   /** Cards exiled "until this leaves the battlefield", drawn under the permanent holding them. */
-  private exileLinks = new ExileLinks();
+  private exileLinks = new ExileLinks(sessionStore());
   private linked: ReadonlyMap<string, string> = new Map();
   /** Holding permanent → the exiled cards under it. */
   private held = new Map<string, CardView[]>();
@@ -113,6 +117,14 @@ export class Board {
   } | null = null;
   private suppressClickUntil = 0;
   private zoomPinned = false;
+  /** The last combat damage shown (match, turn and step), so it plays once. */
+  private struck = "";
+  /** Fighters that died in this update's combat damage: the copies left where they fought. */
+  private fallen = new Map<string, HTMLElement>();
+  /** The replay's position slider is being dragged. */
+  private replayScrubbing = false;
+  /** Updates the disconnected players' countdowns while there are any. */
+  private connTicker = 0;
   /** Clicked a permanent with several abilities: plain mana ones open the color wheel, the
       rest an Arena "Choose One". Both are local until an ability is picked. */
   private localWheel: { cardId: string; options: WheelOption[] } | null = null;
@@ -209,6 +221,7 @@ export class Board {
       <div class="viewer"></div>
       <div class="banner"></div>
       <div class="endgame"></div>
+      <div class="replay-bar" role="toolbar" aria-label="Replay controls"></div>
       <div class="toast"></div>
       <div class="classic-chip"></div>`;
     this.bindEvents();
@@ -297,6 +310,7 @@ export class Board {
     this.el.classList.toggle("classic", classic);
     this.renderClassicChip(classic);
 
+    this.captureFallen(prev, state);
     // FLIP "first": where every card is before this update.
     const first = new Map<string, DOMRect>();
     if (!reducedMotion()) {
@@ -384,6 +398,277 @@ export class Board {
     }
     this.scheduleArrows();
     if (this.q(".viewer").classList.contains("open")) this.refreshViewer();
+    this.chargeAttackers(prev, state);
+    this.combatStrike(prev, state);
+  }
+
+  /** Which combat damage this update reaches: "fs" (first strike), "cd" (regular), or null. */
+  private damageStep(prev: GameState | null, state: GameState): "fs" | "cd" | null {
+    if (!prev || prev.turnNumber !== state.turnNumber || !prev.combat.attacks.length) return null;
+    const from = stepIndex(currentStep(prev.phase, prev.step) ?? "");
+    const to = stepIndex(currentStep(state.phase, state.step) ?? "");
+    if (from < 0 || to < 0 || from >= stepIndex("COMBAT_DAMAGE") || to < stepIndex("FIRST_STRIKE_DAMAGE")) return null;
+    return to === stepIndex("FIRST_STRIKE_DAMAGE") ? "fs" : "cd";
+  }
+
+  /**
+   * As combat damage begins: a creature in the fight that this update takes off the battlefield
+   * (it died) leaves a copy where it stood, which takes its part in the fight and then burns
+   * away, as in Arena, instead of the card sliding straight to the graveyard.
+   */
+  private captureFallen(prev: GameState | null, state: GameState): void {
+    this.fallen = new Map();
+    if (reducedMotion() || !prev || !this.damageStep(prev, state)) return;
+    const alive = new Set(state.players.flatMap((p) => p.battlefield.map((c) => c.id)));
+    const fighters = new Set([...prev.combat.attacks.map((a) => a.fromId), ...prev.combat.blocks.map((b) => b.fromId)]);
+    const box = this.el.getBoundingClientRect();
+    for (const id of fighters) {
+      const el = this.cardEls.get(id);
+      if (alive.has(id) || !el?.isConnected || !el.closest(".side")) continue;
+      const r = el.getBoundingClientRect();
+      // Its size on screen: its layout size, scaled as its row shows it (the box around it on
+      // screen also covers its tilt when tapped).
+      const rotate = getComputedStyle(el).rotate;
+      const turn = (parseFloat(rotate) || 0) * (Math.PI / 180);
+      const scale = r.width / (el.offsetWidth * Math.abs(Math.cos(turn)) + el.offsetHeight * Math.abs(Math.sin(turn)) || 1);
+      const w = el.offsetWidth * scale;
+      const h = el.offsetHeight * scale;
+      const ghost = el.cloneNode(true) as HTMLElement;
+      ghost.removeAttribute("data-id");
+      ghost.classList.remove("selectable", "selected", "playable", "struck", "charge");
+      ghost.classList.add("fallen");
+      Object.assign(ghost.style, {
+        left: `${r.left + r.width / 2 - box.left - w / 2}px`,
+        top: `${r.top + r.height / 2 - box.top - h / 2}px`,
+        width: `${w}px`,
+        height: `${h}px`,
+        rotate,
+      });
+      ghost.style.setProperty("--cw", `${w}px`);
+      // Cropped to its top, as on the battlefield; its picture shows once loaded (a copy doesn't
+      // carry the card's own load listener).
+      const img = ghost.querySelector<HTMLImageElement>("img.img");
+      if (img) {
+        img.style.objectPosition = "50% 0";
+        if (img.complete && img.naturalWidth) ghost.classList.add("has-img");
+        else img.addEventListener("load", () => ghost.classList.add("has-img"), { once: true });
+      }
+      this.el.appendChild(ghost);
+      this.fallen.set(id, ghost);
+    }
+  }
+
+  /** A creature that was just declared as an attacker charges out, glowing. */
+  private chargeAttackers(prev: GameState | null, state: GameState): void {
+    if (!prev || reducedMotion() || prev.turnNumber !== state.turnNumber) return;
+    const was = new Set(prev.combat.attacks.map((a) => a.fromId));
+    for (const a of state.combat.attacks) {
+      const el = this.cardEls.get(a.fromId);
+      if (was.has(a.fromId) || !el?.closest(".side")) continue;
+      el.classList.remove("charge");
+      void el.offsetWidth;
+      el.classList.add("charge");
+      window.setTimeout(() => el.classList.remove("charge"), 700);
+    }
+  }
+
+  /**
+   * Combat damage, as Arena plays it: only the striker moves. It lifts off the table, tilted,
+   * then slams into what it hits (each of its blockers in turn, or straight into the defending
+   * player or planeswalker when unblocked) with a white flash and a jolt of the table, and
+   * goes back to its place. What gets hit shows claw marks and the damage it took, and
+   * creatures that died crumble into dark smoke where they fought. First strike damage shows
+   * the first and double strikers; regular damage the rest (and double strikers again).
+   */
+  private combatStrike(prev: GameState | null, state: GameState): void {
+    const fallen = this.fallen;
+    // The dead crumble once the fight is over (right away when there's no fight to show).
+    const crumble = (after: number) => {
+      for (const id of fallen.keys()) this.cardEls.get(id)?.style.setProperty("visibility", "hidden");
+      window.setTimeout(() => {
+        for (const [id, ghost] of fallen) {
+          ghost.classList.add("dying");
+          window.setTimeout(() => {
+            ghost.remove();
+            this.cardEls.get(id)?.style.removeProperty("visibility");
+          }, 900);
+        }
+      }, after);
+    };
+    const step = this.damageStep(prev, state);
+    if (!prev || !step || reducedMotion()) return crumble(0);
+    // Each damage step is shown once.
+    const key = `${state.matchId}:${state.turnNumber}:${step}`;
+    if (this.struck === key) return crumble(0);
+    this.struck = key;
+    const fs = stepIndex("FIRST_STRIKE_DAMAGE");
+    const from = stepIndex(currentStep(prev.phase, prev.step) ?? "");
+    const before = new Map(prev.players.flatMap((p) => p.battlefield.map((c) => [c.id, c] as const)));
+    const after = new Map(state.players.flatMap((p) => p.battlefield.map((c) => [c.id, c] as const)));
+    const strikes = (id: string) => {
+      const c = before.get(id);
+      const text = [c?.oracleText ?? "", ...(c?.keywordsGranted ?? [])].join("\n");
+      // A keyword line ("Flying, first strike"), or a keyword an effect gave it.
+      const first = /^(?:[\w' -]+,\s*)*first strike\b/im.test(text);
+      const double = /^(?:[\w' -]+,\s*)*double strike\b/im.test(text);
+      if (step === "fs") return first || double;
+      // Regular damage: the creatures that didn't already strike first (unless both steps passed at once).
+      return from < fs || !first;
+    };
+    // The damage a creature took in this step: what was added to it, or (when it died) what
+    // was left of its toughness.
+    const taken = (id: string) => {
+      const was = before.get(id);
+      if (!was) return 0;
+      const now = after.get(id);
+      if (now) return Math.max(0, (now.damage ?? 0) - (was.damage ?? 0));
+      return Math.max(0, (Number(was.toughness) || 0) - (was.damage ?? 0));
+    };
+    // A fighter's element: the copy left where it died, else the card on the battlefield.
+    const fighter = (id: string) => fallen.get(id) ?? (this.cardEls.get(id)?.closest(".side") ? this.cardEls.get(id) : undefined);
+    const blockersOf = new Map<string, string[]>();
+    for (const b of prev.combat.blocks) blockersOf.set(b.toId, [...(blockersOf.get(b.toId) ?? []), b.fromId]);
+
+    // Each run: a striker and what it slams into, one after another. Usually the attacker; a
+    // blocker runs at the attacker only when it strikes and the attacker doesn't (first strike).
+    type Target = { el: HTMLElement; id: string | null };
+    const runs: { from: HTMLElement; id: string; targets: Target[]; hurtBy: number }[] = [];
+    for (const a of prev.combat.attacks) {
+      const el = fighter(a.fromId);
+      if (!el) continue;
+      const blockers = (blockersOf.get(a.fromId) ?? []).filter((b) => fighter(b));
+      const hitBack = blockers.filter(strikes);
+      if (blockers.length) {
+        if (strikes(a.fromId)) runs.push({ from: el, id: a.fromId, targets: blockers.map((b) => ({ el: fighter(b)!, id: b })), hurtBy: hitBack.length });
+        else for (const b of hitBack) runs.push({ from: fighter(b)!, id: b, targets: [{ el, id: a.fromId }], hurtBy: 0 });
+      } else if (strikes(a.fromId)) {
+        // Unblocked: straight at the defending player (their picture) or planeswalker.
+        const card = fighter(a.toId);
+        const target = card
+          ?? this.el.querySelector<HTMLElement>(`.life-orb[data-player="${CSS.escape(a.toId)}"] .avatar`)
+          ?? this.el.querySelector<HTMLElement>(`.life-orb[data-player="${CSS.escape(a.toId)}"]`);
+        if (target) runs.push({ from: el, id: a.fromId, targets: [{ el: target, id: card ? a.toId : null }], hurtBy: 0 });
+      }
+    }
+
+    const LIFT = 260;
+    const SLAM = 150;
+    const HOLD = 170;
+    const BACK = 300;
+    const runTime = (n: number) => LIFT + n * (SLAM + HOLD) + BACK;
+    // Attackers go one after another, a little overlapped.
+    const starts: number[] = [];
+    let t = 0;
+    for (const r of runs) {
+      starts.push(t);
+      t += runTime(r.targets.length) * 0.7;
+    }
+    // Started once this update's own moves (cards gliding to new places) have mostly played.
+    const START = 330;
+    const end = runs.reduce((m, r, i) => Math.max(m, starts[i]! + runTime(r.targets.length)), 0);
+    crumble(START + end);
+    window.setTimeout(() => {
+      const box = this.el.getBoundingClientRect();
+      runs.forEach((run, i) => {
+        if (!run.from.isConnected) return;
+        const ra = run.from.getBoundingClientRect();
+        const ax = ra.left + ra.width / 2;
+        const ay = ra.top + ra.height / 2;
+        const total = runTime(run.targets.length);
+        // Where it lands on each target: overlapping it, as if crashing into it.
+        const hits = run.targets.filter((tg) => tg.el.isConnected).map((tg) => {
+          const rb = tg.el.getBoundingClientRect();
+          const dx = rb.left + rb.width / 2 - ax;
+          const dy = rb.top + rb.height / 2 - ay;
+          const dist = Math.hypot(dx, dy) || 1;
+          const ux = dx / dist;
+          const uy = dy / dist;
+          const stop = Math.max(0, dist - Math.min(rb.width, rb.height) * 0.45);
+          return { tg, ux, uy, x: ux * stop, y: uy * stop, cx: ax + ux * (dist - Math.min(rb.width, rb.height) * 0.25), cy: ay + uy * (dist - Math.min(rb.width, rb.height) * 0.25) };
+        });
+        if (!hits.length) return;
+        // Tilted against the swing, as a card thrown at its target.
+        const tilt = (h: { ux: number }) => (h.ux >= 0 ? -1 : 1) * 24;
+        const first = hits[0]!;
+        const frames: Keyframe[] = [
+          { transform: "translate(0px, 0px) rotate(0deg) scale(1)", offset: 0 },
+          // Lift: up off the table and back a little from the target, tilting.
+          { transform: `translate(${-first.ux * 22}px, ${-first.uy * 22 - 14}px) rotate(${tilt(first) * 0.6}deg) scale(1.22)`, offset: LIFT / total, easing: "cubic-bezier(.6,0,.9,.5)" },
+        ];
+        let at = LIFT;
+        hits.forEach((h) => {
+          at += SLAM;
+          frames.push({ transform: `translate(${h.x}px, ${h.y}px) rotate(${tilt(h)}deg) scale(1.12)`, offset: at / total, easing: "cubic-bezier(.2,.8,.3,1)" });
+          at += HOLD;
+          frames.push({ transform: `translate(${h.x - h.ux * 10}px, ${h.y - h.uy * 10}px) rotate(${tilt(h) * 0.8}deg) scale(1.1)`, offset: at / total, easing: "cubic-bezier(.5,0,.5,1)" });
+        });
+        frames.push({ transform: "translate(0px, 0px) rotate(0deg) scale(1)", offset: 1 });
+        // Lifted above everything while it flies.
+        const slot = run.from.closest<HTMLElement>(".slot");
+        const lift = slot ?? run.from;
+        const z = lift.style.zIndex;
+        window.setTimeout(() => (lift.style.zIndex = "40"), starts[i]!);
+        const anim = run.from.animate(frames, { duration: total, delay: starts[i]!, composite: "add" });
+        void anim.finished.catch(() => {}).then(() => (lift.style.zIndex = z));
+        // Each slam lands: a flash where they meet, the table jolts, the target shows its wound.
+        hits.forEach((h, k) => {
+          window.setTimeout(() => {
+            this.impactAt(h.cx - box.left, h.cy - box.top, Math.atan2(h.uy, h.ux));
+            this.jolt(h.ux, h.uy);
+            if (h.tg.id) this.wound(h.tg.el, taken(h.tg.id));
+            else this.wound(h.tg.el, 0);
+            // The blockers hit back at the first clash.
+            if (k === 0 && run.hurtBy) this.wound(run.from, taken(run.id));
+          }, starts[i]! + LIFT + k * (SLAM + HOLD) + SLAM);
+        });
+      });
+    }, START);
+  }
+
+  /** A hit's flash: a white burst with streaks flying out along the swing (`angle`). */
+  private impactAt(x: number, y: number, angle: number): void {
+    const burst = document.createElement("div");
+    burst.className = "impact";
+    burst.style.left = `${x}px`;
+    burst.style.top = `${y}px`;
+    burst.style.setProperty("--a", `${angle}rad`);
+    this.el.appendChild(burst);
+    window.setTimeout(() => burst.remove(), 700);
+  }
+
+  /** The table jolts with a hit, pushed along the swing. */
+  private jolt(ux: number, uy: number): void {
+    this.el.animate([
+      { translate: "0 0" },
+      { translate: `${ux * 9}px ${uy * 9}px`, offset: 0.2 },
+      { translate: `${-ux * 5}px ${-uy * 5}px`, offset: 0.5 },
+      { translate: `${ux * 2}px ${uy * 2}px`, offset: 0.75 },
+      { translate: "0 0" },
+    ], { duration: 260, easing: "ease-out" });
+  }
+
+  /** What was hit flinches; a creature also shows claw marks and the damage it took. */
+  private wound(el: HTMLElement, dmg: number): void {
+    el.classList.remove("struck");
+    void el.offsetWidth;
+    el.classList.add("struck");
+    window.setTimeout(() => el.classList.remove("struck"), 450);
+    if (!el.classList.contains("card")) return;
+    const claws = document.createElement("div");
+    claws.className = "claws";
+    claws.innerHTML = '<i></i><i></i><i></i>';
+    el.appendChild(claws);
+    window.setTimeout(() => claws.remove(), 1300);
+    if (!dmg) return;
+    const box = this.el.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    const pop = document.createElement("div");
+    pop.className = "dmg-pop";
+    pop.textContent = `-${dmg}`;
+    pop.style.left = `${r.left + r.width / 2 - box.left}px`;
+    pop.style.top = `${r.top + r.height * 0.4 - box.top}px`;
+    this.el.appendChild(pop);
+    window.setTimeout(() => pop.remove(), 1200);
   }
 
   private card(c: CardView, showStats: boolean): HTMLElement {
@@ -445,7 +730,7 @@ export class Board {
         delete slot.dataset.count;
         slot.style.removeProperty("--gn");
         const attached = c.attachmentIds.map((a) => this.cardData.get(a)).filter((a): a is CardView => !!a);
-        // Exiled cards it holds lie under everything, turned sideways and greyed (see .linked).
+        // Exiled cards it holds peek out from behind its left edge (see .linked).
         const held = (this.held.get(c.id) ?? []).map((h, i) => {
           const el = this.card(h, false);
           el.classList.add("linked");
@@ -460,7 +745,8 @@ export class Board {
         slot.style.setProperty("--atts", String(attached.length));
         slot.style.setProperty("--held", String(held.length));
         slot.classList.toggle("holds", held.length > 0);
-        reconcile(slot, [...held, ...children]);
+        // The ones sticking out furthest go first, so each lies behind the one before it.
+        reconcile(slot, [...held.reverse(), ...children]);
       }
       // Creature wins over everything (land creatures, enchantment creatures, creature Sagas…),
       // then land, then Sagas/Classes/planeswalkers, then the rest.
@@ -924,6 +1210,7 @@ export class Board {
       const members = slot.dataset.members?.split(",") ?? [];
       slot.classList.toggle("tapped", !!c?.tapped);
       slot.classList.toggle("attacking", !!c?.isAttacking || members.some((id) => attackingAssigned?.has(id)));
+      slot.classList.toggle("blocking", !!c?.isBlocking || members.some((id) => blockAssigned?.has(id)));
     }
     for (const plate of this.el.querySelectorAll<HTMLElement>("[data-player]")) {
       const id = plate.dataset.player;
@@ -1018,6 +1305,30 @@ export class Board {
       orb.insertAdjacentHTML("beforeend", `<span class="lnum" title="${esc(p.name)}'s life">${life}</span>`);
     }
     if (prev !== undefined && p.life !== undefined && prev !== p.life) this.lifeFloat(orb, p.life - prev);
+
+    // An opponent who lost connection: a small line under their picture, counting down to when
+    // their seat concedes (or just waiting, when the server has no deadline for them).
+    let conn = orb.querySelector<HTMLElement>(".conn");
+    if (!p.disconnected || p.isViewer) conn?.remove();
+    else {
+      if (!conn) {
+        conn = document.createElement("div");
+        conn.className = "conn";
+        orb.appendChild(conn);
+      }
+      conn.dataset.deadline = String(p.disconnected.deadline ?? "");
+      conn.title = p.disconnected.deadline === null ? `${p.name} lost connection. Waiting for them to reconnect.`
+        : `${p.name} lost connection. Their seat concedes if they do not return.`;
+      updateConn(conn);
+      this.connTicker ||= window.setInterval(() => {
+        const tags = this.el.querySelectorAll<HTMLElement>(".conn");
+        tags.forEach(updateConn);
+        if (!tags.length) {
+          clearInterval(this.connTicker);
+          this.connTicker = 0;
+        }
+      }, 500);
+    }
   }
 
   private lifeFloat(plate: HTMLElement, delta: number): void {
@@ -1108,6 +1419,50 @@ export class Board {
     this.prevPhase = state.phase;
 
     this.renderEnd(state, me);
+    this.renderReplayBar(state.replay);
+  }
+
+  /** Watching a replay: its controls, top center (over the opponent's hand). ←/→ step a change,
+      Shift+←/→ a turn, Space plays or pauses. */
+  private renderReplayBar(status: ReplayStatus | undefined): void {
+    const bar = this.q(".replay-bar");
+    bar.classList.toggle("show", !!status);
+    if (!status) return;
+    if (!bar.firstElementChild) {
+      bar.innerHTML = `
+        <button class="rb" data-replay="turn:-1" title="Previous turn (Shift+←)">⏮</button>
+        <button class="rb" data-replay="step:-1" title="Previous change (←)">◀</button>
+        <button class="rb play" data-replay="toggle" title="Play / pause (Space)"></button>
+        <button class="rb" data-replay="step:1" title="Next change (→)">▶</button>
+        <button class="rb" data-replay="turn:1" title="Next turn (Shift+→)">⏭</button>
+        <input class="rb-track" type="range" min="0" step="1" aria-label="Replay position">
+        <span class="rb-read"></span>
+        <button class="rb speed" data-replay="speed" title="Playback speed"></button>
+        <button class="rb leave" data-replay="leave" title="Leave the replay">Leave</button>`;
+    }
+    bar.querySelector(".play")!.textContent = status.playing ? "❚❚" : "▶";
+    bar.querySelector(".speed")!.textContent = `${status.speed}×`;
+    const track = bar.querySelector<HTMLInputElement>(".rb-track")!;
+    track.max = String(status.frames - 1);
+    // Not while it's being dragged: the drag owns its value.
+    if (!this.replayScrubbing) track.value = String(status.frame);
+    track.style.setProperty("--pct", `${status.frames > 1 ? (status.frame / (status.frames - 1)) * 100 : 0}%`);
+    const read = `Turn ${status.turn || "–"} · ${status.frame + 1}/${status.frames}`;
+    const readEl = bar.querySelector(".rb-read")!;
+    if (readEl.textContent !== read) readEl.textContent = read;
+  }
+
+  private replayButton(what: string): void {
+    const status = this.state?.replay;
+    if (!status) return;
+    const [kind, n] = what.split(":");
+    if (kind === "leave") return this.hooks.leaveReplay();
+    if (kind === "toggle") return this.hooks.replay({ kind: "toggle" });
+    if (kind === "step" || kind === "turn") return this.hooks.replay({ kind, delta: Number(n) });
+    if (kind === "speed") {
+      const next = REPLAY_SPEEDS[(REPLAY_SPEEDS.indexOf(status.speed) + 1) % REPLAY_SPEEDS.length]!;
+      this.hooks.replay({ kind: "speed", speed: next });
+    }
   }
 
   /** A player's picture: their Endstep avatar (framed as they chose); without one, their
@@ -1126,7 +1481,8 @@ export class Board {
       Defeat under it and the way back to Endstep. "View battlefield" (top right) sets it aside. */
   private renderEnd(state: GameState, me: PlayerView | null | undefined): void {
     const box = this.q(".endgame");
-    const over = state.status === "COMPLETE";
+    // A replay's last frame is a finished game, but the replay goes on being watched.
+    const over = state.status === "COMPLETE" && !state.replay;
     if (!over) this.endPeek = false;
     const won = state.winnerId !== undefined && state.winnerId === me?.id;
     const title = state.winnerId === undefined ? "Game over" : won ? "Victory" : "Defeat";
@@ -1204,7 +1560,7 @@ export class Board {
         html = `<div class="phead"><h2>${esc(title)}</h2>${sub ? `<p>${esc(sub)}</p>` : ""}</div>${body}
           <button class="peek-btn" data-ui="peek"><span class="p-view">View battlefield</span><span class="p-back">Back to choice</span></button>`;
       }
-    } else if (!p && state.status !== "COMPLETE") {
+    } else if (!p && state.status !== "COMPLETE" && !state.replay) {
       html = `<div class="msg dim">Waiting for opponent…</div>`;
     }
     // Never rebuild the order box under a tile being dragged. Reordering the same box only
@@ -1281,7 +1637,8 @@ export class Board {
   private fanHtml(key: string, cards: CardView[], attrs: (c: CardView) => string, cls: (c: CardView) => string): string {
     for (const c of cards) if (!this.cardData.has(c.id)) this.cardData.set(c.id, c);
     const tiles = cards.map((c, i) => {
-      const url = imageUrl(c, "large");
+      // A face-down card you can't see shows the card back.
+      const url = imageUrl(c, "large") ?? (c.faceDown && !c.peeked ? CARD_BACK_URL : null);
       return `<button class="fcard ${cls(c)}" data-fi="${i}" data-zoom="${esc(c.id)}" ${attrs(c)}>
         <div class="fimg">${url ? `<img src="${esc(url)}" alt="${esc(c.name)}" draggable="false">` : `<span>${esc(c.name)}</span>`}</div></button>`;
     }).join("");
@@ -1568,7 +1925,7 @@ export class Board {
     };
     if ((m.kind === "cards" && m.offBoard) || (m.kind === "targets" && p.optionCardIds.some((id) => !isPlayerId(id) && !onTable(id)))) {
       // Cards from a library, graveyard or exile: an Arena fan to pick from (orange = picked).
-      // Cancel (when the choice can be declined) goes under the fan; Submit stays bottom right.
+      // Its buttons go under the fan, side by side: Cancel (when the choice can be declined) and Submit.
       const sel = m.kind === "cards" || m.kind === "targets" ? m.selected : [];
       const off = this.awaiting ? "disabled" : "";
       if (m.kind === "cards" && m.learn) {
@@ -1582,10 +1939,13 @@ export class Board {
           (c) => `data-pick="${esc(c.id)}"`, (c) => (sel.includes(c.id) ? "on" : "selectable"))
           + `<div class="choices big">${tab("lessons", "Show sideboard", !discarding, lessons.length)}${tab("discard", "Show hand", discarding, hand.length)}</div>`;
       }
-      const cancel = (m.kind === "cards" || m.kind === "targets") && !m.mandatory
-        ? `<div class="choices big"><button class="opt primary" data-act="decline" ${off}>Cancel</button></div>` : "";
+      let buttons = "";
+      if (m.kind === "cards" || m.kind === "targets") {
+        const count = `${m.selected.length}${m.max > 1 && m.max < 99 ? `/${m.max}` : ""}`;
+        buttons = `<div class="choices big">${m.mandatory ? "" : `<button class="opt alt" data-act="decline" ${off}>Cancel</button>`}<button class="opt primary" data-act="confirm" ${off || (canConfirm(m) ? "" : "disabled")}>Submit ${esc(count)}</button></div>`;
+      }
       return this.fanHtml(`pick:${this.modeKey}`, p.optionCards.filter((c) => !isPlayerId(c.id)),
-        (c) => `data-pick="${esc(c.id)}"`, (c) => (sel.includes(c.id) ? "on" : "selectable")) + cancel;
+        (c) => `data-pick="${esc(c.id)}"`, (c) => (sel.includes(c.id) ? "on" : "selectable")) + buttons;
     }
     if (m.kind === "order") return this.orderBox(p, m);
     if (m.kind === "arrange") return this.arrangeBox(m);
@@ -1676,8 +2036,8 @@ export class Board {
     const myTurn = !!me && state.activePlayerId === me.id;
     const buttons: { id: string; label: string; primary?: boolean; disabled?: boolean; on?: boolean }[] = [];
 
-    if (state.status === "COMPLETE" || m.kind === "classic") {
-      // nothing
+    if (state.status === "COMPLETE" || m.kind === "classic" || state.replay) {
+      // nothing (a replay is only watched)
     } else if (!p) {
       buttons.push({ id: "wait", label: myTurn ? "Waiting…" : "Opponent's turn", primary: true, disabled: true });
     } else if (p.type === "PRIORITY") {
@@ -1712,11 +2072,12 @@ export class Board {
       buttons.push({ id: "cancel", label: "Cancel" });
       buttons.push({ id: "auto-pay", label: "Auto pay", primary: true });
     } else if (m.kind === "targets" || m.kind === "cards") {
-      // Picking from a fan of cards: "Submit N", as in Arena, with Cancel under the fan instead.
-      const fan = !!this.q(".prompt .fan");
-      if (!m.mandatory && !fan) buttons.push({ id: "decline", label: "Cancel" });
-      const count = `${m.selected.length}${m.max > 1 && m.max < 99 ? `/${m.max}` : ""}`;
-      buttons.push({ id: "confirm", label: fan ? `Submit ${count}` : `Done · ${count}`, primary: true, disabled: !canConfirm(m) });
+      // Picking from a fan of cards: Cancel and Submit are under the fan instead.
+      if (!this.q(".prompt .fan")) {
+        if (!m.mandatory) buttons.push({ id: "decline", label: "Cancel" });
+        const count = `${m.selected.length}${m.max > 1 && m.max < 99 ? `/${m.max}` : ""}`;
+        buttons.push({ id: "confirm", label: `Done · ${count}`, primary: true, disabled: !canConfirm(m) });
+      }
     }
     // Endstep says when the last action can be taken back.
     if (p?.canUndo && buttons.length) buttons.push({ id: "undo", label: "↶ Undo" });
@@ -2122,7 +2483,8 @@ export class Board {
   private scheduleArrows(): void {
     cancelAnimationFrame(this.arrowsTimer);
     this.arrowsTimer = requestAnimationFrame(() => this.drawArrows());
-    window.setTimeout(() => this.drawArrows(), 360);
+    // Again once moves have settled (combat steps take 0.42s).
+    window.setTimeout(() => this.drawArrows(), 480);
   }
 
   private anchor(key: string): DOMRect | null {
@@ -2250,6 +2612,12 @@ export class Board {
     el.addEventListener("input", (e) => {
       const t = e.target as HTMLElement;
       if (t.matches(".name-q")) this.fillNameResults(t as HTMLInputElement);
+      if (t.matches(".rb-track")) this.hooks.replay({ kind: "seek", frame: Number((t as HTMLInputElement).value) });
+    });
+    el.addEventListener("pointerdown", (e) => {
+      if (!(e.target as HTMLElement).matches(".rb-track")) return;
+      this.replayScrubbing = true;
+      window.addEventListener("pointerup", () => (this.replayScrubbing = false), { once: true });
     });
     el.addEventListener("keydown", (e) => {
       const t = e.target as HTMLElement;
@@ -2316,6 +2684,19 @@ export class Board {
     // A drag the browser cancels (e.g. the window loses focus) ends like a drop.
     window.addEventListener("pointercancel", (e) => this.onPointerUp(e));
     window.addEventListener("keydown", (e) => {
+      // Watching a replay: Space plays or pauses, ←/→ step a change (Shift: a turn).
+      if (this.state?.replay && this.el.classList.contains("live") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const cmd: ReplayCommand | null = e.key === " " ? { kind: "toggle" }
+          : e.key === "ArrowLeft" || e.key === "ArrowRight" ? { kind: e.shiftKey ? "turn" : "step", delta: e.key === "ArrowLeft" ? -1 : 1 }
+          : null;
+        if (cmd) {
+          // Endstep's own (hidden) replay player listens for the same keys: it mustn't answer too.
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          this.hooks.replay(cmd);
+          return;
+        }
+      }
       // Choosing a number (X): ↑/↓ change it (Shift: by 5), digit keys take a quick pick, Enter confirms.
       const p = this.state?.pending;
       const m = this.mode;
@@ -2412,6 +2793,10 @@ export class Board {
       const [side, step] = btn.dataset.stop.split(":") as [StopSide, string];
       this.hooks.togglePhaseStop(side, step);
       this.render(state);
+      return;
+    }
+    if (btn?.dataset.replay) {
+      this.replayButton(btn.dataset.replay);
       return;
     }
     if (btn?.dataset.ui) {
@@ -2883,22 +3268,15 @@ export class Board {
       ${counters || c.damage ? `<div class="zextra">${counters}${c.damage ? `<span class="dmg">${c.damage} damage</span>` : ""}</div>` : ""}
       ${notes.length ? `<div class="zextra col">${notes.join("")}</div>` : ""}
       ${effects.map((fx) => `<div class="zextra fx"><b>✦ ${esc(fx.name)}</b><span>${esc(fx.oracleText ?? "")}</span></div>`).join("")}`;
-    // Always in the left column, in the space between the two players' piles.
+    // Always at the top of the left column (over the opponent's plate while it's shown).
     const box = this.el.getBoundingClientRect();
-    const oppPiles = this.q(".opp-piles").getBoundingClientRect();
-    const mePiles = this.q(".me-piles").getBoundingClientRect();
-    const gapTop = (oppPiles.height ? oppPiles.bottom : box.top + box.height * 0.3) - box.top + 10;
-    const gapBottom = (mePiles.height ? mePiles.top : box.top + box.height * 0.7) - box.top - 10;
     const extraH = (extra ? 60 : 0) + (counters || c.damage ? 40 : 0) + notes.length * 22 + effects.length * 56;
-    const columnW = oppPiles.width || mePiles.width || 260;
-    // Fill the gap; if it's too short, grow over the piles rather than shrink to unreadable.
-    const zh = Math.max(gapBottom - gapTop - extraH, Math.min(box.height * 0.5, 420));
-    const zw = Math.min(columnW - 16, zh / 1.397, 380);
+    const columnW = parseFloat(getComputedStyle(this.el).gridTemplateColumns) || 260;
+    const zh = Math.min(box.height - extraH - 24, box.height * 0.6, 520);
+    const zw = Math.max(120, Math.min(columnW - 16, zh / 1.397, 380));
     zoom.style.setProperty("--zw", `${zw}px`);
-    const mid = (gapTop + gapBottom) / 2;
-    const top = Math.max(8, Math.min(mid - (zw * 1.397 + extraH) / 2, box.height - zw * 1.397 - extraH - 8));
-    zoom.style.left = `${(oppPiles.left || mePiles.left || box.left) - box.left + ((columnW - zw) / 2)}px`;
-    zoom.style.top = `${top}px`;
+    zoom.style.left = `${(columnW - zw) / 2}px`;
+    zoom.style.top = "8px";
     zoom.classList.add("show");
   }
 
@@ -3081,6 +3459,26 @@ export class Board {
 }
 
 // ------------------------------------------------------------------ helpers
+
+/** The tab's sessionStorage, or nothing where it's blocked. */
+function sessionStore(): Storage | undefined {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+/** "Lost connection · concedes in 1:23", or "· waiting to reconnect" with no deadline (as Endstep says it). */
+function updateConn(el: HTMLElement): void {
+  const deadline = Number(el.dataset.deadline);
+  let text = "Lost connection · waiting to reconnect";
+  if (el.dataset.deadline && Number.isFinite(deadline)) {
+    const s = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    text = `Lost connection · concedes in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }
+  if (el.textContent !== text) el.textContent = text;
+}
 
 /** Moves/inserts children so `container` holds exactly `wanted`, in order. */
 function reconcile(container: Element, wanted: Element[]): void {

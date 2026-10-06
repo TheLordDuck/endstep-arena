@@ -108,3 +108,27 @@ Class hints in the bundle: `frame-attacker`, `frame-blocker`. The layout has mod
 | Does spectating use the same `/game/:id` route and frames? | Spectate a match with the debug panel open. |
 | Stable DOM hooks for hiding the original board | Inspect `#root` during a match (Phase 3). |
 | Top-level keys not yet known | Debug → State lists "unrecognized keys" automatically. |
+
+## 6. Disconnects and replays (from `main-Bqz4EUhN.js` / `ReplayView-CNZ3FOUJ.js`, 2026-10-06)
+
+### `SEAT_CONNECTIVITY` (socket)
+
+`{ type: "SEAT_CONNECTIVITY", payload: { matchId?, playerIndex, connected, graceDeadline?, serverNowMs?, playerName? } }`
+(the fields may also sit on the frame itself). `playerIndex` is the index in `players`.
+`graceDeadline` is on the server clock: Endstep shows "concedes in m:ss" from
+`graceDeadline - (Date.now() + (serverNowMs - Date.now() at receipt))`; with no deadline it says
+"waiting for them to reconnect". It ignores players who already lost or conceded.
+
+### Replays (HTTP, no socket)
+
+* Files: `GET /api/replays/:id/file` (gzip, `?download=1` to save), list at `/api/me/replays`.
+  Pages: `/replay/:id`, `/replay/local` (a picked `.esreplay` file), `/admin/…/replay`.
+* Format: JSON lines. Line 1 is the header `{ format: "endstep-replay", formatVersion: 1, seat,
+  players: [{ seat, name }], result, games, complete, … }`. Each further line is `{ t, k, at? }` with
+  `k` ∈ `key` (`state`: a full GAME_STATE payload), `diff` (`patch`), `event`, `action`,
+  `rejected`, `chapter`, `gap`.
+* Patch: `{ s }` replaces; `{ o: {key: patch}, d?: [keys] }` patches/deletes keys; `{ a: [...] }`
+  rebuilds an array, each entry `{ v }` (a new value) or `{ id, p? }` (the old element with that id,
+  patched by `p`).
+* Timeline: every `key`/`diff` whose resulting state has ≥ 2 players is one frame (the player's
+  position slider, `role="slider"` `aria-label="Replay position"`, has `aria-valuenow` = frame).

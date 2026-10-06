@@ -26,7 +26,8 @@ export class GameController {
 
   private send(action: WireAction): void {
     const state = this.getState();
-    if (!state || state.status === "COMPLETE") return;
+    // A replay is only watched: nothing goes to the server.
+    if (!state || state.status === "COMPLETE" || state.replay) return;
     const version = state.pending?.promptVersion;
     const stamped = action.promptVersion == null && !UNVERSIONED.has(action.type) && version != null
       ? { ...action, promptVersion: version }

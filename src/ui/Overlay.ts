@@ -8,6 +8,7 @@ import boardCss from "../styles/board.css";
 import type { EndstepAdapter } from "../game/endstep/EndstepAdapter";
 import type { GameController } from "../game/GameController";
 import type { PhaseStopSync } from "../game/PhaseStopSync";
+import type { ReplayPlayer } from "../game/ReplayPlayer";
 import type { RingBuffer } from "../shared/RingBuffer";
 import { saveSettings, type DebugTab, type Settings } from "../content/settings";
 import { esc, renderEvents, renderNetwork, renderRaw, renderState } from "./DebugViews";
@@ -51,6 +52,7 @@ export class Overlay {
     private readonly settings: Settings,
     private readonly controller: GameController,
     private readonly stops: PhaseStopSync,
+    private readonly replays: ReplayPlayer,
   ) {}
 
   mount(): void {
@@ -85,6 +87,13 @@ export class Overlay {
       togglePhaseStop: (side, step) => this.stops.toggle(side, step),
       tableMenu: () => readBoardMenu(),
       runTableItem: (label) => this.runTableItem(label),
+      replay: (cmd) => this.replays.command(cmd),
+      leaveReplay: () => {
+        // Endstep's own way out of the replay (back to where it was opened from).
+        const leave = document.querySelector<HTMLElement>('[aria-label="Leave the replay"]');
+        if (leave) leave.click();
+        else history.back();
+      },
     });
     this.layer.prepend(this.board.el);
     document.documentElement.appendChild(this.host);

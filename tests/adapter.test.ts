@@ -194,3 +194,27 @@ test("every action the UI can send is allowed through to Endstep", () => {
   const blocked = [...new Set(sent.map((x) => x.type))].filter((t) => !ALLOWED_ACTIONS.has(t));
   assert.deepEqual(blocked, []);
 });
+
+test("a disconnected player carries the deadline, moved to the local clock, until they return", () => {
+  const a = new EndstepAdapter();
+  a.handleFrame(fullState(1));
+  const now = Date.now();
+  a.handleFrame({ type: "SEAT_CONNECTIVITY", payload: { matchId: "m1", playerIndex: 1, connected: false, graceDeadline: 1_000_090_000, serverNowMs: 1_000_000_000 } });
+  const deadline = a.getGameState()!.players[1]!.disconnected?.deadline ?? 0;
+  assert.ok(Math.abs(deadline - (now + 90_000)) < 1000);
+  assert.equal(a.getGameState()!.players[0]!.disconnected, undefined);
+  a.handleFrame({ type: "SEAT_CONNECTIVITY", payload: { matchId: "m1", playerIndex: 1, connected: true } });
+  assert.equal(a.getGameState()!.players[1]!.disconnected, undefined);
+  // Another match's frames are ignored.
+  a.handleFrame({ type: "SEAT_CONNECTIVITY", payload: { matchId: "other", playerIndex: 1, connected: false } });
+  assert.equal(a.getGameState()!.players[1]!.disconnected, undefined);
+});
+
+test("a disconnect with the seat as a string, or no match id, still counts", () => {
+  const a = new EndstepAdapter();
+  a.handleFrame(fullState(1));
+  a.handleFrame({ type: "SEAT_CONNECTIVITY", payload: { matchId: null, playerIndex: "1", connected: false, graceDeadline: 5_000, serverNowMs: 1_000 } });
+  assert.ok(a.getGameState()!.players[1]!.disconnected);
+  a.handleFrame({ type: "SEAT_CONNECTIVITY", playerIndex: 1, connected: true });
+  assert.equal(a.getGameState()!.players[1]!.disconnected, undefined);
+});

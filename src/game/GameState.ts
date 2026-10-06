@@ -1,6 +1,8 @@
 // Normalized game state consumed by the UI. Nothing here is Endstep-specific:
 // if Endstep changes its protocol, only src/game/endstep/* should change.
 
+import type { ReplayStatus } from "./ReplayPlayer";
+
 export type PlayerId = string;
 
 export interface CardView {
@@ -101,6 +103,9 @@ export interface PlayerView {
   hasInitiative: boolean;
   hasLost: boolean;
   hasConceded: boolean;
+  /** Set while the player has lost connection: when (local clock, ms) their seat concedes if
+      they don't come back, or null when the server waits for them indefinitely. */
+  disconnected?: { deadline: number | null };
 }
 
 export interface StackItemView {
@@ -224,6 +229,8 @@ export interface GameState {
   /** True when a delta arrived that couldn't be applied; waiting for a fresh full state. */
   desynced: boolean;
   updatedAt: number;
+  /** Set when this is a replay frame: where the replay is, for its controls. */
+  replay?: ReplayStatus;
 }
 
 export interface GameEventEntry {

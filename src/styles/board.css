@@ -188,8 +188,44 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .slot:first-child { margin-left: 0; }
 /* A card tilted 10° needs about 1.1× its width. */
 .slot.tapped { width: calc(var(--bf-w) * 1.1); }
-.side.me .slot.attacking { translate: 0 calc(var(--bf-w) * -0.16); }
-.side.opp .slot.attacking { translate: 0 calc(var(--bf-w) * 0.16); }
+/* Combat, as Arena shows it: attackers lean out a little with a red chevron pointing at the
+   player they attack, and blockers stay in place with a golden edge toward their attacker. */
+.side.me .slot.attacking { translate: 0 calc(var(--bf-w) * -0.12); }
+.side.opp .slot.attacking { translate: 0 calc(var(--bf-w) * 0.12); }
+.side .slot.attacking { z-index: 3; transition: width 0.22s ease, translate 0.3s cubic-bezier(.25, 1.35, .45, 1), margin 0.22s ease; }
+.side .slot.attacking::before, .side .slot.blocking::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  z-index: 0;
+  pointer-events: none;
+  translate: -50% 0;
+}
+/* The chevron: a glowing V under the opponent's attacker, over yours (toward who it attacks). */
+.side .slot.attacking::before {
+  width: calc(var(--bf-w) * 0.5);
+  height: calc(var(--bf-w) * 0.17);
+  background: linear-gradient(180deg, #ffd08a, #ff7a2a 45%, #e8361a);
+  clip-path: polygon(0 0, 18% 0, 50% 62%, 82% 0, 100% 0, 50% 100%);
+  filter: drop-shadow(0 0 6px rgba(255, 110, 40, 0.9));
+  animation: chevron 1.4s ease-in-out infinite;
+}
+.side.opp .slot.attacking::before { bottom: calc(var(--bf-w) * -0.2); }
+.side.me .slot.attacking::before { top: calc(var(--bf-w) * -0.2); rotate: 180deg; }
+@keyframes chevron { 50% { opacity: 0.65; translate: -50% 3px; } }
+.side.me .slot.attacking::before { animation-name: chevron-up; }
+@keyframes chevron-up { 50% { opacity: 0.65; translate: -50% -3px; } }
+/* The golden edge: an arc of light along the side of a blocker that faces its attacker. */
+.side .slot.blocking::before {
+  width: calc(var(--bf-w) * 1.04);
+  height: calc(var(--bf-w) * 0.16);
+  border: 3px solid #ffd36a;
+  box-shadow: 0 0 10px 2px rgba(255, 196, 70, 0.75), inset 0 0 8px rgba(255, 210, 110, 0.6);
+  animation: guard 1.6s ease-in-out infinite;
+}
+.side.me .slot.blocking::before { top: calc(var(--bf-w) * -0.07); border-bottom: 0; border-radius: 50% 50% 0 0 / 100% 100% 0 0; }
+.side.opp .slot.blocking::before { bottom: calc(var(--bf-w) * -0.07); border-top: 0; border-radius: 0 0 50% 50% / 0 0 100% 100%; }
+@keyframes guard { 50% { box-shadow: 0 0 16px 4px rgba(255, 196, 70, 0.95), inset 0 0 10px rgba(255, 210, 110, 0.8); } }
 .side.opp .slot { align-items: flex-start; padding-top: 0; padding-bottom: calc(var(--atts, 0) * var(--bf-w) * 0.17); }
 
 /* ---------- Cards ---------- */
@@ -241,14 +277,18 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .fallback .fcost, .fallback .ftype { color: var(--muted); font-size: 0.85em; }
 .fallback .ftext { font-size: 0.8em; color: #cfc6b4; }
 
-.card.back .face, .card.facedown .face {
+.card.back .face {
   background:
     radial-gradient(circle at 50% 50%, rgba(232, 198, 120, 0.2), transparent 45%),
     repeating-linear-gradient(135deg, rgba(232, 198, 120, 0.06) 0 3px, transparent 3px 9px),
     linear-gradient(160deg, #3a2a1a, #1a120c);
   border: 1px solid rgba(232, 198, 120, 0.35);
 }
-.card.back .face::before, .card.facedown .face::before {
+/* A face-down card (hideaway, foretell, morph…) shows the real Magic card back. */
+.card.facedown .face {
+  background: #1a120c url("https://backs.scryfall.io/large/0/a/0aeebaf5-8c7d-4636-9e82-8c27447861f7.jpg") center / cover no-repeat;
+}
+.card.back .face::before {
   content: "";
   position: absolute;
   left: 50%;
@@ -393,25 +433,24 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .side.opp .slot > .card:not(:last-child) { bottom: auto; top: calc(var(--att) * var(--bf-w) * 0.17); }
 
-/* Cards exiled "until this leaves the battlefield" (Portable Hole, Oblivion Ring…): under the
-   permanent holding them, turned 90° and greyed like a tapped card, sticking out below it
-   (above it for the opponent). Each further one sticks out a little more. */
-.slot.holds { padding-bottom: calc(var(--bf-w) * (0.45 + (var(--held) - 1) * 0.12)); }
-.side.opp .slot.holds { padding-bottom: 0; padding-top: calc(var(--bf-w) * (0.45 + (var(--held) - 1) * 0.12)); }
+/* Cards exiled "until this leaves the battlefield" (Portable Hole, Oblivion Ring…): behind the
+   permanent holding them, the whole card upright and small enough to be as tall as it, peeking
+   out from its left edge (Arena style). Each further one peeks out a little more, behind the one before. */
+.slot.holds { padding-left: calc(var(--bf-w) * 0.16 * var(--held)); }
 .slot > .card.linked,
 .side.opp .slot > .card.linked {
+  --cw: calc(var(--bf-w) * 0.6);
+  aspect-ratio: 63 / 88;
   position: absolute;
   z-index: 0;
-  left: 50%;
+  left: calc(var(--bf-w) * 0.16 * (var(--held) - 1 - var(--li, 0)));
   top: auto;
-  bottom: calc(var(--bf-w) * (0.02 - var(--li, 0) * 0.12));
-  translate: -50% 0;
-  rotate: 90deg;
-  filter: grayscale(0.85) brightness(0.62);
-  transition: filter 0.2s ease, rotate 0.22s ease;
+  bottom: calc(var(--bf-w) * -0.03);
+  filter: brightness(0.85);
+  transition: filter 0.2s ease;
 }
-.side.opp .slot > .card.linked { bottom: auto; top: calc(var(--bf-w) * (0.02 - var(--li, 0) * 0.12)); }
-.slot > .card.linked:hover { filter: grayscale(0.3) brightness(0.95); z-index: 4; transform: none; }
+.side.opp .slot > .card.linked { bottom: auto; top: calc(var(--bf-w) * -0.03); }
+.slot > .card.linked:hover { filter: none; z-index: 4; transform: none; }
 .slot > .card.linked .badges, .slot > .card.linked .kws, .slot > .card.linked .pins { display: none; }
 
 /* Keywords an effect gave the permanent (green) or took away (red, struck through), down its
@@ -687,6 +726,29 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .avatar .pic { background-repeat: no-repeat; }
 .me-life .avatar { bottom: calc(100% + 4px); }
 .opp-life .avatar { top: calc(100% + 4px); }
+/* A player who lost connection: a small line under their picture, with the time left to return. */
+.conn {
+  position: absolute;
+  left: 50%;
+  translate: -50% 0;
+  top: calc(100% + 84px);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font: 600 11px/1.4 var(--font);
+  font-variant-numeric: tabular-nums;
+  color: #ffd2c8;
+  background: rgba(14, 11, 9, 0.88);
+  border: 1px solid rgba(255, 90, 60, 0.55);
+  text-shadow: none;
+  pointer-events: auto;
+}
+.conn::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--atk); animation: conn-blink 1.2s ease-in-out infinite; }
+.me-life .conn { top: calc(100% + 6px); }
+@keyframes conn-blink { 50% { opacity: 0.3; } }
 /* Life totals: centered on the table, just above each player's cards
    (yours above your hand, the opponent's below their hand). */
 .life-orb {
@@ -2135,4 +2197,195 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   .board *, .board *::before, .board *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
   /* The void's mist stands still instead of flickering through its cycle. */
   .board .mist { animation: none !important; opacity: 0.45; scale: 0.8; }
+}
+
+/* ---------- Replay controls ---------- */
+/* Watching a replay: one bar, top center over the opponent's hand. */
+.replay-bar {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  z-index: 60;
+  display: none;
+  align-items: center;
+  gap: 4px;
+  translate: -50% 0;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+}
+.replay-bar.show { display: flex; }
+.rb {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: 600 13px/1 var(--font);
+}
+.rb:hover { background: rgba(232, 198, 120, 0.14); color: var(--gold-hi); }
+.rb:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+.rb.play { min-width: 38px; background: rgba(232, 198, 120, 0.16); color: var(--gold-hi); }
+.rb.speed { min-width: 42px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.rb.leave { color: var(--muted); }
+.rb-read { min-width: 118px; text-align: center; font: 600 12px var(--font); font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+/* The position: a thin gold track, filled up to where the replay is. */
+.rb-track {
+  width: clamp(140px, 22vw, 360px);
+  height: 18px;
+  margin: 0 6px;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.rb-track::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--gold) var(--pct, 0%), rgba(255, 255, 255, 0.14) var(--pct, 0%));
+}
+.rb-track::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--gold-hi);
+  box-shadow: 0 0 0 3px rgba(232, 198, 120, 0.25);
+}
+.rb-track::-moz-range-track { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.14); }
+.rb-track::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--gold); }
+.rb-track::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--gold-hi); }
+
+/* ---------- Combat damage ---------- */
+/* A hit, as in Arena: a white flash where the cards meet, light streaking out along the swing
+   (--a, its angle). */
+.impact {
+  position: absolute;
+  z-index: 45;
+  width: 170px;
+  height: 170px;
+  margin: -85px 0 0 -85px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, #fff 0 9%, rgba(235, 245, 255, 0.95) 16%, rgba(160, 200, 255, 0.55) 32%, rgba(120, 160, 255, 0.15) 50%, transparent 66%);
+  mix-blend-mode: screen;
+  animation: impact 0.55s ease-out forwards;
+}
+.impact::after {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  rotate: var(--a, 0rad);
+  background:
+    linear-gradient(90deg, transparent 8%, rgba(255, 255, 255, 0.95) 46%, transparent 54%) 50% 42% / 100% 3px no-repeat,
+    linear-gradient(90deg, transparent 14%, rgba(220, 235, 255, 0.85) 48%, transparent 58%) 50% 58% / 100% 2px no-repeat,
+    linear-gradient(90deg, transparent 20%, rgba(255, 255, 255, 0.8) 50%, transparent 62%) 50% 50% / 100% 5px no-repeat,
+    conic-gradient(from 0deg, transparent 0 8%, rgba(255, 255, 255, 0.5) 9%, transparent 11% 33%, rgba(255, 255, 255, 0.45) 34%, transparent 36% 58%, rgba(255, 255, 255, 0.5) 59%, transparent 61% 83%, rgba(255, 255, 255, 0.4) 84%, transparent 86%);
+  -webkit-mask: radial-gradient(circle, transparent 12%, #000 22%, transparent 70%);
+  mask: radial-gradient(circle, transparent 12%, #000 22%, transparent 70%);
+  animation: streaks 0.55s ease-out forwards;
+}
+@keyframes impact { 0% { scale: 0.25; opacity: 1; } 25% { scale: 1.05; opacity: 1; } 100% { scale: 1.35; opacity: 0; } }
+@keyframes streaks { 0% { scale: 0.4; opacity: 1; } 100% { scale: 1.5; opacity: 0; } }
+
+/* What was hit flinches and flashes. */
+.card.struck .face { animation: struck 0.42s ease-out; }
+/* (The picture is centered with translate, so it shakes around that.) */
+.avatar.struck { animation: struck-avatar 0.42s ease-out; }
+@keyframes struck {
+  0% { filter: brightness(2.6) saturate(0.3); translate: 0 0; }
+  20% { translate: -6px 2px; }
+  40% { translate: 5px -2px; }
+  60% { translate: -3px 1px; }
+  100% { filter: none; translate: 0 0; }
+}
+@keyframes struck-avatar {
+  0% { filter: brightness(2.4) saturate(0.3); }
+  20% { translate: calc(-50% - 6px) 2px; }
+  40% { translate: calc(-50% + 5px) -2px; }
+  60% { translate: calc(-50% - 3px) 1px; }
+  100% { filter: none; }
+}
+
+/* Claw marks on a creature that took damage: three red slashes torn across it, then fading. */
+.claws { position: absolute; inset: 0; z-index: 6; pointer-events: none; overflow: hidden; border-radius: inherit; }
+.claws i {
+  position: absolute;
+  top: 6%;
+  width: 7%;
+  height: 92%;
+  border-radius: 50%;
+  background: linear-gradient(180deg, transparent, #ff2a1a 18%, #b40d0d 55%, #ff3a22 82%, transparent);
+  box-shadow: 0 0 8px rgba(255, 40, 20, 0.9);
+  rotate: 28deg;
+  transform-origin: 50% 0;
+  animation: claw 1.3s ease-out forwards;
+}
+.claws i:nth-child(1) { left: 34%; }
+.claws i:nth-child(2) { left: 48%; animation-delay: 0.04s; }
+.claws i:nth-child(3) { left: 62%; animation-delay: 0.08s; }
+@keyframes claw { 0% { scale: 1 0; opacity: 1; } 18% { scale: 1 1; opacity: 1; } 70% { opacity: 1; } 100% { scale: 1 1; opacity: 0; } }
+
+/* A creature just declared as an attacker rises a little as it goes in, glowing red. */
+.card.charge .face { animation: charge 0.6s ease-out; }
+@keyframes charge {
+  0% { scale: 1; box-shadow: 0 0 0 3px #ff9a2a, 0 0 0 0 rgba(255, 90, 40, 0); }
+  35% { scale: 1.08; box-shadow: 0 0 0 3px #ffd08a, 0 0 36px 10px rgba(255, 90, 40, 0.75); }
+  100% { scale: 1; }
+}
+/* The damage a creature takes, popping out of it. */
+.dmg-pop {
+  position: absolute;
+  z-index: 46;
+  translate: -50% -50%;
+  pointer-events: none;
+  font: 800 clamp(26px, 2.6vw, 40px)/1 "Cinzel", Georgia, serif;
+  color: #ff4a2a;
+  -webkit-text-stroke: 1.5px #2a0a04;
+  text-shadow: 0 0 14px rgba(255, 80, 40, 0.8), 0 3px 6px rgba(0, 0, 0, 0.9);
+  animation: dmg-pop 1.1s ease-out forwards;
+}
+@keyframes dmg-pop {
+  0% { opacity: 0; scale: 0.4; }
+  15% { opacity: 1; scale: 1.35; }
+  30% { scale: 1; }
+  75% { opacity: 1; }
+  100% { opacity: 0; translate: -50% -110%; }
+}
+
+/* A creature that died in the fight: a copy stays where it stood, then crumbles into dark smoke. */
+.card.fallen { position: absolute; z-index: 35; margin: 0; pointer-events: none; }
+.card.fallen.dying { animation: crumble 0.9s ease-in forwards; }
+.card.fallen.dying::before {
+  content: "";
+  position: absolute;
+  inset: -30%;
+  z-index: 2;
+  background:
+    radial-gradient(circle at 30% 40%, rgba(22, 14, 30, 0.95), transparent 34%),
+    radial-gradient(circle at 70% 35%, rgba(30, 18, 40, 0.9), transparent 32%),
+    radial-gradient(circle at 50% 65%, rgba(14, 10, 20, 0.95), transparent 40%),
+    radial-gradient(circle at 25% 70%, rgba(40, 24, 54, 0.8), transparent 28%),
+    radial-gradient(circle at 78% 68%, rgba(26, 16, 36, 0.85), transparent 30%);
+  filter: blur(6px);
+  animation: smoke 0.9s ease-out forwards;
+}
+@keyframes crumble {
+  0% { opacity: 1; filter: none; }
+  25% { opacity: 1; filter: brightness(0.55) saturate(0.4); }
+  100% { opacity: 0; filter: brightness(0.15) saturate(0) blur(4px); scale: 1.06; }
+}
+@keyframes smoke {
+  0% { opacity: 0; scale: 0.6; }
+  30% { opacity: 1; scale: 1; }
+  100% { opacity: 0; scale: 1.5; translate: 0 -12%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .impact, .impact::after, .card.struck .face, .avatar.struck, .claws i, .card.charge .face, .dmg-pop,
+  .card.fallen.dying, .card.fallen.dying::before, .side .slot.attacking::before, .side .slot.blocking::before { animation: none; }
 }

@@ -3,6 +3,7 @@
 // GameState. This folder is the only Endstep-specific code.
 
 import type { GameEventEntry, GameState, RevealView } from "../GameState";
+import type { ReplayStatus } from "../ReplayPlayer";
 import { RingBuffer } from "../../shared/RingBuffer";
 import { normalize, toReveal, type Raw } from "./normalize";
 
@@ -21,6 +22,11 @@ type Listener = (state: GameState | null) => void;
 
 const isObj = (v: unknown): v is Raw => typeof v === "object" && v !== null && !Array.isArray(v);
 
+/** Endstep's replay pages: /replay/:id, /replay/local, and the admin views of a report's replay. */
+export function isReplayPath(path: string): boolean {
+  return /^\/replay\/|^\/admin\/.*\/replay(\/|$)/.test(path);
+}
+
 export function matchIdFromPath(path: string): string | null {
   const m = /^\/game\/([^/?#]+)/.exec(path);
   return m?.[1] ? decodeURIComponent(m[1]) : null;
@@ -34,9 +40,14 @@ export class EndstepAdapter {
   private desynced = false;
   private state: GameState | null = null;
   private routeMatchId: string | null = null;
+  /** On a replay page the board shows the replay, and live frames are ignored. */
+  private replayRoute = false;
+  private replayView: { raw: Raw; seat: number; status: ReplayStatus } | null = null;
   private listeners = new Set<Listener>();
   readonly events = new RingBuffer<GameEventEntry>(200);
   private reveals: RevealView[] = [];
+  /** Seat → its connection, from SEAT_CONNECTIVITY frames (deadline on the local clock). */
+  private connectivity = new Map<number, { connected: boolean; deadline: number | null }>();
 
   getGameState(): GameState | null {
     return this.state;
@@ -54,6 +65,12 @@ export class EndstepAdapter {
 
   /** Called on SPA navigation. Leaving a match route drops its state. */
   setRoute(path: string): void {
+    const replay = isReplayPath(path);
+    if (replay !== this.replayRoute) {
+      this.replayRoute = replay;
+      this.reset();
+      this.publish();
+    }
     const next = matchIdFromPath(path);
     if (next === this.routeMatchId) return;
     this.routeMatchId = next;
@@ -85,16 +102,43 @@ export class EndstepAdapter {
           }
         }
         return;
+      case "SEAT_CONNECTIVITY":
+        return this.onConnectivity(f);
       case "GAME_GONE":
         if (isObj(f.payload) && f.payload.matchId === this.matchId) this.reset();
         return;
     }
   }
 
+  /** The replay frame to show (null: none loaded). Shown only on a replay page. */
+  showReplay(view: { raw: Raw; seat: number; status: ReplayStatus } | null): void {
+    this.replayView = view;
+    if (!this.replayRoute) return;
+    if (view) this.publish();
+    else this.reset();
+  }
+
   private accepts(matchId: unknown): boolean {
-    if (typeof matchId !== "string" || !matchId) return false;
+    if (typeof matchId !== "string" || !matchId || this.replayRoute) return false;
     // On a /game/:id route only that match counts; elsewhere follow whatever arrives.
     return this.routeMatchId ? matchId === this.routeMatchId : true;
+  }
+
+  /** A player lost or regained connection. Endstep puts the fields on the payload (or the frame
+      itself); the grace deadline is on the server's clock, so it's moved to ours. */
+  private onConnectivity(f: Frame): void {
+    const c = (isObj(f.payload) ? f.payload : f) as Raw;
+    // As Endstep reads it: no match id (or an empty one) means this match. (It may come before
+    // the match's first state.)
+    const matchId = c.matchId || f.matchId;
+    if (matchId && ((this.matchId && matchId !== this.matchId) || !this.accepts(matchId))) return;
+    // The seat may come as a number or a numeric string.
+    const index = Number(c.playerIndex);
+    if (c.playerIndex == null || c.playerIndex === "" || !Number.isInteger(index) || typeof c.connected !== "boolean") return;
+    const skew = typeof c.serverNowMs === "number" ? c.serverNowMs - Date.now() : 0;
+    const deadline = typeof c.graceDeadline === "number" ? c.graceDeadline - skew : null;
+    this.connectivity.set(index, { connected: c.connected, deadline });
+    this.publish();
   }
 
   private onFullState(f: Frame): void {
@@ -102,6 +146,7 @@ export class EndstepAdapter {
     const seq = typeof f.seq === "number" ? f.seq : undefined;
     const sameMatch = f.matchId === this.matchId;
     if (sameMatch && seq !== undefined && this.seq !== undefined && seq < this.seq) return;
+    if (!sameMatch && this.matchId) this.connectivity.clear();
     this.matchId = f.matchId as string;
     this.viewerSeat = typeof f.viewerSeat === "number" ? f.viewerSeat : this.viewerSeat;
     this.seq = seq;
@@ -133,20 +178,36 @@ export class EndstepAdapter {
     this.desynced = false;
     this.state = null;
     this.reveals = [];
+    this.connectivity.clear();
     for (const cb of this.listeners) cb(null);
   }
 
   private publish(): void {
+    if (this.replayRoute) return this.publishReplay();
     if (!this.raw || !this.matchId) return;
-    this.state = {
-      ...normalize(this.raw, {
-        matchId: this.matchId,
-        viewerSeat: this.viewerSeat,
-        seq: this.seq,
-        desynced: this.desynced,
-      }),
-      reveals: this.reveals,
-    };
+    const state = normalize(this.raw, {
+      matchId: this.matchId,
+      viewerSeat: this.viewerSeat,
+      seq: this.seq,
+      desynced: this.desynced,
+    });
+    // playerIndex is the index in `players`, as Endstep reads it.
+    const players = state.players.map((p, i) => {
+      const conn = this.connectivity.get(i);
+      return conn && !conn.connected && !p.hasLost && !p.hasConceded ? { ...p, disconnected: { deadline: conn.deadline } } : p;
+    });
+    this.state = { ...state, players, reveals: this.reveals };
+    for (const cb of this.listeners) cb(this.state);
+  }
+
+  /** A replay frame, as the recording seat saw it. Its prompt is left out: nothing can be
+      answered in a replay. */
+  private publishReplay(): void {
+    const v = this.replayView;
+    if (!v) return;
+    this.raw = v.raw;
+    const state = normalize({ ...v.raw, pendingAction: null }, { matchId: "replay", viewerSeat: v.seat, desynced: false });
+    this.state = { ...state, reveals: [], replay: v.status };
     for (const cb of this.listeners) cb(this.state);
   }
 }

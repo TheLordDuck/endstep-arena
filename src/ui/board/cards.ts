@@ -6,6 +6,9 @@ import type { CardView } from "../../game/GameState";
 
 export type ImageVersion = "normal" | "large" | "art_crop";
 
+/** The Magic card back (Scryfall's default back), for face-down cards. */
+export const CARD_BACK_URL = "https://backs.scryfall.io/large/0/a/0aeebaf5-8c7d-4636-9e82-8c27447861f7.jpg";
+
 /** Same endpoints Endstep uses (same-origin, 302 → Scryfall CDN). */
 export function imageUrl(c: Pick<CardView, "name" | "faceDown" | "isToken" | "setCode" | "collectorNumber" | "power" | "toughness"
   | "isCopyOfRealCard" | "backFace" | "tokenSetCode" | "tokenCollectorNumber" | "color" | "basePower" | "baseToughness"> & { peeked?: boolean }, version: ImageVersion = "normal"): string | null {

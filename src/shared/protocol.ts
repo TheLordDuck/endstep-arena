@@ -12,7 +12,9 @@ export type TapMessage =
   | { kind: "ws-out"; data: string }
   /** `reason` says why an action was not sent: not an allowed type, or no open game socket. */
   | { kind: "action-result"; ok: boolean; type: string; reason?: "not-allowed" | "not-connected" }
-  | { kind: "route"; path: string };
+  | { kind: "route"; path: string }
+  /** A replay file Endstep loaded (from the server, or a local .esreplay file): still gzipped. */
+  | { kind: "replay-file"; id: string; bytes: ArrayBuffer };
 
 export type BridgeEnvelope = TapMessage & { tag: typeof BRIDGE_TAG; t: number };
 

@@ -4,7 +4,9 @@
 
 import { COMMAND_TAG, isBridgeEnvelope, type SendActionCommand } from "../shared/protocol";
 import { RingBuffer } from "../shared/RingBuffer";
-import { EndstepAdapter } from "../game/endstep/EndstepAdapter";
+import { EndstepAdapter, isReplayPath } from "../game/endstep/EndstepAdapter";
+import { decodeReplay } from "../game/endstep/replay";
+import { ReplayPlayer } from "../game/ReplayPlayer";
 import { GameController } from "../game/GameController";
 import { PhaseStopSync } from "../game/PhaseStopSync";
 import { Overlay, type NetworkEntry, type SocketStatus } from "../ui/Overlay";
@@ -17,6 +19,34 @@ let socket: SocketStatus = "none";
 let overlay: Overlay | null = null;
 
 adapter.setRoute(location.pathname);
+
+// Replays play on the board from our own copy of the file; the adapter shows the current frame.
+const replays = new ReplayPlayer(() => {
+  const r = replays.current;
+  const status = replays.status();
+  adapter.showReplay(r && status ? { raw: r.frames[status.frame]!.raw, seat: r.seat, status } : null);
+});
+let replayId: string | null = null;
+
+/** Leaving the replay pages drops the replay; on /replay/:id, one loaded for another id is not
+    this one. (A local file is read before Endstep moves to /replay/local, so it's kept until then.) */
+let onReplayPage = false;
+function syncReplayRoute(path: string): void {
+  const replay = isReplayPath(path);
+  if (onReplayPage && !replay) {
+    replayId = null;
+    replays.clear();
+  }
+  onReplayPage = replay;
+  if (!replay) return;
+  const m = /^\/replay\/([^/]+)/.exec(path);
+  const routeId = m ? decodeURIComponent(m[1]!) : null;
+  if (routeId && replayId && routeId !== replayId) {
+    replayId = null;
+    replays.clear();
+  }
+}
+syncReplayRoute(location.pathname);
 
 // Actions travel to the MAIN-world tap, which sends them on Endstep's socket.
 const controller = new GameController(
@@ -58,7 +88,7 @@ window.addEventListener("message", (ev) => {
   const msg = ev.data;
   if (__DEV_BRIDGE__) {
     if (msg.kind === "ws-in" || msg.kind === "ws-out") devReport("frame", { dir: msg.kind === "ws-in" ? "in" : "out", data: msg.data });
-    else devReport(msg.kind, msg);
+    else if (msg.kind !== "replay-file") devReport(msg.kind, msg);
   }
   switch (msg.kind) {
     case "ws-in":
@@ -84,8 +114,21 @@ window.addEventListener("message", (ev) => {
       socket = "closed";
       break;
     case "route":
+      syncReplayRoute(msg.path);
       adapter.setRoute(msg.path);
       break;
+    case "replay-file": {
+      const id = msg.id;
+      decodeReplay(msg.bytes)
+        .then((replay) => {
+          replayId = id;
+          replays.load(replay);
+        })
+        .catch(() => {
+          // Not a replay (or one this version can't read): Endstep's own player still shows it.
+        });
+      break;
+    }
     case "action-result":
       overlay?.onActionResult(msg.ok, msg.type, msg.reason);
       break;
@@ -96,7 +139,7 @@ window.addEventListener("message", (ev) => {
 
 async function mount() {
   const settings = await loadSettings();
-  overlay = new Overlay(adapter, network, settings, controller, stops);
+  overlay = new Overlay(adapter, network, settings, controller, stops, replays);
   overlay.setSocketStatus(socket);
   overlay.mount();
 }

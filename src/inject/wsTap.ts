@@ -30,7 +30,7 @@ declare global {
   };
 
   // Cheap substring test before anything is forwarded; the isolated side parses.
-  const isGameFrame = (data: string) => data.includes('"GAME_') || data.includes('"ATTACH"');
+  const isGameFrame = (data: string) => data.includes('"GAME_') || data.includes('"ATTACH"') || data.includes('"SEAT_CONNECTIVITY"');
 
   const isGameSocket = (url: string) => {
     try {
@@ -96,6 +96,40 @@ declare global {
     }
     post({ kind: "action-result", ok, type: action.type, reason: ok ? undefined : allowed ? "not-connected" : "not-allowed" });
   });
+
+  // Replays: Endstep downloads the file and plays it itself, with no socket involved. A copy of
+  // the bytes goes to the board, which plays it on its own. Its response is left untouched.
+  const nativeFetch = window.fetch;
+  window.fetch = function (this: unknown, ...args: Parameters<typeof fetch>) {
+    const result = nativeFetch.apply(this, args);
+    try {
+      const req = args[0];
+      const url = new URL(req instanceof Request ? req.url : String(req), location.href);
+      const m = /\/replays\/([^/]+)\/file$/.exec(url.pathname);
+      if (m && url.host === location.host && !url.searchParams.has("download")) {
+        const id = decodeURIComponent(m[1]!);
+        void result.then((res) => (res.ok ? res.clone().arrayBuffer() : null))
+          .then((bytes) => bytes && post({ kind: "replay-file", id, bytes }))
+          .catch(() => {});
+      }
+    } catch {
+      /* observation only */
+    }
+    return result;
+  };
+  // A replay opened from a local file is read as an ArrayBuffer; only .esreplay files are copied.
+  const nativeArrayBuffer = Blob.prototype.arrayBuffer;
+  Blob.prototype.arrayBuffer = function (this: Blob) {
+    const result = nativeArrayBuffer.call(this);
+    try {
+      if (this instanceof File && /\.esreplay$/i.test(this.name)) {
+        void result.then((bytes) => post({ kind: "replay-file", id: "local", bytes: bytes.slice(0) })).catch(() => {});
+      }
+    } catch {
+      /* observation only */
+    }
+    return result;
+  };
 
   // SPA route changes (Endstep navigates with the History API).
   const emitRoute = () => post({ kind: "route", path: location.pathname });

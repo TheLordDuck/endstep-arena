@@ -108,3 +108,15 @@ test("granted and lost keywords come through normalize", () => {
   assert.deepEqual(c.keywordsGranted, ["Flying"]);
   assert.equal(c.keywordsLost, undefined);
 });
+
+test("links survive a page reload through the store", () => {
+  const saved = new Map<string, string>();
+  const store = { getItem: (k: string) => saved.get(k) ?? null, setItem: (k: string, v: string) => void saved.set(k, v) };
+  const before = state({ battlefield: [hole] }, { battlefield: [bob] }, [trigger]);
+  const held = state({ battlefield: [hole] }, { exile: [bob] });
+  new ExileLinks(store).update(before, held);
+  // A fresh page sees only the current state, with nothing before it.
+  assert.deepEqual([...new ExileLinks(store).update(null, held)], [["2", "1"]]);
+  // Another match doesn't pick them up.
+  assert.equal(new ExileLinks(store).update(null, state({ battlefield: [hole] }, { exile: [bob] }, [], "other")).size, 0);
+});

@@ -8,7 +8,30 @@ import { Board } from "../ui/board/Board";
 import { GameController } from "../game/GameController";
 import { normalize, toReveal, type Raw } from "../game/endstep/normalize";
 import type { RevealView } from "../game/GameState";
+import type { ReplayStatus } from "../game/ReplayPlayer";
 import { loadStops, saveStops } from "../game/endstep/phaseStops";
+
+// Timers the page starts, so `?freeze` can cancel the ones still pending; and when each
+// scripted animation started (headless runs don't always advance them on their own).
+const pendingTimers = new Set<number>();
+const animStarted = new WeakMap<Animation, number>();
+if (new URLSearchParams(location.search).has("freeze")) {
+  const nativeAnimate = Element.prototype.animate;
+  Element.prototype.animate = function (this: Element, ...args: Parameters<Element["animate"]>) {
+    const a = nativeAnimate.apply(this, args);
+    animStarted.set(a, performance.now());
+    return a;
+  };
+  const native = window.setTimeout.bind(window);
+  window.setTimeout = ((fn: () => void, ms?: number) => {
+    const id: number = native(() => {
+      pendingTimers.delete(id);
+      fn();
+    }, ms);
+    pendingTimers.add(id);
+    return id;
+  }) as unknown as typeof window.setTimeout;
+}
 
 let nextId = 100;
 const card = (name: string, extra: Raw = {}): Raw => ({ id: nextId++, name, ...extra });
@@ -141,6 +164,35 @@ const scenarios: Record<string, Scenario> = {
     s.pendingAction = { type: "DECLARE_BLOCKERS", promptVersion: 6, cardOptions: [{ id: byName(me!, "Grizzly Bears").id }],
       blockerEligibility: { [String(byName(me!, "Grizzly Bears").id)]: [angel.id, hawk.id] } };
   },
+  // Combat damage: the opponent's Angel is unblocked, our Tarmogoyf blocks their Nighthawk.
+  // The board shows blockers declared, then the game reaches combat damage: we take 4, and the
+  // Nighthawk (deathtouch) and Tarmogoyf kill each other.
+  strike: (s) => {
+    const [me, opp] = players(s);
+    s.phase = "DECLARE_BLOCKERS";
+    s.activePlayerId = "1";
+    s.pendingAction = null;
+    const angel = byName(opp!, "Serra Angel");
+    angel.isAttacking = true; angel.attackingDefenderId = "0"; angel.tapped = false;
+    const hawk = byName(opp!, "Vampire Nighthawk");
+    hawk.isAttacking = true; hawk.attackingDefenderId = "0";
+    const goyf = byName(me!, "Tarmogoyf");
+    goyf.isBlocking = true; goyf.blockingIds = [hawk.id];
+    return (n) => {
+      n.phase = "COMBAT_DAMAGE";
+      const [me2, opp2] = players(n);
+      me2!.life = (me2!.life as number) - 4;
+      const die = (p: Raw, name: string) => {
+        const c = byName(p, name);
+        p.battlefield = (p.battlefield as Raw[]).filter((x) => x !== c);
+        (p.graveyard as Raw[]).push({ ...c, isBlocking: false, isAttacking: false, blockingIds: [] });
+      };
+      die(me2!, "Tarmogoyf");
+      die(opp2!, "Vampire Nighthawk");
+    };
+  },
+  // The same fight before damage: attackers stepped out, the blocker in front of its attacker.
+  blocked: (s) => void scenarios.strike!(s),
   target: (s) => {
     const [, opp] = players(s);
     s.pendingAction = { type: "CHOOSE_TARGETS", promptVersion: 7, message: "Lightning Bolt deals 3 damage to any target.",
@@ -338,6 +390,15 @@ const scenarios: Record<string, Scenario> = {
     s.pendingAction = { type: "PAY_MANA", promptVersion: 10, message: "Pay {2}{R}{G} for Bloodbraid Elf", sourceCardName: "Bloodbraid Elf",
       cardOptions: [{ id: 100 }, { id: 101 }, { id: 102 }, { id: 103 }] };
   },
+  // Watching a replay: no prompt, the replay's controls on top.
+  replay: (s) => {
+    s.pendingAction = null;
+    s.__replay = { frame: 41, frames: 120, playing: false, speed: 1, turn: 5, turnStarts: [0, 12, 30, 41, 60] };
+  },
+  // The opponent lost connection: their seat concedes in 1:23 unless they return.
+  disconnect: (s) => {
+    s.__disconnected = 1;
+  },
   order: (s) => {
     s.pendingAction = { type: "ORDER_ABILITIES", promptVersion: 9, message: "Order your triggered abilities",
       cardOptions: [
@@ -353,10 +414,18 @@ const raw = baseState();
 const nextStep = scenarios[name]?.(raw);
 let seq = 1;
 // The adapter adds reveals from game events; scenarios list those events in raw.__events.
-const build = (meta: { viewerSeat?: number; seq: number }) => ({
-  ...normalize(raw, { matchId: "harness", viewerSeat: meta.viewerSeat ?? 0, seq: meta.seq, desynced: false }),
-  reveals: ((raw.__events as Raw[] | undefined) ?? []).map((e) => toReveal(e)).filter((r): r is RevealView => !!r),
-});
+// Scenarios mark what the adapter would add: a replay's position (raw.__replay), a player who
+// lost connection (raw.__disconnected: their index, with 83 s left).
+const build = (meta: { viewerSeat?: number; seq: number }) => {
+  const s = normalize(raw, { matchId: "harness", viewerSeat: meta.viewerSeat ?? 0, seq: meta.seq, desynced: false });
+  const gone = raw.__disconnected as number | undefined;
+  return {
+    ...s,
+    players: s.players.map((p, i) => (i === gone ? { ...p, disconnected: { deadline: Date.now() + 83_000 } } : p)),
+    reveals: ((raw.__events as Raw[] | undefined) ?? []).map((e) => toReveal(e)).filter((r): r is RevealView => !!r),
+    ...(raw.__replay ? { replay: raw.__replay as ReplayStatus } : {}),
+  };
+};
 let state = build({ seq: 1 });
 
 const host = document.createElement("div");
@@ -382,6 +451,8 @@ const board = new Board(controller, {
   // Endstep's table menu, as its best-of-three board offers it.
   tableMenu: async () => ["Show decklist", "Auto-yields", "Settings", "Keyboard shortcuts", "Report a problem", "Reload", "Concede game", "Concede match"],
   runTableItem: (label) => console.log("TABLE ITEM", label),
+  replay: (cmd) => console.log("REPLAY", JSON.stringify(cmd)),
+  leaveReplay: () => console.log("LEAVE REPLAY"),
 });
 root.querySelector(".layer")!.appendChild(board.el);
 board.update(state);
@@ -389,6 +460,24 @@ if (nextStep) {
   nextStep(raw);
   state = build({ seq: ++seq });
   board.update(state);
+}
+
+// Dev hook: `?freeze=ms` stops every animation that long after the board is up (for screenshots
+// of one moment of an animation).
+const freeze = Number(new URLSearchParams(location.search).get("freeze"));
+// Timers stop too (pending ones are cancelled, new ones never run), so nothing a timer starts
+// (a hit landing, a card burning away) moves on.
+if (freeze) {
+  setTimeout(() => {
+    for (const a of board.el.getAnimations({ subtree: true })) {
+      a.pause();
+      // A scripted one is set to where it should be by now.
+      const t0 = animStarted.get(a);
+      if (t0 !== undefined) a.currentTime = performance.now() - t0;
+    }
+    for (const id of pendingTimers) clearTimeout(id);
+    window.setTimeout = (() => 0) as unknown as typeof window.setTimeout;
+  }, freeze);
 }
 
 // Dev hook: `?point=x,y` moves the pointer there once the board is up (for screenshots of hovers).
