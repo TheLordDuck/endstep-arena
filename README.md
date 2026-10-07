@@ -7,7 +7,7 @@ Endstep's own UI wouldn't send.
 
 **Status: playable Arena board.** During a match the extension covers Endstep with its own
 board and plays through Endstep's socket. Prompts it can't handle yet (card-name search,
-sideboarding, damage assignment, dividing, Phyrexian mana) automatically step aside so
+sideboarding, Phyrexian mana) automatically step aside so
 Endstep's own panel can answer them. Unofficial: not affiliated with Endstep or Wizards of the Coast.
 
 ## Install in Chrome
@@ -56,6 +56,8 @@ reload icon on the extension card and refresh the endstep.cc tab.
 | Big button (bottom-right) | Pass / Next / Resolve / Attack / Block / Done |
 | Click a graveyard, exile or command pile | Browse it as a fan of cards (flashback etc. can be cast from there) |
 | Choosing cards from a library, graveyard or exile | Click cards in the fan (orange = picked), then **Submit**; scroll with the wheel or the slider |
+| Choosing from the opponent's hand (Thoughtseize, Thought-Knot Seer…) | Same fan: their revealed cards are picked there, not on their hand |
+| Dividing combat damage among blockers | Click a card +1, right-click −1, Ctrl-click to lethal (or − / +); the trampled player unlocks once every blocker has lethal; **Done** or Space confirms, R resets |
 | Learn | **Show sideboard** fans out your Lessons, **Show hand** the cards you can discard to draw instead; click a card, then **Submit** |
 | **View battlefield** (top right of a mulligan, Choose One, trigger order…) | Set the choice aside to look at the table; click again to go back |
 | Scry / surveil: click or drag a card between the two piles | Keep it on top (leftmost = next) or send it to the bottom / graveyard; drag within a pile to reorder |
@@ -77,14 +79,16 @@ to see (your morphs, cards you exiled face down) show their front the same way. 
 | *End turn* (under the action buttons) | Pass priority for the rest of your turn |
 | **Alt+Shift+A** or *Classic UI* | Switch between the Arena board and Endstep's UI |
 | **Alt+Shift+D** or *Debug* | Debug panel (game state, events, network, raw) |
+| Replays: drag the **⠿** grip of the control bar | Move the bar anywhere on the board (remembered); double-click the grip to put it back |
 
 ## Development
 
 * `pnpm build:dev` + `pnpm dev-server`: the dev build reports frames and state
   to `.devlog/` so they can be inspected offline.
 * `node build.mjs --harness` builds `dist-harness/harness.html#<scenario>`
-  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`): the board
-  rendered from fixture states, with no live match needed.
+  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`, `strike`, `damage`, `damage-split`, `win`, `discard`, `tks`, `replay`): the board
+  rendered from fixture states, with no live match needed. See [docs/testing.md](docs/testing.md).
+* [docs/](docs/README.md): how Endstep works, feature notes, the changelog and the roadmap.
 
 ## Publishing
 
