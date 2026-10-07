@@ -19,13 +19,16 @@ approved, rejected and marked done there. These files mirror its state as of
 
 ## Summary
 
-Awaiting approval: 12 · Approved: 3 · To do: 12 · Done: 3
+Awaiting approval: 6 · Approved: 6 · To do: 12 · Done: 6
 
 **Approved:**
 
 - [t1-1 · Sideboarding screen](phase-1-prompts-still-in-endstep/t1-1-sideboarding.md) (2026-10-07)
 - [t1-4 · Choosing a pile, with two visible piles](phase-1-prompts-still-in-endstep/t1-4-choose-pile.md) (2026-10-07)
 - [t2-1 · Spells travel when they resolve](phase-2-combat-and-effects/t2-1-spells-travel-on-resolve.md) (2026-10-07)
+- [t2-2 · Projectile to the target](phase-2-combat-and-effects/t2-2-projectile-to-target.md) (2026-10-07)
+- [t2-4 · Token entrance](phase-2-combat-and-effects/t2-4-token-entrance.md) (2026-10-07)
+- [t2-5 · Animate counters and power/toughness](phase-2-combat-and-effects/t2-5-animate-counters.md) (2026-10-07)
 
 ## Phases
 
@@ -35,9 +38,9 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 | --- | --- | --- | --- |
 | [Phase 0 · Finish open work](phase-0-finish-open-work/README.md) | **In progress** | 3/5 | To do: 2 · Done: 3 |
 | [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md) | **Not started** | 0/6 | Approved: 2 · To do: 4 |
-| [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **Not started** | 0/6 | Awaiting approval: 3 · Approved: 1 · To do: 2 |
-| [Phase 3 · Game information](phase-3-game-information/README.md) | **Not started** | 0/4 | Awaiting approval: 3 · To do: 1 |
-| [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md) | **Not started** | 0/4 | Awaiting approval: 3 · To do: 1 |
+| [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **Not started** | 0/6 | Approved: 4 · To do: 2 |
+| [Phase 3 · Game information](phase-3-game-information/README.md) | **In progress** | 2/4 | Awaiting approval: 1 · To do: 1 · Done: 2 |
+| [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md) | **In progress** | 1/4 | Awaiting approval: 2 · To do: 1 · Done: 1 |
 | [Phase 5 · Modes and platform](phase-5-modes-and-platform/README.md) | **Not started** | 0/5 | Awaiting approval: 3 · To do: 2 |
 
 ## Progress by phase
@@ -62,25 +65,25 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 ### [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md): Not started (0/6)
 
 - [ ] t2-1 · [Spells travel when they resolve](phase-2-combat-and-effects/t2-1-spells-travel-on-resolve.md) — Approved
-- [ ] t2-2 · [Projectile to the target](phase-2-combat-and-effects/t2-2-projectile-to-target.md) — Awaiting approval
+- [ ] t2-2 · [Projectile to the target](phase-2-combat-and-effects/t2-2-projectile-to-target.md) — Approved
 - [ ] t2-3 · [Smoke outside combat too](phase-2-combat-and-effects/t2-3-smoke-outside-combat.md) — To do
-- [ ] t2-4 · [Token entrance](phase-2-combat-and-effects/t2-4-token-entrance.md) — Awaiting approval
-- [ ] t2-5 · [Animate counters and power/toughness](phase-2-combat-and-effects/t2-5-animate-counters.md) — Awaiting approval
+- [ ] t2-4 · [Token entrance](phase-2-combat-and-effects/t2-4-token-entrance.md) — Approved
+- [ ] t2-5 · [Animate counters and power/toughness](phase-2-combat-and-effects/t2-5-animate-counters.md) — Approved
 - [ ] t2-6 · [Commander damage on the player's picture](phase-2-combat-and-effects/t2-6-commander-damage.md) — To do
 
-### [Phase 3 · Game information](phase-3-game-information/README.md): Not started (0/4)
+### [Phase 3 · Game information](phase-3-game-information/README.md): In progress (2/4)
 
 - [ ] t3-1 · [Game log](phase-3-game-information/t3-1-game-log.md) — Awaiting approval
-- [ ] t3-2 · [Game and turn clocks](phase-3-game-information/t3-2-game-clocks.md) — Awaiting approval
-- [ ] t3-3 · [Keyword glossary](phase-3-game-information/t3-3-keyword-glossary.md) — Awaiting approval
+- [x] t3-2 · [Game and turn clocks](phase-3-game-information/t3-2-game-clocks.md) — Done
+- [x] t3-3 · [Keyword glossary](phase-3-game-information/t3-3-keyword-glossary.md) — Done
 - [ ] t3-4 · [Who has priority and what we're waiting for](phase-3-game-information/t3-4-priority-and-waiting.md) — To do
 
-### [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md): Not started (0/4)
+### [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md): In progress (1/4)
 
 - [ ] t4-1 · [Keyboard shortcuts panel](phase-4-comfort-and-settings/t4-1-shortcuts-panel.md) — To do
 - [ ] t4-2 · [Extension settings](phase-4-comfort-and-settings/t4-2-extension-settings.md) — Awaiting approval
 - [ ] t4-3 · [Sounds](phase-4-comfort-and-settings/t4-3-sounds.md) — Awaiting approval
-- [ ] t4-4 · [Pass until…](phase-4-comfort-and-settings/t4-4-pass-until.md) — Awaiting approval
+- [x] t4-4 · [Pass until…](phase-4-comfort-and-settings/t4-4-pass-until.md) — Done
 
 ### [Phase 5 · Modes and platform](phase-5-modes-and-platform/README.md): Not started (0/5)
 
@@ -89,4 +92,3 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [ ] t5-3 · [Visual regression tests](phase-5-modes-and-platform/t5-3-visual-regression-tests.md) — To do
 - [ ] t5-4 · [Real matches as tests](phase-5-modes-and-platform/t5-4-real-matches-as-tests.md) — To do
 - [ ] t5-5 · [Publish to the Chrome Web Store and Edge Add-ons](phase-5-modes-and-platform/t5-5-publish-to-stores.md) — Awaiting approval
-

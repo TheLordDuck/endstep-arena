@@ -26,6 +26,14 @@ Useful parameters:
 | `discard` | Thoughtseize: picking from the opponent's hand in a fan (`CHOOSE_CARDS`) |
 | `tks` | Thought-Knot Seer: the same, asked as `CHOOSE_TARGETS` with options that carry only ids |
 
+Added later that day:
+
+| Scenario | Shows |
+| --- | --- |
+| `clock` | A timed match: your clock running, and your idle timer in its last stretch |
+| `clock-opp` | The opponent's clock running low while they decide |
+| `keywords` | Keyword boxes: hover Serra Angel (printed keywords, one lost) or Grizzly Bears (granted ones) |
+
 Older ones include `strike` (combat strike), `blocked`, `replay`, `reveal` and `control`.
 
 ## Real clicks over CDP
@@ -49,4 +57,4 @@ the repo; adding it to `tools/` is roadmap item
 pnpm test
 ```
 
-58 tests at the end of the 2026-10-07 session.
+78 tests at the end of the 2026-10-07 afternoon session.

@@ -85,6 +85,7 @@ export class Overlay {
       onHide: () => this.setEnabled(false),
       phaseStops: () => this.stops.get(),
       togglePhaseStop: (side, step) => this.stops.toggle(side, step),
+      setTemporaryStops: (extra) => this.stops.setTemporary(extra),
       tableMenu: () => readBoardMenu(),
       runTableItem: (label) => this.runTableItem(label),
       replay: (cmd) => this.replays.command(cmd),

@@ -227,6 +227,34 @@ export interface CombatLink {
   toId: string;
 }
 
+/** The match clock (chess-style time per player), when the match has one. */
+export interface ClockView {
+  /** Each player's time left (ms) when the state was read; the running player's counts down to `deadline`. */
+  left: Record<PlayerId, number>;
+  /** Whose time is running. */
+  running?: PlayerId;
+  /** When the running player's time runs out (local clock, ms); absent when frozen (a replay). */
+  deadline?: number;
+  /** The player whose time ran out. */
+  timedOut?: PlayerId;
+}
+
+/** A player taking too long to act: they forfeit the match when `deadline` (local clock, ms) passes. */
+export interface IdleView {
+  playerId: PlayerId;
+  deadline: number;
+  /** They stepped away (Endstep's "away"), rather than still deciding. */
+  away: boolean;
+  /** The last stretch (ms) before the deadline, when Endstep warns "act now". */
+  graceMs: number;
+}
+
+/** Time left on a player's clock at `now` (ms), or undefined when the clock doesn't list them. */
+export function clockLeft(clock: ClockView, playerId: PlayerId, now: number): number | undefined {
+  if (clock.running === playerId && clock.deadline !== undefined) return Math.max(0, clock.deadline - now);
+  return clock.left[playerId];
+}
+
 export interface GameState {
   matchId: string;
   viewerSeat: number;
@@ -243,6 +271,8 @@ export interface GameState {
   stack: StackItemView[];
   pending: PendingActionView | null;
   combat: { attacks: CombatLink[]; blocks: CombatLink[] };
+  clock?: ClockView;
+  idle?: IdleView;
   /** Recent reveals, oldest first (kept by the adapter across states). */
   reveals: RevealView[];
   /** Top-level keys the parser doesn't know yet, surfaced for discovery. */

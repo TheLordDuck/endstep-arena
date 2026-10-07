@@ -15,6 +15,8 @@ import { REPLAY_SPEEDS, type ReplayCommand, type ReplayStatus } from "../../game
 import { avatarPicture } from "../../game/endstep/avatars";
 import { ExileLinks } from "../../game/exileLinks";
 import { HandKnowledge } from "../../game/handKnowledge";
+import { keywordNotes } from "./keywords";
+import { PASS_TARGETS, passLabel, passUntilStep, passUntilStops, startPassUntil, type PassTarget, type PassUntil } from "../../game/passUntil";
 
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -38,6 +40,8 @@ const PROMPT_KEY = "prompt";
 const ENDSTEP_LOGO = `<img class="logo" src="/favicon.svg" alt="" draggable="false">`;
 /** Clear space (px) kept around each player's avatar, so no card sits under it. */
 const AVATAR_CLEARANCE = 16;
+/** Space between an enlarged card and its keyword boxes (px, as in the CSS). */
+const KW_GAP = 10;
 
 interface Zones {
   opp: PlayerView | null;
@@ -50,6 +54,8 @@ export interface BoardHooks {
   onHide(): void;
   phaseStops(): PhaseStops;
   togglePhaseStop(side: StopSide, step: string): void;
+  /** Stops added for a while on top of the player's ("Pass until…"), or null to drop them. */
+  setTemporaryStops(extra: Partial<Record<StopSide, string[]>> | null): void;
   /** The items of Endstep's own table menu (decklist, settings, concede…), or null without one. */
   tableMenu(): Promise<string[] | null>;
   /** Runs one of those items through Endstep's menu (its window shows while the board steps aside). */
@@ -116,9 +122,10 @@ export class Board {
   private xShown = new Set<string>();
   /** Hold priority (the dock toggle, or H): what you cast or activate doesn't pass priority after. */
   private holdPriority = false;
-  /** "End turn" was pressed on this turn: priority is passed for you until the turn is over. */
-  private skipTurn: number | null = null;
-  private skipSeq: number | undefined;
+  /** "End turn" or "Pass until…": priority is passed for you until that point (see passUntil.ts). */
+  private passUntil: PassUntil | null = null;
+  /** The state priority was last passed on, so each one is answered once. */
+  private passSeq: number | undefined;
   private hoverPerm: string | null = null;
   private drag: { id: string; startX: number; startY: number; el: HTMLElement; active: boolean; theirs: boolean } | null = null;
   /** The stack tray is tucked away (the player asked for a clear view of the battlefield). */
@@ -138,8 +145,8 @@ export class Board {
   private replayScrubbing = false;
   /** Where the replay bar was moved to (its top left, as a share of the board), or null: top center. */
   private replayBarAt: { x: number; y: number } | null = readReplayBarAt();
-  /** Updates the disconnected players' countdowns while there are any. */
-  private connTicker = 0;
+  /** Updates the countdowns (lost connections, match clocks, idle timers) while there are any. */
+  private timerTicker = 0;
   /** Clicked a permanent with several abilities: plain mana ones open the color wheel, the
       rest an Arena "Choose One". Both are local until an ability is picked. */
   private localWheel: { cardId: string; options: WheelOption[] } | null = null;
@@ -254,6 +261,7 @@ export class Board {
     this.state = state;
     if (!state) {
       this.el.classList.remove("live");
+      this.stopPassing();
       return;
     }
     this.el.classList.add("live");
@@ -270,27 +278,39 @@ export class Board {
       this.abilityPick = null;
       this.hideMenu();
     }
-    this.autoSkip(state);
+    this.autoPass(state);
     this.render(prev);
   }
 
-  /** After "End turn": passes priority at every stop left in your turn (and attacks with nothing).
-      An opponent's spell or ability, or any other question, hands the turn back to you. */
-  private autoSkip(state: GameState): void {
-    if (this.skipTurn === null) return;
-    const me = state.players.find((pl) => pl.isViewer);
-    const p = state.pending;
-    const top = state.stack[0];
-    if (state.turnNumber !== this.skipTurn || state.activePlayerId !== me?.id || state.status === "COMPLETE" || (top && top.controllerId !== me?.id)) {
-      this.skipTurn = null;
-      return;
-    }
-    if (!p || state.seq === this.skipSeq) return;
-    if (p.type === "PRIORITY") this.controller.passPriority();
-    else if (p.type === "DECLARE_ATTACKERS") this.controller.declareAttackers(new Map(), false);
-    else return;
-    this.skipSeq = state.seq;
+  /** After "End turn" or "Pass until…": passes priority at every stop on the way (and attacks
+      with nothing). Arriving, an opponent's spell or ability, or any other question ends it. */
+  private autoPass(state: GameState): void {
+    const pu = this.passUntil;
+    if (!pu) return;
+    const step = passUntilStep(pu, state);
+    if (step === "stop") return this.stopPassing();
+    if (step === "wait" || state.seq === this.passSeq) return;
+    if (step === "pass") this.controller.passPriority();
+    else this.controller.declareAttackers(new Map(), false);
+    this.passSeq = state.seq;
     this.setAwaiting(true);
+  }
+
+  private startPassing(target: PassTarget): void {
+    const state = this.state;
+    if (!state) return;
+    this.passUntil = startPassUntil(target, state);
+    this.passSeq = undefined;
+    // The server learns where to stop before priority is passed.
+    this.hooks.setTemporaryStops(passUntilStops(this.passUntil, this.hooks.phaseStops().myTurn));
+    this.autoPass(state);
+    if (this.passUntil && target !== "endTurn") this.toast(`Passing until ${passLabel(target)}`);
+  }
+
+  private stopPassing(): void {
+    if (!this.passUntil) return;
+    this.passUntil = null;
+    this.hooks.setTemporaryStops(null);
   }
 
   toast(message: string): void {
@@ -1372,14 +1392,60 @@ export class Board {
       conn.title = p.disconnected.deadline === null ? `${p.name} lost connection. Waiting for them to reconnect.`
         : `${p.name} lost connection. Their seat concedes if they do not return.`;
       updateConn(conn);
-      this.connTicker ||= window.setInterval(() => {
-        const tags = this.el.querySelectorAll<HTMLElement>(".conn");
-        tags.forEach(updateConn);
+    }
+    this.renderTimers(orb, p, state);
+    if (this.el.querySelector(TIMERS)) {
+      this.timerTicker ||= window.setInterval(() => {
+        const tags = this.el.querySelectorAll<HTMLElement>(TIMERS);
+        tags.forEach(updateTimer);
         if (!tags.length) {
-          clearInterval(this.connTicker);
-          this.connTicker = 0;
+          clearInterval(this.timerTicker);
+          this.timerTicker = 0;
         }
-      }, 500);
+      }, 250);
+    }
+  }
+
+  /** The player's match clock (when the match has one) and, while they're taking too long, the
+      time they have left to act before forfeiting: by their picture, like Arena's timer. */
+  private renderTimers(orb: HTMLElement, p: PlayerView, state: GameState): void {
+    const clock = state.clock;
+    const idle = state.idle?.playerId === p.id && !p.hasLost && !p.hasConceded ? state.idle : undefined;
+    const hasClock = !!clock && (clock.left[p.id] !== undefined || clock.running === p.id);
+    let box = orb.querySelector<HTMLElement>(".timers");
+    if (!hasClock && !idle) {
+      box?.remove();
+      orb.classList.remove("has-timers");
+      return;
+    }
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "timers";
+      box.innerHTML = '<span class="mclock" role="timer"></span><span class="idle" role="timer"></span>';
+      orb.appendChild(box);
+    }
+    orb.classList.add("has-timers");
+    const who = p.isViewer ? "Your" : `${p.name}'s`;
+    const mclock = box.querySelector<HTMLElement>(".mclock")!;
+    mclock.hidden = !hasClock;
+    if (clock && hasClock) {
+      const running = clock.running === p.id;
+      mclock.dataset.deadline = running && clock.deadline !== undefined ? String(clock.deadline) : "";
+      mclock.dataset.left = String(clock.left[p.id] ?? 0);
+      mclock.classList.toggle("running", running);
+      mclock.classList.toggle("flagged", clock.timedOut === p.id);
+      mclock.title = clock.timedOut === p.id ? `${who} time ran out` : `${who} time left in the match${running ? " (running)" : ""}`;
+      updateTimer(mclock);
+    }
+    const idleEl = box.querySelector<HTMLElement>(".idle")!;
+    idleEl.hidden = !idle;
+    if (idle) {
+      idleEl.dataset.deadline = String(idle.deadline);
+      idleEl.dataset.grace = String(idle.graceMs);
+      idleEl.dataset.label = p.isViewer ? (idle.away ? "You're away" : "Act now") : idle.away ? "Away" : "Deciding";
+      idleEl.title = p.isViewer ? "Take an action before the timer ends, or you forfeit the match."
+        : `Waiting for ${p.name} to act. They forfeit the match if the timer ends.`;
+      updateTimer(idleEl);
     }
   }
 
@@ -2270,10 +2336,17 @@ export class Board {
     const myTurn = !!me && state.activePlayerId === me.id;
     const buttons: { id: string; label: string; primary?: boolean; disabled?: boolean; on?: boolean }[] = [];
 
-    if (state.status === "COMPLETE" || m.kind === "classic" || state.replay) {
+    const live = state.status !== "COMPLETE" && m.kind !== "classic" && !state.replay;
+    if (!live) {
       // nothing (a replay is only watched)
+    } else if (this.passUntil) {
+      // Passing for you: what it's passing to, and a way to stop.
+      const label = this.passUntil.target === "endTurn" ? "Ending turn…" : `Passing to ${passLabel(this.passUntil.target)}…`;
+      buttons.push({ id: "passing", label, primary: true, disabled: true });
+      buttons.unshift({ id: "stop-pass", label: "Stop passing" });
     } else if (!p) {
       buttons.push({ id: "wait", label: myTurn ? "Waiting…" : "Opponent's turn", primary: true, disabled: true });
+      buttons.push({ id: "pass-until", label: "Pass until…" });
     } else if (p.type === "PRIORITY") {
       if (state.stack.length) {
         buttons.push({ id: "resolve-all", label: "Resolve all" });
@@ -2288,6 +2361,7 @@ export class Board {
         if (myTurn && !endTurn && state.turnNumber !== undefined) buttons.unshift({ id: "end-turn", label: "End turn" });
       }
       buttons.push({ id: "hold", label: this.holdPriority ? "Holding priority (H)" : "Hold priority (H)", on: this.holdPriority });
+      buttons.push({ id: "pass-until", label: "Pass until…" });
     } else if (p.type === "YES_NO" && !fullScreenYesNo(p, state)) {
       // The answers replace the action buttons, as in Arena: Decline (blue) on top, Take action
       // (orange) under it. Answers Endstep words its own way keep their words.
@@ -2315,7 +2389,7 @@ export class Board {
     }
     // Endstep says when the last action can be taken back.
     if (p?.canUndo && buttons.length) buttons.push({ id: "undo", label: "↶ Undo" });
-    const html = buttons.map((b) => `<button class="${b.primary ? "primary" : "secondary"}${b.on ? " on" : ""}" data-act="${b.id}" ${b.disabled || this.awaiting ? "disabled" : ""}>${esc(b.label)}</button>`).join("");
+    const html = buttons.map((b) => `<button class="${b.primary ? "primary" : "secondary"}${b.on ? " on" : ""}" data-act="${b.id}" ${b.disabled || (this.awaiting && b.id !== "stop-pass") ? "disabled" : ""}>${esc(b.label)}</button>`).join("");
     const dock = this.q(".dock");
     if (dock.dataset.sig !== html) {
       dock.dataset.sig = html;
@@ -3159,10 +3233,23 @@ export class Board {
         if (this.state) this.render(this.state);
         return;
       case "end-turn":
-        this.skipTurn = this.state?.turnNumber ?? null;
-        this.skipSeq = this.state?.seq;
-        c.passPriority();
+        this.startPassing("endTurn");
         break;
+      case "pass-until": {
+        const box = this.el.getBoundingClientRect();
+        const r = this.q('.dock [data-act="pass-until"]').getBoundingClientRect();
+        this.showMenu(r.left - box.left, r.top - box.top, PASS_TARGETS.map((t) => ({ label: t.label, hint: t.hint, data: `pass:${t.target}` })), "Pass until…");
+        // Above the button, its right edge on the button's.
+        const menu = this.q(".menu");
+        const m = menu.getBoundingClientRect();
+        menu.style.left = `${Math.max(8, r.right - box.left - m.width)}px`;
+        menu.style.top = `${Math.max(8, r.top - box.top - m.height - 8)}px`;
+        return;
+      }
+      case "stop-pass":
+        this.stopPassing();
+        if (this.state) this.render(this.state);
+        return;
       case "resolve-all": c.resolveStack(); break;
       case "auto-pay": c.autoPay(); break;
       case "cancel": c.cancel(); break;
@@ -3493,6 +3580,9 @@ export class Board {
     const y = Math.max(8, Math.min(r.top + r.height / 2 - box.top - zh / 2, box.height - zh - 8));
     zoom.style.left = `${x}px`;
     zoom.style.top = `${y}px`;
+    // The keyword boxes go on the far side from the card hovered, where there's room.
+    const kw = zoom.querySelector<HTMLElement>(".zkw");
+    if (kw) zoom.classList.toggle("kw-left", x === left || x + zw + KW_GAP + kw.offsetWidth > box.width - 8);
   }
 
   private showZoom(c: CardView, extra?: string): void {
@@ -3505,6 +3595,7 @@ export class Board {
     const holder = this.cardData.get(this.linked.get(c.id) ?? "");
     const gained = c.keywordsGranted ?? [];
     const lost = lostKeywords(c);
+    const keywords = c.faceDown && !c.peeked ? [] : keywordNotes(c);
     const notes = [
       ...chosenLabels(c).map(([label, value]) => `<span class="kchosen">${esc(label)}: ${esc(value)}</span>`),
       gained.length ? `<span class="kgain">Gained: ${esc(gained.join(", "))}</span>` : "",
@@ -3517,7 +3608,13 @@ export class Board {
       ${extra ? `<div class="zextra">${esc(extra)}</div>` : ""}
       ${counters || c.damage ? `<div class="zextra">${counters}${c.damage ? `<span class="dmg">${c.damage} damage</span>` : ""}</div>` : ""}
       ${notes.length ? `<div class="zextra col">${notes.join("")}</div>` : ""}
-      ${effects.map((fx) => `<div class="zextra fx"><b>✦ ${esc(fx.name)}</b><span>${esc(fx.oracleText ?? "")}</span></div>`).join("")}`;
+      ${effects.map((fx) => `<div class="zextra fx"><b>✦ ${esc(fx.name)}</b><span>${esc(fx.oracleText ?? "")}</span></div>`).join("")}
+      ${keywords.length ? `<div class="zkw">${keywords.map((k) => {
+        // A keyword an effect took away stays explained, marked as lost.
+        const gone = lost.some((l) => l.toLowerCase().startsWith(k.name.toLowerCase()));
+        return `<div class="kw${gone ? " lost" : ""}"><b>${esc(k.name)}${gone ? " · lost" : ""}</b><span>${esc(k.text)}</span></div>`;
+      }).join("")}</div>` : ""}`;
+    zoom.classList.remove("kw-left");
     // Always at the top of the left column (over the opponent's plate while it's shown).
     const box = this.el.getBoundingClientRect();
     const extraH = (extra ? 60 : 0) + (counters || c.damage ? 40 : 0) + notes.length * 22 + effects.length * 56;
@@ -3661,6 +3758,11 @@ export class Board {
       return;
     }
     if (cmd === "concede") return this.showConcede(id);
+    if (cmd === "pass") {
+      this.startPassing(id as PassTarget);
+      if (this.state) this.render(this.state);
+      return;
+    }
     if (cmd === "play") {
       this.controller.playCard(id, arg ? Number(arg) : undefined, this.holdPriority);
       this.setAwaiting(true);
@@ -3729,6 +3831,39 @@ function sessionStore(): Storage | undefined {
 }
 
 /** "Lost connection · concedes in 1:23", or "· waiting to reconnect" with no deadline (as Endstep says it). */
+/** The countdowns the timer ticker keeps up to date. */
+const TIMERS = ".conn, .timers .mclock:not([hidden]), .timers .idle:not([hidden])";
+
+/** m:ss (h:mm:ss from an hour), rounded down as Endstep's clock shows it. */
+export function clockText(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+
+/** A match clock (low under 30 s while running), an idle timer (urgent in its last stretch), or
+    a lost connection's countdown. */
+function updateTimer(el: HTMLElement): void {
+  if (el.classList.contains("conn")) return updateConn(el);
+  const now = Date.now();
+  const deadline = el.dataset.deadline ? Number(el.dataset.deadline) : NaN;
+  if (el.classList.contains("mclock")) {
+    const ms = Number.isFinite(deadline) ? Math.max(0, deadline - now) : Number(el.dataset.left) || 0;
+    const text = clockText(ms);
+    if (el.textContent !== text) el.textContent = text;
+    el.classList.toggle("low", el.classList.contains("running") && ms <= 30_000);
+    return;
+  }
+  const ms = Math.max(0, deadline - now);
+  const grace = Number(el.dataset.grace) || 30_000;
+  const text = `${el.dataset.label ?? ""} · ${clockText(ms)}`;
+  if (el.textContent !== text) el.textContent = text;
+  el.classList.toggle("urgent", ms <= grace);
+  el.classList.toggle("low", ms <= grace * 2);
+}
+
 function updateConn(el: HTMLElement): void {
   const deadline = Number(el.dataset.deadline);
   let text = "Lost connection · waiting to reconnect";

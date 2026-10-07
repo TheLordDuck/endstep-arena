@@ -2,10 +2,11 @@
 
 | | |
 | --- | --- |
-| Status | **Awaiting approval** |
+| Status | **Approved** |
 | Phase | [Phase 2 · Combat and visual effects](README.md) |
 | Type | Feature |
 | Needs approval | Yes |
+| Approved on | 2026-10-07 |
 
 When +1/+1 or -1/-1 counters change, or power and toughness do, the number jumps and the change shows.
 
@@ -25,3 +26,4 @@ Counters and power/toughness change without animation.
 ## History
 
 - 2026-10-07: added to the roadmap.
+- 2026-10-07: approved.

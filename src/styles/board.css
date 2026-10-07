@@ -749,6 +749,49 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .conn::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--atk); animation: conn-blink 1.2s ease-in-out infinite; }
 .me-life .conn { top: calc(100% + 6px); }
 @keyframes conn-blink { 50% { opacity: 0.3; } }
+/* The match clock and the idle timer: under the opponent's picture, above yours. */
+.timers {
+  position: absolute;
+  left: 50%;
+  translate: -50% 0;
+  top: calc(100% + 84px);
+  display: flex;
+  gap: 6px;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.me-life .timers { top: auto; bottom: calc(100% + 84px); }
+.opp-life.has-timers .conn { top: calc(100% + 112px); }
+.timers > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font: 600 12px/1.4 var(--font);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: rgba(14, 11, 9, 0.88);
+  border: 1px solid var(--glass-line);
+  text-shadow: none;
+}
+.timers > span[hidden] { display: none; }
+.timers .mclock::before {
+  content: "";
+  width: 11px;
+  height: 11px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 1h6v2H9zM12 4a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14zm-1 2v5.4l3.8 2.3 1-1.7-2.8-1.7V8z'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 1h6v2H9zM12 4a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14zm-1 2v5.4l3.8 2.3 1-1.7-2.8-1.7V8z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* Running: gold; under 30 s, or out of time: red. */
+.timers .mclock.running { color: var(--gold-hi); border-color: rgba(232, 198, 120, 0.6); box-shadow: 0 0 12px rgba(232, 198, 120, 0.25); }
+.timers .mclock.low, .timers .mclock.flagged { color: #ffd2c8; border-color: rgba(255, 90, 60, 0.7); box-shadow: 0 0 12px rgba(255, 90, 60, 0.35); }
+.timers .mclock.low { animation: conn-blink 1s ease-in-out infinite; }
+/* Taking too long to act: gold, then red in the last stretch. */
+.timers .idle { color: var(--gold-hi); border-color: rgba(232, 198, 120, 0.6); }
+.timers .idle.low { color: #ffd2c8; border-color: rgba(255, 90, 60, 0.55); }
+.timers .idle.urgent { background: rgba(120, 24, 12, 0.9); border-color: rgba(255, 90, 60, 0.9); animation: conn-blink 1s ease-in-out infinite; }
 /* Life totals: centered on the table, just above each player's cards
    (yours above your hand, the opponent's below their hand). */
 .life-orb {
@@ -1898,6 +1941,35 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .ztext i { color: var(--muted); }
 .zextra { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-radius: 10px; background: var(--glass); border: 1px solid var(--glass-line); font-size: 12.5px; }
 .zextra .dmg { color: #ff8a70; }
+/* What each of the card's keywords does: boxes beside it (on the left when there's no room on
+   the right, or that's where the card hovered is), as Arena shows them. */
+.zkw {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 10px);
+  width: 230px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.zoom.kw-left .zkw { left: auto; right: calc(100% + 10px); }
+.zkw .kw {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 11px 9px;
+  border-radius: 10px;
+  background: rgba(14, 11, 9, 0.94);
+  border: 1px solid var(--glass-line);
+  border-left: 3px solid var(--gold);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.zkw .kw b { font: 700 13.5px "Cinzel", Georgia, serif; color: var(--gold-hi); letter-spacing: 0.02em; }
+.zkw .kw span { color: #e9e1d2; }
+.zkw .kw.lost { border-left-color: #ff9a86; opacity: 0.7; }
+.zkw .kw.lost b { color: #ff9a86; }
 
 /* Menus (a card's abilities, the table's game menu): a gold-framed dark panel like the rest of
    the board, a Cinzel title over a gold rule, items that light up in gold. Conceding is red,

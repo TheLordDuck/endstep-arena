@@ -484,6 +484,29 @@ const scenarios: Record<string, Scenario> = {
   disconnect: (s) => {
     s.__disconnected = 1;
   },
+  // A timed match: your clock is running, and you've been idle long enough to be warned.
+  clock: (s) => {
+    const now = Date.now();
+    s.clock = { serverNowMs: now, runningSide: "0", runningSideDeadlineMs: now + 252_000, remainingMs: [252_000, 431_000] };
+    s.idleTimeout = { seat: "0", deadlineMs: now + 25_000, serverNowMs: now, graceMs: 30_000 };
+  },
+  // The opponent's clock is running low while they decide (they're the one being waited on).
+  "clock-opp": (s) => {
+    const now = Date.now();
+    s.activePlayerId = "1";
+    s.priorityPlayerId = "1";
+    s.pendingAction = null;
+    s.clock = { serverNowMs: now, runningSide: "1", runningSideDeadlineMs: now + 24_000, remainingMs: [318_000, 24_000] };
+    s.idleTimeout = { seat: "1", deadlineMs: now + 70_000, serverNowMs: now, graceMs: 30_000 };
+  },
+  // Keyword boxes: Serra Angel's printed keywords (hover it with ?point), Grizzly Bears' granted ones.
+  keywords: (s) => {
+    const [me, opp] = players(s);
+    byName(opp!, "Serra Angel").oracleText = "Flying, vigilance";
+    byName(me!, "Tarmogoyf").oracleText = "Tarmogoyf's power is equal to the number of card types among cards in all graveyards and its toughness is equal to that number plus 1.";
+    byName(me!, "Goblin Guide").oracleText = "Haste\nWhenever Goblin Guide attacks, defending player reveals the top card of their library. If it's a land card, that player puts it into their hand.";
+    byName(opp!, "Vampire Nighthawk").oracleText = "Flying\nDeathtouch\nLifelink";
+  },
   order: (s) => {
     s.pendingAction = { type: "ORDER_ABILITIES", promptVersion: 9, message: "Order your triggered abilities",
       cardOptions: [
@@ -533,6 +556,7 @@ const board = new Board(controller, {
   onToggleDebug: () => {}, onHide: () => {},
   phaseStops: () => stops,
   togglePhaseStop: (side, step) => { if (!stops[side].delete(step)) stops[side].add(step); saveStops(stops); },
+  setTemporaryStops: (extra) => console.log("TEMP STOPS", JSON.stringify(extra)),
   // Endstep's table menu, as its best-of-three board offers it.
   tableMenu: async () => ["Show decklist", "Auto-yields", "Settings", "Keyboard shortcuts", "Report a problem", "Reload", "Concede game", "Concede match"],
   runTableItem: (label) => console.log("TABLE ITEM", label),

@@ -2,10 +2,13 @@
 
 | | |
 | --- | --- |
-| Status | **Awaiting approval** |
+| Status | **Done** |
 | Phase | [Phase 3 · Game information](README.md) |
 | Type | Feature |
 | Needs approval | Yes |
+| Approved on | 2026-10-07 |
+| Done on | 2026-10-07 |
+| Feature note | [keyword-glossary.md](../../features/keyword-glossary.md) |
 
 On the enlarged card, what each keyword does (Trample, Deathtouch, Lifelink…), like Arena's boxes.
 
@@ -25,3 +28,5 @@ The enlarged card shows the card's text, but doesn't explain keywords.
 ## History
 
 - 2026-10-07: added to the roadmap.
+- 2026-10-07: approved.
+- 2026-10-07: done.

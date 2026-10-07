@@ -1,5 +1,36 @@
 # Changelog
 
+## Session of 2026-10-07, afternoon
+
+On top of `87da178 Docs: roadmap after the 0.5.0 release`. All 78 tests pass (20 new).
+
+1. **Game and turn clocks** (roadmap t3-2): each player's match clock and idle timer by their
+   picture. See [features/game-clocks.md](features/game-clocks.md).
+2. **Keyword glossary** (roadmap t3-3): boxes beside an enlarged card explaining its keywords. See
+   [features/keyword-glossary.md](features/keyword-glossary.md).
+3. **Pass until…** (roadmap t4-4): pass priority until combat, the end step, the opponent's end
+   step or your next turn. *End turn* now uses the same mechanism. See
+   [features/pass-until.md](features/pass-until.md).
+4. **Roadmap**: t3-2, t3-3 and t4-4 marked done in the tracker; [roadmap/](roadmap/README.md)
+   regenerated from it (it also picks up t2-2, t2-4 and t2-5, approved earlier).
+
+### Files changed
+
+| File | Change |
+| --- | --- |
+| `src/game/GameState.ts` | `ClockView`, `IdleView`, `clockLeft()`; `GameState.clock` / `.idle` |
+| `src/game/endstep/normalize.ts` | `toClock()`, `toIdle()`; `FrameMeta.serverSkew` / `frozen` |
+| `src/game/endstep/EndstepAdapter.ts` | `trackSkew()`: the server clock's lead, kept per match; replays frozen |
+| `src/game/passUntil.ts` | New: the pass-until logic (pure) |
+| `src/game/PhaseStopSync.ts` | `setTemporary()`: stops added while passing |
+| `src/ui/board/keywords.ts` | New: the keyword glossary and `keywordNotes()` |
+| `src/ui/board/Board.ts` | `renderTimers()` and one timer ticker; keyword boxes on the zoom; `startPassing()` / `autoPass()` / `stopPassing()` and the dock's *Pass until…* |
+| `src/ui/Overlay.ts` | `setTemporaryStops` hook |
+| `src/styles/board.css` | `.timers`, `.zkw` |
+| `src/dev/harness.ts` | Scenarios `clock`, `clock-opp`, `keywords` |
+| `tests/gameInfo.test.ts` | New: 20 tests (clocks, idle timer, skew, pass until, glossary) |
+| `docs/`, `README.md` | This documentation |
+
 ## Session of 2026-10-07 (branch `arena-combat-replays`)
 
 Released as **0.5.0**, on top of `814d611 Arena combat, replays, opponent disconnects`. All 58 tests pass.

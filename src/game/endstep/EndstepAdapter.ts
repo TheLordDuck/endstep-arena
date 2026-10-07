@@ -48,6 +48,11 @@ export class EndstepAdapter {
   private reveals: RevealView[] = [];
   /** Seat → its connection, from SEAT_CONNECTIVITY frames (deadline on the local clock). */
   private connectivity = new Map<number, { connected: boolean; deadline: number | null }>();
+  /** Server clock minus ours (ms), for the match clock and the idle timer: the largest seen, as
+      Endstep's clock keeps it (a frame that took longer to arrive gives a smaller one). */
+  private serverSkew: number | undefined;
+  /** The last `serverNowMs` counted, by field (a state keeps it until it changes). */
+  private seenServerNow = new Map<string, number>();
 
   getGameState(): GameState | null {
     return this.state;
@@ -179,17 +184,21 @@ export class EndstepAdapter {
     this.state = null;
     this.reveals = [];
     this.connectivity.clear();
+    this.serverSkew = undefined;
+    this.seenServerNow.clear();
     for (const cb of this.listeners) cb(null);
   }
 
   private publish(): void {
     if (this.replayRoute) return this.publishReplay();
     if (!this.raw || !this.matchId) return;
+    this.trackSkew(this.raw);
     const state = normalize(this.raw, {
       matchId: this.matchId,
       viewerSeat: this.viewerSeat,
       seq: this.seq,
       desynced: this.desynced,
+      serverSkew: this.serverSkew,
     });
     // playerIndex is the index in `players`, as Endstep reads it.
     const players = state.players.map((p, i) => {
@@ -200,13 +209,26 @@ export class EndstepAdapter {
     for (const cb of this.listeners) cb(this.state);
   }
 
+  /** A new `serverNowMs` in the clock or the idle timer was just received: how far the server's
+      clock is ahead of ours. */
+  private trackSkew(raw: Raw): void {
+    for (const key of ["clock", "idleTimeout"]) {
+      const v = raw[key];
+      const now = isObj(v) && typeof v.serverNowMs === "number" ? v.serverNowMs : undefined;
+      if (now === undefined || this.seenServerNow.get(key) === now) continue;
+      this.seenServerNow.set(key, now);
+      const skew = now - Date.now();
+      if (this.serverSkew === undefined || skew > this.serverSkew) this.serverSkew = skew;
+    }
+  }
+
   /** A replay frame, as the recording seat saw it. Its prompt is left out: nothing can be
       answered in a replay. */
   private publishReplay(): void {
     const v = this.replayView;
     if (!v) return;
     this.raw = v.raw;
-    const state = normalize({ ...v.raw, pendingAction: null }, { matchId: "replay", viewerSeat: v.seat, desynced: false });
+    const state = normalize({ ...v.raw, pendingAction: null }, { matchId: "replay", viewerSeat: v.seat, desynced: false, frozen: true });
     this.state = { ...state, reveals: [], replay: v.status };
     for (const cb of this.listeners) cb(this.state);
   }

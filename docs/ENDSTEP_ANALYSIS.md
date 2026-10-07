@@ -132,3 +132,28 @@ Class hints in the bundle: `frame-attacker`, `frame-blocker`. The layout has mod
   patched by `p`).
 * Timeline: every `key`/`diff` whose resulting state has ≥ 2 players is one frame (the player's
   position slider, `role="slider"` `aria-label="Replay position"`, has `aria-valuenow` = frame).
+
+## 7. Clocks and passing until (from `GameView-CWl0Jtuj.js` / `SideboardView-DmVxwwX8.js`, 2026-10-07)
+
+### Match clock (`state.clock`)
+
+`{ serverNowMs, runningSide, runningSideDeadlineMs, remainingMs[], timedOutSide }` (older states:
+`player0RemainingMs` / `player1RemainingMs` instead of `remainingMs`). Sides are seat indexes as
+strings. The running side's time is `runningSideDeadlineMs - (Date.now() + skew)`, the others'
+`remainingMs[seat]`. `skew` is the largest `serverNowMs - Date.now()` seen. Endstep shows `m:ss`,
+red under 30 s; a replay uses `serverNowMs` as "now" (frozen).
+
+### Idle timer (`state.idleTimeout`)
+
+`{ seat, deadlineMs, serverNowMs, away, graceMs }` (grace 30 s by default). The banner reads
+"Waiting on you" / "Still deciding" / "Stepped away", and "Last call" within the grace: the
+player forfeits the match when it runs out.
+
+### Pass until
+
+Done on the client, with no action of its own: modes `combat`, `endOfTurn`, `myNextTurn`,
+`prevEndStep` (the end step before your turn) and `untilAction` (until an opponent acts or the
+end step). While one is set, each priority prompt is answered with `PASS_PRIORITY` (stamped with
+its prompt version) until the mode's condition is met; any prompt other than `PRIORITY` cancels
+it. `prevEndStep` and `untilAction` add the stops they need to the `SET_PHASE_STOPS` they send
+(e.g. the opponent's `END_STEP`).

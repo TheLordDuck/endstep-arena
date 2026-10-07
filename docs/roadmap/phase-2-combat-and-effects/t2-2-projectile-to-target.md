@@ -2,10 +2,11 @@
 
 | | |
 | --- | --- |
-| Status | **Awaiting approval** |
+| Status | **Approved** |
 | Phase | [Phase 2 · Combat and visual effects](README.md) |
 | Type | Feature |
 | Needs approval | Yes |
+| Approved on | 2026-10-07 |
 
 A spell or ability that deals damage sends a flash to its target, with the impact and the damage (Lightning Bolt to the face).
 
@@ -25,3 +26,4 @@ A spell or ability dealing damage shows nothing between source and target; only 
 ## History
 
 - 2026-10-07: added to the roadmap.
+- 2026-10-07: approved.

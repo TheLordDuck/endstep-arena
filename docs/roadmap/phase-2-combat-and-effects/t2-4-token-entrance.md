@@ -2,10 +2,11 @@
 
 | | |
 | --- | --- |
-| Status | **Awaiting approval** |
+| Status | **Approved** |
 | Phase | [Phase 2 · Combat and visual effects](README.md) |
 | Type | Feature |
 | Needs approval | Yes |
+| Approved on | 2026-10-07 |
 
 Tokens come in with a flash instead of just appearing.
 
@@ -24,3 +25,4 @@ Tokens appear with the generic entry animation.
 ## History
 
 - 2026-10-07: added to the roadmap.
+- 2026-10-07: approved.

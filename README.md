@@ -75,8 +75,13 @@ Revealed cards (from a hand, a library…) pop up near the top of the table for 
 (✕ closes them; right-click a card to enlarge). A card revealed from the opponent's hand stays
 face up there, with an eye mark, while it's still in that hand; face-down cards you're allowed
 to see (your morphs, cards you exiled face down) show their front the same way. Keywords an effect gave a permanent show in green on it, lost ones in red.
+
+In a timed match each player's clock sits by their picture (gold while running, red under 30 s), and a
+player taking too long to act gets a countdown to when they forfeit.
 | **H** or *Hold priority* | Keep priority after what you cast or activate, until switched off |
 | *End turn* (under the action buttons) | Pass priority for the rest of your turn |
+| *Pass until…* (by the action buttons) | Pass priority until combat, the end step, the opponent's end step or your next turn; it stops early if the opponent casts something or you're asked anything. *Stop passing* ends it |
+| Hover or right-click a card with keywords | Boxes beside it explain each keyword (flying, trample, ward…) |
 | **Alt+Shift+A** or *Classic UI* | Switch between the Arena board and Endstep's UI |
 | **Alt+Shift+D** or *Debug* | Debug panel (game state, events, network, raw) |
 | Replays: drag the **⠿** grip of the control bar | Move the bar anywhere on the board (remembered); double-click the grip to put it back |
@@ -86,7 +91,7 @@ to see (your morphs, cards you exiled face down) show their front the same way. 
 * `pnpm build:dev` + `pnpm dev-server`: the dev build reports frames and state
   to `.devlog/` so they can be inspected offline.
 * `node build.mjs --harness` builds `dist-harness/harness.html#<scenario>`
-  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`, `strike`, `damage`, `damage-split`, `win`, `discard`, `tks`, `replay`): the board
+  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`, `strike`, `damage`, `damage-split`, `win`, `discard`, `tks`, `clock`, `clock-opp`, `keywords`, `replay`): the board
   rendered from fixture states, with no live match needed. See [docs/testing.md](docs/testing.md).
 * [docs/](docs/README.md): how Endstep works, feature notes, the changelog and the roadmap.
 

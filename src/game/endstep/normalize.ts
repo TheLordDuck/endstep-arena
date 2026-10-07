@@ -5,10 +5,12 @@ import type {
   AbilityOption,
   CardView,
   ChosenMark,
+  ClockView,
   ModeOption,
   CombatLink,
   DivideView,
   GameState,
+  IdleView,
   PendingActionView,
   PlayerView,
   RevealView,
@@ -338,6 +340,50 @@ export interface FrameMeta {
   viewerSeat: number;
   seq?: number;
   desynced: boolean;
+  /** Server clock minus ours (ms), to move the server's deadlines to our clock. Without it, the
+      state is taken as just received (its `serverNowMs` is now). */
+  serverSkew?: number;
+  /** A replay frame: clocks don't run, they show the time left at that moment. */
+  frozen?: boolean;
+}
+
+/** Endstep's `clock`: { serverNowMs, runningSide, runningSideDeadlineMs, remainingMs[] (or
+    player0RemainingMs / player1RemainingMs), timedOutSide }, sides being seat indexes, read the
+    way its match clock reads it. */
+export function toClock(v: unknown, meta: Pick<FrameMeta, "serverSkew" | "frozen">): ClockView | undefined {
+  if (!isObj(v)) return undefined;
+  const serverNow = num(v.serverNowMs);
+  const skew = meta.serverSkew ?? (serverNow !== undefined ? serverNow - Date.now() : 0);
+  const left: Record<string, number> = {};
+  arr(v.remainingMs).forEach((ms, i) => {
+    const n = num(ms);
+    if (n !== undefined) left[String(i)] = Math.max(0, n);
+  });
+  for (const seat of ["0", "1"]) {
+    const n = num(v[`player${seat}RemainingMs`]);
+    if (left[seat] === undefined && n !== undefined) left[seat] = Math.max(0, n);
+  }
+  const running = str(v.runningSide);
+  const runningDeadline = num(v.runningSideDeadlineMs);
+  let deadline: number | undefined;
+  if (running !== undefined && runningDeadline !== undefined) {
+    if (!meta.frozen) deadline = runningDeadline - skew;
+    else if (serverNow !== undefined) left[running] = Math.max(0, runningDeadline - serverNow);
+  }
+  if (!Object.keys(left).length && deadline === undefined) return undefined;
+  return { left, running, deadline, timedOut: str(v.timedOutSide) };
+}
+
+/** Endstep's `idleTimeout`: { seat, deadlineMs, serverNowMs, away, graceMs }. */
+export function toIdle(v: unknown, meta: Pick<FrameMeta, "serverSkew" | "frozen">): IdleView | undefined {
+  if (!isObj(v) || meta.frozen) return undefined;
+  const playerId = str(v.seat);
+  const deadline = num(v.deadlineMs);
+  if (playerId === undefined || deadline === undefined) return undefined;
+  const serverNow = num(v.serverNowMs);
+  const skew = meta.serverSkew ?? (serverNow !== undefined ? serverNow - Date.now() : 0);
+  // Endstep's own default for the last stretch: 30 s.
+  return { playerId, deadline: deadline - skew, away: v.away === true, graceMs: num(v.graceMs) ?? 30_000 };
 }
 
 export function normalize(raw: Raw, meta: FrameMeta): GameState {
@@ -360,6 +406,8 @@ export function normalize(raw: Raw, meta: FrameMeta): GameState {
     stack: arr(raw.stack).map(toStackItem).filter((s): s is StackItemView => s !== null),
     pending: toPending(raw.pendingAction),
     combat: combatOf(players),
+    clock: toClock(raw.clock, meta),
+    idle: toIdle(raw.idleTimeout, meta),
     reveals: [],
     unrecognizedKeys: Object.keys(raw).filter((k) => !KNOWN_TOP_LEVEL.has(k)),
     desynced: meta.desynced,
