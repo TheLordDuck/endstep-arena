@@ -415,6 +415,63 @@ const scenarios: Record<string, Scenario> = {
       message: "Choose a nonland card to exile.",
       cardOptions: hand.filter((c) => c.name !== "Swamp").map((c) => ({ id: c.id })) };
   },
+  // Thoughtseize on ourselves: we choose a nonland card from our own hand, in a fan as well.
+  "self-discard": (s) => {
+    const [me] = players(s);
+    const hand = me!.hand as Raw[];
+    s.pendingAction = { type: "CHOOSE_CARDS", promptVersion: 25, sourceCardName: "Thoughtseize", min: 1, max: 1, mandatory: true,
+      message: "Choose a nonland card to discard.",
+      cardOptions: hand.filter((c) => !/Land/.test(String(c.typeLine))).map((c) => ({ id: c.id, zone: "HAND" })) };
+  },
+  // Surgical Extraction on our own graveyard's Lightning Bolt: the copies to exile, from our hand
+  // (asked first on its own, then with the graveyard and library ones), in a fan.
+  surgical: (s) => {
+    const [me] = players(s);
+    const hand = me!.hand as Raw[];
+    const bolt = hand.find((c) => c.name === "Lightning Bolt")!;
+    const graveBolt = card("Lightning Bolt", { typeLine: "Instant" });
+    (me!.graveyard as Raw[]).push(graveBolt);
+    const libraryBolt = card("Lightning Bolt", { typeLine: "Instant" });
+    s.pendingAction = { type: "CHOOSE_CARDS", promptVersion: 26, sourceCardName: "Surgical Extraction", min: 0, max: 3, mandatory: false,
+      message: "Choose any number of cards named Lightning Bolt to exile.",
+      cardOptions: [{ id: bolt.id, zone: "HAND" }, { id: graveBolt.id, zone: "GRAVEYARD" }, { ...libraryBolt, zone: "LIBRARY" }] };
+  },
+  // Surgical Extraction step by step, as Endstep asks it: the target in a graveyard, then the
+  // copies in the graveyard, the hand and the library, each its own choice (and its own fan).
+  "surgical-target": (s) => {
+    const [me] = players(s);
+    const graveBolt = card("Lightning Bolt", { typeLine: "Instant" });
+    (me!.graveyard as Raw[]).push(graveBolt);
+    s.pendingAction = { type: "CHOOSE_TARGETS", promptVersion: 28, sourceCardName: "Surgical Extraction", min: 1, max: 1, mandatory: true,
+      message: "Choose target card in a graveyard other than a basic land card.",
+      cardOptions: (me!.graveyard as Raw[]).map((c) => ({ id: c.id, zone: "GRAVEYARD" })) };
+  },
+  "surgical-grave": (s) => {
+    const [me] = players(s);
+    const graveBolt = card("Lightning Bolt", { typeLine: "Instant" });
+    (me!.graveyard as Raw[]).push(graveBolt);
+    s.pendingAction = { type: "CHOOSE_CARDS", promptVersion: 29, sourceCardName: "Surgical Extraction", min: 0, max: 1, mandatory: false,
+      message: "Search the graveyard for cards named Lightning Bolt.", cardOptions: [{ id: graveBolt.id, zone: "GRAVEYARD" }] };
+  },
+  // The copies in our own hand: a fan too, not picked on the hand.
+  "surgical-hand": (s) => {
+    const [me] = players(s);
+    const bolt = (me!.hand as Raw[]).find((c) => c.name === "Lightning Bolt")!;
+    s.pendingAction = { type: "CHOOSE_CARDS", promptVersion: 30, sourceCardName: "Surgical Extraction", min: 0, max: 1, mandatory: false,
+      message: "Search the hand for cards named Lightning Bolt.", cardOptions: [{ id: bolt.id, zone: "HAND" }] };
+  },
+  // The same asked as a target choice (Endstep's client handles both alike).
+  "surgical-hand-t": (s) => {
+    const [me] = players(s);
+    const bolt = (me!.hand as Raw[]).find((c) => c.name === "Lightning Bolt")!;
+    s.pendingAction = { type: "CHOOSE_TARGETS", promptVersion: 31, sourceCardName: "Surgical Extraction", min: 0, max: 1, mandatory: false,
+      message: "Search the hand for cards named Lightning Bolt.", cardOptions: [{ id: bolt.id }] };
+  },
+  "surgical-library": (s) => {
+    const lib = card("Lightning Bolt", { typeLine: "Instant" });
+    s.pendingAction = { type: "CHOOSE_CARDS", promptVersion: 32, sourceCardName: "Surgical Extraction", min: 0, max: 1, mandatory: false,
+      message: "Search the library for cards named Lightning Bolt.", cardOptions: [{ ...lib, zone: "LIBRARY" }] };
+  },
   // Emrakul, the Promised End: we play the opponent's turn. Their hand is sent face up, they are
   // `controlledBySeat` us, and the prompt offers their cards.
   control: (s) => {
@@ -484,6 +541,39 @@ const scenarios: Record<string, Scenario> = {
   pay: (s) => {
     s.pendingAction = { type: "PAY_MANA", promptVersion: 10, message: "Pay {2}{R}{G} for Bloodbraid Elf", sourceCardName: "Bloodbraid Elf",
       cardOptions: [{ id: 100 }, { id: 101 }, { id: 102 }, { id: 103 }] };
+  },
+  // Paying for Dismember ({1}{B/P}{B/P}): each Phyrexian symbol takes {B} or 2 life (the button,
+  // or a click on your plate).
+  phyrexian: (s) => {
+    s.pendingAction = { type: "PAY_MANA", promptVersion: 12, message: "Pay {1}{B/P}{B/P} for Dismember", sourceCardName: "Dismember",
+      phyrexianMana: true, canAutoPay: true, cardOptions: [{ id: 100 }, { id: 102 }, { id: 103 }] };
+  },
+  // Arc Lightning, cast at the Nighthawk, the Angel and the opponent: its 3 damage divided among
+  // them, asked with the damage bar (as Endstep asks every division). At least 1 to each.
+  fireball: (s) => {
+    const [, opp] = players(s);
+    const angel = byName(opp!, "Serra Angel");
+    const hawk = byName(opp!, "Vampire Nighthawk");
+    s.stack = [{ stackTargetId: 990, sourceCard: { id: 991, name: "Arc Lightning", controllerId: "0", typeLine: "Sorcery", types: ["Sorcery"],
+      oracleText: "Arc Lightning deals 3 damage divided as you choose among one, two, or three targets." },
+      targets: [{ id: hawk.id, zone: "Battlefield" }, { id: angel.id, zone: "Battlefield" }, { id: -2, zone: "Player" }] }];
+    s.pendingAction = { type: "ASSIGN_DAMAGE", promptVersion: 23, sourceCardId: 991, sourceCardName: "Arc Lightning", maxValue: 3,
+      message: "Divide 3 damage among the targets.",
+      cardOptions: [
+        { id: hawk.id, name: "Vampire Nighthawk", types: ["Creature"], lethalDamage: 2 },
+        { id: angel.id, name: "Serra Angel", types: ["Creature"], lethalDamage: 4 },
+        { id: -2, name: "Opponent", types: ["Player"] },
+      ] };
+  },
+  // The same Arc Lightning on the stack once divided: each target's share by its arrow.
+  divided: (s) => {
+    const [, opp] = players(s);
+    const angel = byName(opp!, "Serra Angel");
+    const hawk = byName(opp!, "Vampire Nighthawk");
+    s.stack = [{ stackTargetId: 990, sourceCard: { id: 991, name: "Arc Lightning", controllerId: "0", typeLine: "Sorcery", types: ["Sorcery"] },
+      targets: [{ id: hawk.id, zone: "Battlefield", dividedAmount: 1 }, { id: angel.id, zone: "Battlefield", dividedAmount: 1 }, { id: -2, zone: "Player", dividedAmount: 1 }] }];
+    s.priorityPlayerId = "1";
+    s.pendingAction = null;
   },
   // Watching a replay: no prompt, the replay's controls on top.
   replay: (s) => {

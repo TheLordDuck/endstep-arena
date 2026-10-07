@@ -226,13 +226,13 @@ test("learn: Lessons first, then the hand to discard from; either is sent as the
   assert.deepEqual([lm.learn.lessons, lm.learn.hand], [["70"], ["31"]]);
 });
 
-// Combat damage among blockers, as Endstep's damage bar divides it.
+// Combat damage among blockers, as Endstep's damage bar divides it (in the combat damage step).
 const assign = (extra: Raw = {}) => setup({ type: "ASSIGN_DAMAGE", promptVersion: 30, sourceCardName: "Bear", maxValue: 8,
   cardOptions: [
     { id: 21, name: "Angel", types: ["Creature"], lethalDamage: 4 },
     { id: 22, name: "Hawk", types: ["Creature"], lethalDamage: 2 },
     { id: -2, name: "Opp", types: ["Player"] },
-  ], ...extra });
+  ], ...extra }, { phase: "COMBAT_DAMAGE" });
 
 test("damage: lethal to each blocker in order first, the rest to the trampled player", () => {
   const { state } = assign();
@@ -272,13 +272,13 @@ test("damage: overrideOrder lets damage past blockers without lethal; confirm se
   free.controller.divide([3, 2, 3]);
   assert.deepEqual(free.sent[0], { type: "CHOOSE_CARDS", orderedCards: [3, 2, 3], promptVersion: 30 });
   // Without lethal to go by, nothing is assigned up front.
-  const unknown = setup({ type: "ASSIGN_DAMAGE", maxValue: 3, cardOptions: [{ id: 21, name: "Angel" }, { id: 22, name: "Hawk" }] });
+  const unknown = setup({ type: "ASSIGN_DAMAGE", maxValue: 3, cardOptions: [{ id: 21, name: "Angel" }, { id: 22, name: "Hawk" }] }, { phase: "COMBAT_DAMAGE" });
   const m = deriveMode(unknown.state);
   assert.ok(m.kind === "divide");
   assert.deepEqual(m.amounts, [0, 0]);
 });
 
-test("a card from an opponent's hand is picked from a fan; your own (or a hand you control) on the table", () => {
+test("a card chosen from a hand is picked from a fan: an opponent's, your own (Thoughtseize on yourself), a hand you control", () => {
   const hands = (oppControlled: boolean) => ({
     players: [
       { name: "Me", life: 20, battlefield: [], hand: [{ id: 31, name: "Opt" }] },
@@ -288,7 +288,10 @@ test("a card from an opponent's hand is picked from a fan; your own (or a hand y
   const theirs = deriveMode(setup({ type: "CHOOSE_CARDS", cardOptions: [{ id: 41, zone: "HAND" }, { id: 42, zone: "HAND" }] }, hands(false)).state);
   assert.ok(theirs.kind === "cards" && theirs.offBoard);
   const mine = deriveMode(setup({ type: "CHOOSE_CARDS", cardOptions: [{ id: 31, zone: "HAND" }] }, hands(false)).state);
-  assert.ok(mine.kind === "cards" && !mine.offBoard);
+  assert.ok(mine.kind === "cards" && mine.offBoard);
   const controlled = deriveMode(setup({ type: "CHOOSE_CARDS", cardOptions: [{ id: 41, zone: "HAND" }] }, hands(true)).state);
-  assert.ok(controlled.kind === "cards" && !controlled.offBoard);
+  assert.ok(controlled.kind === "cards" && controlled.offBoard);
+  // Cards on the battlefield are still picked on the table.
+  const table = deriveMode(setup({ type: "CHOOSE_CARDS", cardOptions: [{ id: 11 }] }).state);
+  assert.ok(table.kind === "cards" && !table.offBoard);
 });

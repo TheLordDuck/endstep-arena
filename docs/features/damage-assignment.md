@@ -7,7 +7,9 @@
 
 When an attacker blocked by several creatures (or with trample) divides its damage, Endstep asks
 with an `ASSIGN_DAMAGE` prompt. The board used to step aside for Endstep's own panel; it now has its
-own screen. `DIVIDE_SHIELD` (dividing shield counters) uses the same screen, as in Endstep.
+own screen. `DIVIDE_SHIELD` (dividing shield counters) uses the same screen, as in Endstep, and so
+does a spell dividing its damage among its targets, with a spell's rules: see
+[spell-damage-division.md](spell-damage-division.md).
 
 ## How Endstep does it
 
@@ -37,7 +39,8 @@ From its client (`GameView-*.js`, the "Combat · Divide Damage" bar).
 
 ## Implementation
 
-- `normalize.ts` → `toDivide()` builds `pending.divide: { total, options: [{ id, name, lethal, player }], freeSpill }`.
+- `normalize.ts` → `toDivide()` builds `pending.divide: { kind, total, options: [{ id, name, lethal, player }], freeSpill }`;
+  `kind` (combat, spell or shield) comes from `divideKind()`.
 - `modes.ts` → mode `{ kind: "divide", amounts }` and pure functions mirroring Endstep's:
   `divideStart`, `allLethal`, `divideLocked`, `divideLeft`, `divideStep`, `divideSet`. A prompt with
   no options falls back to Endstep's panel (`classic`).

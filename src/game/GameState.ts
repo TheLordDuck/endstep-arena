@@ -118,6 +118,8 @@ export interface StackItemView {
   sourceCardId?: string;
   /** Card ids, or "player:<seat>" for players. */
   targets: string[];
+  /** A spell dividing its damage (Fireball, Arc Lightning): each target's share, by target key. */
+  divided?: Record<string, number>;
   /** The value chosen for X, when Endstep sends it with the item. */
   x?: number;
 }
@@ -173,6 +175,8 @@ export interface PendingActionView {
   stringOptions: string[];
   /** PAY_MANA: floating mana usable for this cost, as { color: amount } (raw pass-through). */
   floatingMana?: unknown;
+  /** PAY_MANA: a Phyrexian symbol is left that 2 life can pay for (phyrexianMana). */
+  phyrexian?: boolean;
   /** DECLARE_BLOCKERS: blockerId → attacker ids it may block. */
   blockerEligibility: Record<string, string[]>;
   /** Endstep offers UNDO for the last action (e.g. an untap or a cast before paying). */
@@ -223,11 +227,15 @@ export interface SideboardView {
 }
 
 export interface DivideView {
+  /** What's divided: combat damage among blockers, a spell's or ability's damage among its
+      targets (Fireball, Arc Lightning), or shield counters. */
+  kind: "combat" | "spell" | "shield";
   /** All of it must be assigned. */
   total: number;
   /** In damage order; a trampler's defending player (or planeswalker) comes last. */
   options: DivideOption[];
-  /** Anything may go past the blockers without lethal to each first (overrideOrder). */
+  /** Anything may go past the blockers without lethal to each first (overrideOrder, or a spell:
+      the lethal-first rule is combat's). */
   freeSpill: boolean;
 }
 

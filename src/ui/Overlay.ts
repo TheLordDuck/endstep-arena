@@ -11,7 +11,8 @@ import type { PhaseStopSync } from "../game/PhaseStopSync";
 import type { ReplayPlayer } from "../game/ReplayPlayer";
 import type { RingBuffer } from "../shared/RingBuffer";
 import { saveSettings, type DebugTab, type Settings } from "../content/settings";
-import { esc, renderEvents, renderNetwork, renderRaw, renderState } from "./DebugViews";
+import { esc, renderEvents, renderNetwork, renderRaw, renderState, renderUnsupported } from "./DebugViews";
+import { saveUnsupported, type UnsupportedLog } from "../game/unsupportedPrompts";
 import { Board } from "./board/Board";
 import { endstepWindowOpen, readBoardMenu, runBoardMenuItem } from "../game/endstep/boardMenu";
 
@@ -30,7 +31,16 @@ const TABS: { id: DebugTab; label: string }[] = [
   { id: "events", label: "Events" },
   { id: "network", label: "Network" },
   { id: "raw", label: "Raw" },
+  { id: "unsupported", label: "Unsupported" },
 ];
+
+const safeParse = (json: string): unknown => {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return json;
+  }
+};
 
 const shortcut = (e: KeyboardEvent, code: string) => e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey && e.code === code;
 
@@ -53,6 +63,7 @@ export class Overlay {
     private readonly controller: GameController,
     private readonly stops: PhaseStopSync,
     private readonly replays: ReplayPlayer,
+    private readonly unsupported: UnsupportedLog,
   ) {}
 
   mount(): void {
@@ -177,6 +188,14 @@ export class Overlay {
       case "copy-raw":
         void this.copyRaw(target);
         break;
+      case "copy-unsupported":
+        void this.copyText(target, JSON.stringify(this.unsupported.list().map((e) => ({ ...e, sample: safeParse(e.sample) })), null, 2));
+        break;
+      case "clear-unsupported":
+        this.unsupported.clear();
+        saveUnsupported(this.unsupported);
+        this.render();
+        break;
     }
   }
 
@@ -187,6 +206,12 @@ export class Overlay {
       null,
       2,
     );
+    await this.copyText(button, text);
+  }
+
+  /** Copies to the clipboard, saying so on the button for a moment. */
+  private async copyText(button: HTMLElement, text: string): Promise<void> {
+    const label = button.textContent;
     let ok = true;
     try {
       await navigator.clipboard.writeText(text);
@@ -194,7 +219,7 @@ export class Overlay {
       ok = false;
     }
     button.textContent = ok ? "Copied ✓" : "Copy failed";
-    setTimeout(() => (button.textContent = "Copy raw state"), 1500);
+    setTimeout(() => (button.textContent = label), 1500);
   }
 
   /** Runs an item of Endstep's table menu. Its window (decklist, settings…) is Endstep's, so the
@@ -247,6 +272,9 @@ export class Overlay {
         break;
       case "network":
         this.body.innerHTML = renderNetwork(this.network.toArray());
+        break;
+      case "unsupported":
+        this.body.innerHTML = renderUnsupported(this.unsupported.list());
         break;
       case "raw": {
         // The raw dump is large; only rebuild it when the state object changed.

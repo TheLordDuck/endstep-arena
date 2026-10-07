@@ -186,6 +186,13 @@ function toStackItem(v: unknown, index: number): StackItemView | null {
   if (!isObj(v)) return null;
   const source = toCard(v.sourceCard);
   const isAbility = v.isAbility === true || v.kind === "ability";
+  // A spell dividing its damage gives each target its share (dividedAmount), as Endstep's stack shows it.
+  const divided: Record<string, number> = {};
+  for (const t of arr(v.targets)) {
+    const key = targetKey(t);
+    const n = isObj(t) ? num(t.dividedAmount) : undefined;
+    if (key && n !== undefined) divided[key] = n;
+  }
   return {
     id: str(v.stackTargetId ?? v.id) ?? source?.id ?? `stack-${index}`,
     name: (isAbility ? str(v.abilityDescription) : undefined) ?? source?.name ?? str(v.name ?? v.sourceCardName ?? v.description) ?? "Unknown",
@@ -194,6 +201,7 @@ function toStackItem(v: unknown, index: number): StackItemView | null {
     controllerId: str(v.controllerId) ?? source?.controllerId,
     sourceCardId: source?.id ?? str(v.sourceCardId),
     targets: arr(v.targets).map(targetKey).filter((x): x is string => !!x),
+    ...(Object.keys(divided).length ? { divided } : {}),
     // Not confirmed in the bundle: the likely names, on the item or on its card.
     x: num(v.xValue ?? v.x ?? v.chosenX ?? (isObj(v.sourceCard) ? v.sourceCard.xValue ?? v.sourceCard.x ?? v.sourceCard.chosenX : undefined)),
   };
@@ -276,10 +284,11 @@ function toPending(v: unknown, meta: Pick<FrameMeta, "serverSkew" | "frozen"> = 
     blockerEligibility: toEligibility(v.blockerEligibility),
     // PAY_MANA: the floating mana that can pay this cost (what Endstep's pay panel spends from).
     floatingMana: v.floatingMana,
+    ...(v.type === "PAY_MANA" && v.phyrexianMana === true ? { phyrexian: true } : {}),
     canUndo: v.canUndo === true,
     cancellable: v.cancellable === true,
     ...numberRange(v),
-    ...(v.type === "ASSIGN_DAMAGE" || v.type === "DIVIDE_SHIELD" ? { divide: toDivide(v, options) } : {}),
+    ...(v.type === "ASSIGN_DAMAGE" || v.type === "DIVIDE_SHIELD" ? { divide: toDivide(v, options, raw) } : {}),
     ...(v.type === "CHOOSE_PILE" ? { piles: arr(v.piles).filter(isObj).map(toPile).filter((x): x is PileView => !!x) } : {}),
     ...(v.type === "CHOOSE_CARDS" && v.contextType === "sideboard" ? { sideboard: toSideboard(v, options, meta, raw) } : {}),
   };
@@ -326,15 +335,36 @@ function toSideboard(v: Raw, options: Raw[], meta: Pick<FrameMeta, "serverSkew" 
 
 /** ASSIGN_DAMAGE / DIVIDE_SHIELD, as Endstep's damage bar reads them: the total in maxValue, and
     each option's lethalDamage (none for a player, whose types include "Player"). */
-function toDivide(v: Raw, options: Raw[]): DivideView {
+function toDivide(v: Raw, options: Raw[], raw: Raw): DivideView {
+  const kind = divideKind(v, raw);
   return {
+    kind,
     total: num(v.maxValue) ?? 0,
-    freeSpill: v.overrideOrder === true,
+    freeSpill: v.overrideOrder === true || kind === "spell",
     options: options.filter((o) => str(o.id)).map((o) => {
       const player = arr(o.types).includes("Player");
       return { id: String(o.id), name: str(o.name) ?? (player ? "Defending player" : "Unknown"), lethal: player ? null : num(o.lethalDamage) ?? null, player };
     }),
   };
+}
+
+/** Endstep asks every division with its damage bar; what is divided is told by the source and
+    the step. Combat damage comes from a creature attacking or blocking, in a combat damage step.
+    Anything else is a spell or ability dividing its damage among its targets (Fireball, Arc
+    Lightning, cast before it reaches the stack). A DIVIDE_SHIELD is shield counters unless it
+    speaks of damage. */
+function divideKind(v: Raw, raw: Raw): DivideView["kind"] {
+  const message = str(v.message) ?? "";
+  if (v.type === "DIVIDE_SHIELD" && (/\bshield/i.test(message) || !/\bdamage\b/i.test(message))) return "shield";
+  if (/\bcombat\b/i.test(message)) return "combat";
+  const source = str(v.sourceCardName);
+  const sourceId = str(v.sourceCardId);
+  const permanents = arr(raw.players).filter(isObj).flatMap((p) => arr(p.battlefield).filter(isObj));
+  const fighting = permanents.some((c) => (c.isAttacking === true || c.isBlocking === true)
+    && ((!!sourceId && str(c.id) === sourceId) || (!!source && c.name === source)));
+  // FIRST_STRIKE_DAMAGE, COMBAT_DAMAGE (or a phase named so).
+  const damageStep = /DAMAGE/i.test(`${str(raw.step) ?? ""} ${str(raw.phase) ?? ""}`);
+  return fighting || damageStep ? "combat" : "spell";
 }
 
 function combatOf(players: PlayerView[]) {

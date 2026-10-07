@@ -6,8 +6,8 @@ rules engine stay the source of truth, and nothing is sent to the server that
 Endstep's own UI wouldn't send.
 
 **Status: playable Arena board.** During a match the extension covers Endstep with its own
-board and plays through Endstep's socket. Prompts it can't handle yet (Phyrexian mana, for one)
-automatically step aside so Endstep's own panel can answer them. Unofficial: not affiliated with Endstep or Wizards of the Coast.
+board and plays through Endstep's socket. Prompts it can't handle yet
+automatically step aside so Endstep's own panel can answer them (the debug panel's *Unsupported* tab lists each one). Unofficial: not affiliated with Endstep or Wizards of the Coast.
 
 ## Install in Chrome
 
@@ -52,11 +52,13 @@ reload icon on the extension card and refresh the endstep.cc tab.
 | Click gold-glowing cards or avatars | Choose targets, attackers, or cards |
 | Blocking: click your creature, then the attacker | Assign the block (click again to undo) |
 | Mana payment: click lands | Tap them, or press **Auto pay** |
+| Phyrexian mana (Dismember…) | Tap lands for mana, or click your plate (or **Pay 2 life**) to pay 2 life for a symbol |
 | Big button (bottom-right) | Pass / Next / Resolve / Attack / Block / Done |
 | Click a graveyard, exile or command pile | Browse it as a fan of cards (flashback etc. can be cast from there) |
 | Choosing cards from a library, graveyard or exile | Click cards in the fan (orange = picked), then **Submit**; scroll with the wheel or the slider |
-| Choosing from the opponent's hand (Thoughtseize, Thought-Knot Seer…) | Same fan: their revealed cards are picked there, not on their hand |
+| Choosing from a hand (Thoughtseize, Thought-Knot Seer, Surgical Extraction, on an opponent or yourself) | Same fan: the cards are picked there, not on the hand; mixed zones are labelled |
 | Dividing combat damage among blockers | Click a card +1, right-click −1, Ctrl-click to lethal (or − / +); the trampled player unlocks once every blocker has lethal; **Done** or Space confirms, R resets |
+| Dividing a spell's damage (Fireball, Arc Lightning…) | On the table, as in Arena: click a target (or its ▲) +1, right-click (or ▼) −1; at least 1 to each target; **Submit** (Space) sends, **Reset** (R); on the stack, each target's share shows on its arrow |
 | Sideboarding (between games) | Click a card to move one copy between the main deck and the sideboard (Shift: every copy), or drag it; **Confirm** when the main deck's size is allowed, **Keep current** for the registered deck, **Withdraw** to edit again after confirming |
 | Choosing a pile (Fact or Fiction…) | Click a pile, then **Take Pile N** |
 | Separating cards into two piles (an opponent's Fact or Fiction) | Click or drag cards between **Pile 1** and **Pile 2**, then **Done** |
@@ -88,7 +90,7 @@ player taking too long to act gets a countdown to when they forfeit.
 | *Pass until…* (by the action buttons) | Pass priority until combat, the end step, the opponent's end step or your next turn; it stops early if the opponent casts something or you're asked anything. *Stop passing* ends it |
 | Hover or right-click a card with keywords | Boxes beside it explain each keyword (flying, trample, ward…) |
 | **Alt+Shift+A** or *Classic UI* | Switch between the Arena board and Endstep's UI |
-| **Alt+Shift+D** or *Debug* | Debug panel (game state, events, network, raw) |
+| **Alt+Shift+D** or *Debug* | Debug panel (game state, events, network, raw, and the prompts that stepped aside to Endstep's UI) |
 | Replays: drag the **⠿** grip of the control bar | Move the bar anywhere on the board (remembered); double-click the grip to put it back |
 
 ## Development
@@ -96,7 +98,7 @@ player taking too long to act gets a countdown to when they forfeit.
 * `pnpm build:dev` + `pnpm dev-server`: the dev build reports frames and state
   to `.devlog/` so they can be inspected offline.
 * `node build.mjs --harness` builds `dist-harness/harness.html#<scenario>`
-  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`, `strike`, `damage`, `damage-split`, `win`, `discard`, `tks`, `clock`, `clock-opp`, `keywords`, `piles`, `split`, `sideboard`, `copies`, `replay`): the board
+  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`, `strike`, `damage`, `damage-split`, `win`, `discard`, `tks`, `clock`, `clock-opp`, `keywords`, `piles`, `split`, `sideboard`, `copies`, `phyrexian`, `fireball`, `divided`, `self-discard`, `surgical`, `surgical-target`, `surgical-grave`, `surgical-hand`, `surgical-hand-t`, `surgical-library`, `replay`): the board
   rendered from fixture states, with no live match needed. See [docs/testing.md](docs/testing.md).
 * [docs/](docs/README.md): how Endstep works, feature notes, the changelog and the roadmap.
 

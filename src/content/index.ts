@@ -12,6 +12,8 @@ import { PhaseStopSync } from "../game/PhaseStopSync";
 import { Overlay, type NetworkEntry, type SocketStatus } from "../ui/Overlay";
 import { loadSettings } from "./settings";
 import { devReport } from "../dev/devReport";
+import { loadUnsupported, saveUnsupported, UnsupportedLog } from "../game/unsupportedPrompts";
+import { deriveMode, promptKey } from "../ui/board/modes";
 
 const adapter = new EndstepAdapter();
 const network = new RingBuffer<NetworkEntry>(300);
@@ -59,6 +61,19 @@ const controller = new GameController(
 
 const stops = new PhaseStopSync(controller);
 adapter.subscribe(() => stops.onState(adapter.getGameState()));
+
+// Prompts the board hands to Endstep's own UI: recorded for the debug panel (and .devlog).
+const unsupported = new UnsupportedLog();
+void loadUnsupported().then((stored) => unsupported.restore(stored));
+adapter.subscribe(() => {
+  const state = adapter.getGameState();
+  const mode = deriveMode(state);
+  const raw = adapter.getRawState() as { pendingAction?: unknown } | null;
+  const entry = unsupported.record(state, mode.kind === "classic" ? mode.reason : null, promptKey(state), raw?.pendingAction);
+  if (!entry) return;
+  saveUnsupported(unsupported);
+  if (__DEV_BRIDGE__) devReport("unsupported-prompt", { ...entry, sample: undefined, pendingAction: raw?.pendingAction });
+});
 
 if (__DEV_BRIDGE__) {
   devReport("hello", { url: location.href, version: chrome.runtime.getManifest().version });
@@ -139,7 +154,7 @@ window.addEventListener("message", (ev) => {
 
 async function mount() {
   const settings = await loadSettings();
-  overlay = new Overlay(adapter, network, settings, controller, stops, replays);
+  overlay = new Overlay(adapter, network, settings, controller, stops, replays, unsupported);
   overlay.setSocketStatus(socket);
   overlay.mount();
 }

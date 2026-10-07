@@ -1,4 +1,4 @@
-export type DebugTab = "state" | "events" | "network" | "raw";
+export type DebugTab = "state" | "events" | "network" | "raw" | "unsupported";
 
 export interface Settings {
   enabled: boolean;

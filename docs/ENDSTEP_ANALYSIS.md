@@ -178,3 +178,21 @@ Answers: `{ type: "SIDEBOARD_SUBMIT", orderedCards: [<indexes in cardOptions of 
 ascending>] }`; `{ type: "DECLINE" }` keeps the registered deck ("Keep current");
 `{ type: "SIDEBOARD_WITHDRAW" }` takes a submitted deck back. The game number shown is
 `matchScore.gamesPlayed + 1` (or the sum of the players' wins + 1).
+
+## 9. Phyrexian mana and divided damage (from `GameView-CWl0Jtuj.js`, 2026-10-07)
+
+### Phyrexian mana
+
+`PAY_MANA` carries `phyrexianMana: true` while a Phyrexian symbol is left that life can pay. The
+pay panel then says "Click your plate to pay 2 life"; clicking your plate sends
+`{ type: "PAY_LIFE_PHYREXIAN" }` (stamped with the prompt version), which pays one symbol. The
+same panel also reads `canAutoPay`, `cancelIsDecline` ("Don't Pay" instead of "Cancel") and
+`irreversiblySpent` (mana already spent that backing out won't undo).
+
+### Divided damage
+
+The client has no division UI other than the damage bar for `ASSIGN_DAMAGE` / `DIVIDE_SHIELD`
+(answer: `CHOOSE_CARDS` with an amount per option). Its hint for `DIVIDE_SHIELD` reads "Distribute
+shield counters". A spell that divides its damage shows it on the stack: each target is
+`{ id, zone, dividedAmount }`, logged as "3 to Grizzly Bears". Which prompt asks a spell's division
+is still to be seen in a real match.

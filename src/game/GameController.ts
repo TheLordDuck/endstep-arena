@@ -61,6 +61,11 @@ export class GameController {
     this.send({ type: "USE_FLOATING_MANA", stringValue: symbol });
   }
 
+  /** Pays 2 life for one Phyrexian mana symbol of the cost being paid. */
+  payPhyrexianLife(): void {
+    this.send({ type: "PAY_LIFE_PHYREXIAN" });
+  }
+
   autoPay(): void {
     this.send({ type: "AUTO_PAY" });
   }

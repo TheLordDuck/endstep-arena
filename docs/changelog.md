@@ -1,5 +1,48 @@
 # Changelog
 
+## Session of 2026-10-07, night
+
+On top of `f8ee20d Sideboarding screen, piles, separating piles, piles of four`. All 97 tests pass
+(8 new). None of it has been seen in a real match yet.
+
+1. **Paying Phyrexian mana** (roadmap t1-2): pay 2 life for a Phyrexian symbol from the board, by
+   clicking your plate or *Pay 2 life*. Endstep's `PAY_LIFE_PHYREXIAN` is now an allowed action.
+   See [features/phyrexian-mana.md](features/phyrexian-mana.md).
+2. **Log of the prompts that step aside** (roadmap t1-3): each prompt handed to Endstep's UI is
+   listed in the debug panel's new *Unsupported* tab, kept across matches, and written to
+   `.devlog/unsupported.ndjson` on the dev build. See
+   [features/unsupported-prompts.md](features/unsupported-prompts.md).
+3. **Dividing a spell's damage** (roadmap t1-5): a division that isn't combat damage is done on the
+   table, as in MTG Arena: a ▲ amount ▼ counter on each target, the message in a strip across the
+   middle, arrows from the spell, *Submit* / *Reset*. A spell's rules apply (at least 1 to each
+   target, no trample lock). A divided spell on the stack shows each target's share on its arrow.
+4. **Choosing from your own hand in a fan**: Surgical Extraction on your own graveyard (or any choice
+   from your hand) shows the cards in a fan with *Submit*, like an opponent's hand, instead of picking
+   them on your hand with an aiming arrow. When the options come from different zones, each card is
+   labelled (Hand, Graveyard, Library). Harness: `#surgical`, `#surgical-target` … `#surgical-library` (step by step), `#self-discard`.
+5. **Roadmap**: t1-2, t1-3 and t1-5 done in the tracker, and t1-8 (your own hand in a fan) added as
+   done; [roadmap/](roadmap/README.md) updated to match. See
+   [features/spell-damage-division.md](features/spell-damage-division.md).
+
+### Files changed
+
+| File | Change |
+| --- | --- |
+| `src/game/GameState.ts` | `PendingActionView.phyrexian`; `DivideView.kind`; `StackItemView.divided` |
+| `src/game/endstep/normalize.ts` | `phyrexianMana`; `divideKind()`; `dividedAmount` on stack targets |
+| `src/game/GameController.ts` | `payPhyrexianLife()` |
+| `src/shared/protocol.ts` | `PAY_LIFE_PHYREXIAN` allowed |
+| `src/game/unsupportedPrompts.ts` | New: `UnsupportedLog`, stored in `chrome.storage.local` |
+| `src/content/index.ts` | Records the prompts that step aside; dev bridge report |
+| `src/content/settings.ts`, `src/ui/Overlay.ts`, `src/ui/DebugViews.ts` | *Unsupported* debug tab; stack shares in the state tab |
+| `src/ui/board/modes.ts` | `divideStart()` for spells, `divideShort()`, `divideReady()` |
+| `src/ui/board/Board.ts` | Paying life from your plate and the dock; a spell's damage divided on the table (`boardDivide()`, `placeDivideBadges()`); shares on target arrows |
+| `src/styles/board.css`, `src/styles/overlay.css` | `.prompt.div-strip`, `.dbadge` (the division on the table), `.arrow-amt`; `.tools-row` |
+| `src/dev/harness.ts` | Scenarios `phyrexian`, `fireball`, `divided`, `self-discard`, `surgical`, `surgical-*` |
+| `tools/dev-server.mjs` | `.devlog/unsupported.ndjson` |
+| `tests/prompts.test.ts` | New: 8 tests; `tests/interaction.test.ts`: the combat fixture is in the damage step |
+| `docs/`, `README.md` | This documentation |
+
 ## Session of 2026-10-07, evening
 
 On top of `368c60f Docs: roadmap, t0-2 done`. All 89 tests pass (11 new).

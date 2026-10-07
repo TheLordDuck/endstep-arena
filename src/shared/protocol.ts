@@ -53,6 +53,8 @@ export const ALLOWED_ACTIONS = new Set([
   "DECLARE_ATTACKERS", "DECLARE_BLOCKERS", "CHOOSE_TARGETS", "CHOOSE_CARDS",
   "CHOOSE_MODE", "CHOOSE_COLOR", "CHOOSE_TYPE", "CHOOSE_NUMBER", "CHOOSE_MANA",
   "CHOOSE_PILE", "CHOOSE_CARD_NAME", "YES", "NO", "DECLINE", "MULLIGAN", "MULLIGAN_SPECIAL", "KEEP_HAND",
+  // Paying 2 life for a Phyrexian mana symbol (clicking your plate while Endstep's pay panel is up).
+  "PAY_LIFE_PHYREXIAN",
   // Paying with floating mana, and ordering triggers/attackers/blockers (Endstep's pay panel and order box).
   "USE_FLOATING_MANA", "ORDER_ABILITIES", "ORDER_ATTACKERS", "ORDER_BLOCKERS",
   // Scry, surveil and other library arrangements (Endstep's arrange box).

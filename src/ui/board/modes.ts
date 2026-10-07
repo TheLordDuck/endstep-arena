@@ -53,13 +53,9 @@ export function promptKey(state: GameState | null): string {
 
 function battlefieldIds(state: GameState): Set<string> {
   const ids = new Set<string>();
-  const viewer = state.players.find((p) => p.isViewer)?.id;
-  for (const p of state.players) {
-    for (const c of p.battlefield) ids.add(c.id);
-    // Only hands you play from count as the table. A card from an opponent's hand (the one
-    // they discard to your Thoughtseize) is picked from a list, like a graveyard's cards.
-    if (p.isViewer || (viewer !== undefined && p.controlledBy === viewer)) for (const c of p.hand ?? []) ids.add(c.id);
-  }
+  // No hand counts as the table: a card chosen from a hand (yours to your own Thoughtseize, an
+  // opponent's to yours, a discard) is picked from a fan, like a graveyard's cards.
+  for (const p of state.players) for (const c of p.battlefield) ids.add(c.id);
   for (const s of state.stack) ids.add(s.id);
   return ids;
 }
@@ -155,8 +151,10 @@ export function deriveMode(state: GameState | null): Mode {
 // damage must be assigned.
 
 /** The split offered first: lethal to each blocker in order, the rest to the last one reached
-    (the player, with trample). Nothing when the first option's lethal isn't known. */
+    (the player, with trample). Nothing when the first option's lethal isn't known. A spell gives
+    each target 1 first (each must get some), then tops creatures up to lethal, the rest to the last. */
 export function divideStart(d: DivideView): number[] {
+  if (d.kind === "spell") return spellStart(d);
   const out = d.options.map(() => 0);
   if (d.options[0]?.lethal == null) return out;
   let left = d.total;
@@ -170,6 +168,28 @@ export function divideStart(d: DivideView): number[] {
   if (left > 0) out[last]! += left;
   return out;
 }
+
+function spellStart(d: DivideView): number[] {
+  const n = d.options.length;
+  if (!n) return [];
+  const out = d.options.map((_, i): number => (i < d.total ? 1 : 0));
+  let left = d.total - out.reduce((a, b) => a + b, 0);
+  d.options.forEach((o, i) => {
+    const more = Math.min(left, Math.max(0, (o.lethal ?? 0) - out[i]!));
+    out[i]! += more;
+    left -= more;
+  });
+  out[n - 1]! += left;
+  return out;
+}
+
+/** Each target of a spell dividing its damage gets at least 1 (when there's enough to go round). */
+export function divideShort(d: DivideView, amounts: number[]): boolean {
+  return d.kind === "spell" && d.total >= d.options.length && amounts.some((n) => n < 1);
+}
+
+/** All of it assigned, as the rules allow: Done can be pressed. */
+export const divideReady = (d: DivideView, amounts: number[]) => divideLeft(d, amounts) === 0 && !divideShort(d, amounts);
 
 /** Every blocker has lethal damage assigned. */
 export function allLethal(d: DivideView, amounts: number[]): boolean {

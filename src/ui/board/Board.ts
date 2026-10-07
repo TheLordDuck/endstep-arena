@@ -7,7 +7,7 @@
 import type { AbilityOption, CardView, DivideView, GameState, PendingActionView, PileView, PlayerView, SideboardView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
 import { CARD_BACK_URL, chosenLabels, createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
-import { arrangeMove, canConfirm, clickInMode, deckColumns, defenderForKey, deriveMode, divideLeft, divideLocked, divideStart, divideStep, humanize, keyForDefender, learnStep, promptKey, sideboardChanged, sideboardCheck, sideboardMove, sideboardStacks, stepNumber, type Mode, type SideboardStack } from "./modes";
+import { arrangeMove, canConfirm, clickInMode, deckColumns, defenderForKey, deriveMode, divideLeft, divideLocked, divideReady, divideShort, divideStart, divideStep, humanize, keyForDefender, learnStep, promptKey, sideboardChanged, sideboardCheck, sideboardMove, sideboardStacks, stepNumber, type Mode, type SideboardStack } from "./modes";
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
 import { currentStep, stepIndex, stepLabel, TURN_STEPS } from "./phases";
 import type { PhaseStops, StopSide } from "../../game/endstep/phaseStops";
@@ -235,6 +235,7 @@ export class Board {
         </defs>
         <g class="lines"></g>
       </svg>
+      <div class="div-badges"></div>
       <div class="corner">
         <button class="ghost" data-ui="debug" title="Debug panel (Alt+Shift+D)">Debug</button>
         <button class="ghost" data-ui="hide" title="Show Endstep's classic UI (Alt+Shift+A)">Classic UI</button>
@@ -1025,7 +1026,7 @@ export class Board {
     const m = this.mode;
     // Also a question asked while something else resolves (pay life for the land you fetched, a
     // "may" effect): the card asking sits on top, over the item that brought it.
-    if (!p || p.type === "PRIORITY" || !(m.kind === "targets" || m.kind === "cards" || p.type === "YES_NO")) return null;
+    if (!p || p.type === "PRIORITY" || !(m.kind === "targets" || m.kind === "cards" || p.type === "YES_NO" || this.boardDivide())) return null;
     // A tucked-away stack keeps the big card beside the table instead.
     if (this.stackHidden && state.stack.length) return null;
     const src = p.sourceCardId || p.sourceCardName ? this.sourceCard(p) : undefined;
@@ -1264,7 +1265,8 @@ export class Board {
       el.classList.toggle("selectable", selectable);
       el.classList.toggle("selected",
         ((mode.kind === "targets" || mode.kind === "cards") && mode.selected.includes(key)) ||
-        (mode.kind === "blockers" && mode.selectedBlocker === id));
+        (mode.kind === "blockers" && mode.selectedBlocker === id) ||
+        (mode.kind === "divide" && (mode.amounts[this.divideIndex(key) ?? -1] ?? 0) > 0));
       el.classList.toggle("attacking", !!c?.isAttacking || !!attackingAssigned?.has(id) || (mode.kind === "attackers" && mode.aiming === id));
       el.classList.toggle("aiming", mode.kind === "attackers" && mode.aiming === id);
       el.classList.toggle("blocking", !!c?.isBlocking || !!blockAssigned?.has(id));
@@ -1282,6 +1284,9 @@ export class Board {
       const key = playerTargetKey(Number(id));
       plate.classList.toggle("selectable", this.isSelectable(key));
       plate.classList.toggle("selected", (mode.kind === "targets" && mode.selected.includes(key)));
+      const payLife = key === this.phyrexianLifeKey();
+      if (payLife) plate.title = PAY_LIFE_TITLE;
+      else if (plate.title === PAY_LIFE_TITLE) plate.removeAttribute("title");
     }
   }
 
@@ -1301,8 +1306,8 @@ export class Board {
 
   /**
    * The prompt's cards are picked from a fan: some aren't on the table (a library, graveyard or
-   * exile; a pile's top card is drawn, but it's still in its pile), or they're in an opponent's
-   * hand (Thoughtseize, Thought-Knot Seer: you choose from their hand, it isn't yours to play from).
+   * exile; a pile's top card is drawn, but it's still in its pile), or they're in a hand
+   * (Thoughtseize, Thought-Knot Seer, a discard: chosen from a hand, yours or an opponent's).
    */
   private choiceInFan(p: PendingActionView | null | undefined): boolean {
     const m = this.mode;
@@ -1310,14 +1315,14 @@ export class Board {
     if (m.kind === "cards" && m.offBoard) return true;
     const onTable = (id: string) => {
       const el = this.elFor(id);
-      return !!el?.isConnected && !el.closest(".pile, .opp-hand");
+      return !!el?.isConnected && !el.closest(".pile, .hand");
     };
     return p.optionCardIds.some((id) => !isPlayerId(id) && !onTable(id));
   }
 
-  /** A card in an opponent's hand while a choice is made from a fan: it's picked there instead. */
+  /** A card in a hand while a choice is made from a fan: it's picked there instead. */
   private pickedInFan(el: HTMLElement): boolean {
-    return !!el.closest(".opp-hand") && this.choiceInFan(this.state?.pending);
+    return !!el.closest(".hand") && this.choiceInFan(this.state?.pending);
   }
 
   private isSelectable(key: string): boolean {
@@ -1326,14 +1331,82 @@ export class Board {
     switch (m.kind) {
       case "targets":
       case "cards":
-        return m.valid.has(key);
+        return m.valid.has(key) || key === this.phyrexianLifeKey();
       case "attackers":
         // While aiming, the players and planeswalkers it can attack light up.
         return m.valid.has(key) || (!!m.aiming && !!this.state && defenderForKey(m, key, this.state) !== null);
       case "blockers":
         return m.validBlockers.has(key) || (!!m.selectedBlocker && m.attackerIds.has(key));
+      case "divide":
+        return this.divideIndex(key) !== null;
       default:
         return false;
+    }
+  }
+
+  /** Paying a cost with a Phyrexian symbol left: your plate, which pays 2 life for it (as in Endstep). */
+  private phyrexianLifeKey(): string | null {
+    const m = this.mode;
+    const state = this.state;
+    if (m.kind !== "cards" || !m.mana || !state?.pending?.phyrexian) return null;
+    const seat = state.players.findIndex((pl) => pl.isViewer);
+    return seat >= 0 ? playerTargetKey(seat) : null;
+  }
+
+  /** A spell dividing its damage (Fireball, Arc Lightning): done on the table, as Arena does it,
+      with a counter on each target, instead of the full-screen damage box (kept for combat). */
+  private boardDivide(): boolean {
+    return this.mode.kind === "divide" && this.state?.pending?.divide?.kind === "spell";
+  }
+
+  /** The division option a card or player key stands for, on the table. */
+  private divideIndex(key: string): number | null {
+    if (!this.boardDivide()) return null;
+    const i = this.state!.pending!.divide!.options.findIndex((o) => divideKey(o.id) === key);
+    return i < 0 ? null : i;
+  }
+
+  /** Arena's strip across the table: what to do, and what's left to divide. */
+  private divideBanner(p: PendingActionView): string {
+    const m = this.mode;
+    const d = p.divide!;
+    if (m.kind !== "divide") return "";
+    const left = divideLeft(d, m.amounts);
+    const ready = divideReady(d, m.amounts);
+    const msg = p.message || `Divide ${d.total} damage among the targets.`;
+    const status = left > 0 ? `${left} of ${d.total} left to assign` : ready ? "All assigned: Submit" : "Each target needs at least 1";
+    return `<div class="banner-msg">${withSymbols(esc(msg))}</div><div class="banner-sub${ready ? " ready" : ""}">${esc(status)}</div>`;
+  }
+
+  /** The counters over each target while a spell's damage is divided on the table: ▲ amount ▼. */
+  private placeDivideBadges(origin: DOMRect): void {
+    const layer = this.q(".div-badges");
+    const m = this.mode;
+    const d = this.state?.pending?.divide;
+    if (!this.boardDivide() || m.kind !== "divide" || !d) {
+      if (layer.innerHTML) { layer.innerHTML = ""; delete layer.dataset.sig; }
+      return;
+    }
+    const left = divideLeft(d, m.amounts);
+    const off = this.awaiting;
+    const html = d.options.map((o, i) => {
+      // A player's counter goes on their picture, clear of their life total.
+      const key = divideKey(o.id);
+      const avatar = key.startsWith("player:") ? this.el.querySelector<HTMLElement>(`.life-orb[data-player="${key.slice(7)}"] .avatar`) : null;
+      const r = avatar?.getClientRects().length ? avatar.getBoundingClientRect() : this.anchor(key);
+      if (!r) return "";
+      const n = m.amounts[i] ?? 0;
+      const x = r.left + r.width / 2 - origin.left;
+      const y = r.top + r.height / 2 - origin.top;
+      const cls = [n > 0 ? "some" : "", o.lethal != null && o.lethal > 0 && n >= o.lethal ? "lethal" : "", divideShort(d, m.amounts) && n < 1 ? "short" : ""].filter(Boolean).join(" ");
+      return `<div class="dbadge ${cls}" data-i="${i}" style="left: ${x.toFixed(1)}px; top: ${y.toFixed(1)}px">` +
+        `<button class="up" data-div-add="${i}" title="+1 (or click the card; Ctrl: lethal)" ${off || left <= 0 ? "disabled" : ""}></button>` +
+        `<b>${n}</b>` +
+        `<button class="down" data-div-sub="${i}" title="−1 (or right-click the card)" ${off || n <= 0 ? "disabled" : ""}></button></div>`;
+    }).join("");
+    if (layer.dataset.sig !== html) {
+      layer.dataset.sig = html;
+      layer.innerHTML = html;
     }
   }
 
@@ -1743,10 +1816,11 @@ export class Board {
         const msg = m.kind === "attackers" && m.aiming ? "Click a player or planeswalker to attack" : p.message ?? defaultMessage(p.type, m);
         // The card it's about is on the stack (a spell being cast, a trigger choosing targets):
         // that item glows, and the line needs no picture of it.
-        const about = !!(src && url) && (m.kind === "targets" || m.kind === "cards" || p.type === "YES_NO");
+        const about = !!(src && url) && (m.kind === "targets" || m.kind === "cards" || p.type === "YES_NO" || this.boardDivide());
         stackKey = about && !this.stackHidden ? this.stackKeyFor(p) : null;
         const pic = stackKey ? "" : thumb;
-        html = `<div class="pline">${pic}<div class="msg">${pic ? "" : source}${withSymbols(esc(msg))}</div></div>` + controls;
+        html = this.boardDivide() ? this.divideBanner(p)
+          : `<div class="pline">${pic}<div class="msg">${pic ? "" : source}${withSymbols(esc(msg))}</div></div>` + controls;
       } else {
         const { title, sub } = promptTitle(state, m);
         // A question from a card (a trigger's yes/no, a color, a number…) shows that card beside
@@ -1786,6 +1860,7 @@ export class Board {
     box.classList.toggle("center", controls !== "");
     box.classList.toggle("arena", arena);
     box.classList.toggle("sideboarding", m.kind === "sideboard");
+    box.classList.toggle("div-strip", this.boardDivide());
     this.startTimerTicker();
     if (this.promptStackKey !== stackKey) {
       if (this.promptStackKey) this.cardEls.get(this.promptStackKey)?.classList.remove("asking");
@@ -1916,13 +1991,13 @@ export class Board {
 
   /** Arena's card fan: cards spread in an arc, with a slider under it when they don't all fit.
       `key` keeps the scroll position across redraws. Laid out by layoutFans(). */
-  private fanHtml(key: string, cards: CardView[], attrs: (c: CardView) => string, cls: (c: CardView) => string): string {
+  private fanHtml(key: string, cards: CardView[], attrs: (c: CardView) => string, cls: (c: CardView) => string, label?: (c: CardView) => string): string {
     for (const c of cards) if (!this.cardData.has(c.id)) this.cardData.set(c.id, c);
     const tiles = cards.map((c, i) => {
       // A face-down card you can't see shows the card back.
       const url = imageUrl(c, "large") ?? (c.faceDown && !c.peeked ? CARD_BACK_URL : null);
       return `<button class="fcard ${cls(c)}" data-fi="${i}" data-zoom="${esc(c.id)}" ${attrs(c)}>
-        <div class="fimg">${url ? `<img src="${esc(url)}" alt="${esc(c.name)}" draggable="false">` : `<span>${esc(c.name)}</span>`}</div></button>`;
+        <div class="fimg">${url ? `<img src="${esc(url)}" alt="${esc(c.name)}" draggable="false">` : `<span>${esc(c.name)}</span>`}</div>${label?.(c) ? `<span class="fzone">${esc(label(c))}</span>` : ""}</button>`;
     }).join("");
     return `<div class="fan" data-fan="${esc(key)}" data-n="${cards.length}">
       <div class="fan-cards">${tiles || '<p class="muted">No cards</p>'}</div>
@@ -2197,7 +2272,7 @@ export class Board {
     return true;
   }
 
-  /** The creature dividing its damage (Endstep names it; the one in combat with that name). */
+  /** What divides its damage: the creature in combat with the name Endstep gives, or the spell. */
   private divideSource(state: GameState, p: PendingActionView): CardView | undefined {
     const name = p.sourceCardName;
     const fighting = name ? state.players.flatMap((pl) => pl.battlefield).find((c) => c.name === name && (c.isAttacking || c.isBlocking)) : undefined;
@@ -2210,6 +2285,7 @@ export class Board {
    * with pips up to lethal and a seal once it's lethal. Click a card for +1, right-click for −1,
    * Ctrl-click for lethal; − / + under each. The player stays locked until every blocker has
    * lethal damage. Done once it's all assigned.
+   * (A spell dividing its damage among its targets is done on the table instead: boardDivide().)
    */
   private divideBox(state: GameState, p: PendingActionView, m: Extract<Mode, { kind: "divide" }>): string {
     const d = p.divide!;
@@ -2217,7 +2293,8 @@ export class Board {
     const url = src ? imageUrl(src, "large") : null;
     const text = src ? [src.oracleText ?? "", ...(src.keywordsGranted ?? [])].join("\n") : "";
     const deathtouch = /\bdeathtouch\b/i.test(text);
-    const trample = d.options.some((o) => o.player);
+    const combat = d.kind === "combat";
+    const trample = combat && d.options.some((o) => o.player);
     const shield = `<svg viewBox="0 0 34 40" aria-hidden="true"><path d="M17 2 L31 7 V20 C31 30 24 36 17 38 C10 36 3 30 3 20 V7 Z"/></svg>`;
     const tiles = d.options.map((o, i) => {
       const card = o.player ? undefined : this.cardData.get(o.id) ?? p.optionCards.find((c) => c.id === o.id);
@@ -2284,13 +2361,13 @@ export class Board {
       tile.querySelector<HTMLButtonElement>("[data-div-sub]")!.disabled = off || n <= 0;
     });
     const src = box.querySelector<HTMLElement>(".dsrc")!;
-    src.classList.toggle("ready", left === 0);
+    src.classList.toggle("ready", divideReady(d, m.amounts));
     src.querySelector(".dleft b")!.textContent = String(left);
     const pool = d.total <= 12 ? Array.from({ length: d.total }, (_, k) => `<i class="${k < left ? "on" : ""}"></i>`).join("") : "";
     const poolBox = src.querySelector<HTMLElement>(".dpool")!;
     if (poolBox.innerHTML !== pool) poolBox.innerHTML = pool;
     const done = box.querySelector<HTMLButtonElement>("[data-div-confirm]")!;
-    done.disabled = off || left !== 0;
+    done.disabled = off || !divideReady(d, m.amounts);
     box.querySelector<HTMLButtonElement>("[data-div-reset]")!.disabled = off;
     return true;
   }
@@ -2303,7 +2380,7 @@ export class Board {
     const m = this.mode;
     if (!p?.divide || m.kind !== "divide" || this.awaiting) return true;
     if (d.divConfirm !== undefined) {
-      if (divideLeft(p.divide, m.amounts) !== 0) return true;
+      if (!divideReady(p.divide, m.amounts)) return true;
       this.controller.divide(m.amounts);
       this.setAwaiting(true);
       this.render(this.state);
@@ -2342,10 +2419,10 @@ export class Board {
       }
       // The fuller card where it's known (a prompt may name an opponent's hand card by id only).
       return this.fanHtml(`pick:${this.modeKey}`, p.optionCards.filter((c) => !isPlayerId(c.id)).map((c) => this.cardData.get(c.id) ?? c),
-        (c) => `data-pick="${esc(c.id)}"`, (c) => (sel.includes(c.id) ? "on" : "selectable")) + buttons;
+        (c) => `data-pick="${esc(c.id)}"`, (c) => (sel.includes(c.id) ? "on" : "selectable"), optionZoneLabel(p)) + buttons;
     }
     if (m.kind === "order") return this.orderBox(p, m);
-    if (m.kind === "divide") return this.divideBox(state, p, m);
+    if (m.kind === "divide") return this.boardDivide() ? "" : this.divideBox(state, p, m);
     if (m.kind === "arrange") return this.arrangeBox(m);
     // A color of mana is picked on the wheel over its card; the corner just says so.
     if (this.promptWheel(p)) return "";
@@ -2474,8 +2551,14 @@ export class Board {
     } else if (m.kind === "blockers") {
       if (m.assignments.size) buttons.push({ id: "clear", label: "Clear" });
       buttons.push({ id: "confirm", label: m.assignments.size ? `Block · ${m.assignments.size}` : "No blocks", primary: true });
+    } else if (m.kind === "divide" && p.divide && this.boardDivide()) {
+      // A spell's damage divided on the table: Reset under Submit, like Arena's Cancel and Submit.
+      buttons.push({ id: "div-reset", label: "Reset" });
+      buttons.push({ id: "div-submit", label: "Submit", primary: true, disabled: !divideReady(p.divide, m.amounts) });
     } else if (m.kind === "cards" && m.mana) {
       buttons.push({ id: "cancel", label: "Cancel" });
+      // A Phyrexian symbol left: 2 life pays for it (so does a click on your plate).
+      if (p.phyrexian) buttons.push({ id: "pay-life", label: "Pay 2 life" });
       buttons.push({ id: "auto-pay", label: "Auto pay", primary: true });
     } else if (m.kind === "targets" || m.kind === "cards") {
       // Picking from a fan of cards: Cancel and Submit are under the fan instead.
@@ -2708,7 +2791,8 @@ export class Board {
     // space right of your turn bar, clear of the action buttons. A choice to make stays centered.
     const prompt = this.q(".prompt");
     for (const k of ["left", "top", "right", "bottom", "max-width"]) prompt.style.removeProperty(k);
-    if (prompt.classList.contains("show") && !prompt.classList.contains("center")) {
+    // (A spell's damage divided on the table keeps its strip across the middle.)
+    if (prompt.classList.contains("show") && !prompt.classList.contains("center") && !prompt.classList.contains("div-strip")) {
       const box = this.el.getBoundingClientRect();
       const bar = this.q(".me-bar");
       const b = bar.getBoundingClientRect();
@@ -2932,13 +3016,14 @@ export class Board {
       return;
     }
     const origin = this.el.getBoundingClientRect();
-    const links: { from: string; to: string; kind: "atk" | "blk" | "src" | "tgt"; pending?: boolean }[] = [];
+    const links: { from: string; to: string; kind: "atk" | "blk" | "src" | "tgt"; pending?: boolean; amount?: number }[] = [];
     // Stack: every ability points back at the card it comes from; the top item
     // (and the one under the pointer) points at its targets.
     const top = state.stack[0];
     for (const [elId, s] of this.stackEls) {
       if (s.isAbility && s.sourceCardId && s.sourceCardId !== elId) links.push({ from: s.sourceCardId, to: elId, kind: "src" });
-      if (s === top || elId === this.hoverStack) for (const t of s.targets) if (t !== elId) links.push({ from: elId, to: t, kind: "tgt" });
+      // A spell dividing its damage: each target's share by its arrow's head.
+      if (s === top || elId === this.hoverStack) for (const t of s.targets) if (t !== elId) links.push({ from: elId, to: t, kind: "tgt", amount: s.divided?.[t] });
     }
     const cardIds = new Set(this.cardData.keys());
     const defenderKey = (id: string) => (cardIds.has(id) ? id : playerTargetKey(Number(id)));
@@ -2962,8 +3047,25 @@ export class Board {
     let html = links.map((l) => {
       const a = this.point(l.from, origin);
       const b = this.point(l.to, origin);
-      return a && b ? path(a, b, `arrow ${l.kind}${l.pending ? " pending" : ""}`, l.kind) : "";
+      if (!a || !b) return "";
+      const line = path(a, b, `arrow ${l.kind}${l.pending ? " pending" : ""}`, l.kind);
+      if (l.amount === undefined) return line;
+      // Just short of the head, on the way in.
+      const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      const x = b.x - ((b.x - a.x) / len) * 30;
+      const y = b.y - ((b.y - a.y) / len) * 30;
+      return `${line}<g class="arrow-amt" transform="translate(${x.toFixed(1)},${y.toFixed(1)})"><circle r="13"/><text dy="0.35em">${l.amount}</text></g>`;
     }).join("");
+    // A spell's damage divided on the table: the spell points at each target given some.
+    if (m.kind === "divide" && this.boardDivide()) {
+      state.pending!.divide!.options.forEach((o, i) => {
+        if (!(m.amounts[i]! > 0)) return;
+        const a = this.point(PROMPT_KEY, origin);
+        const b = this.point(divideKey(o.id), origin);
+        if (a && b) html += path(a, b, "arrow tgt", "tgt");
+      });
+    }
+    this.placeDivideBadges(origin);
     // Choosing targets: the prompt text points at the targets picked so far.
     const aim = this.aimSource();
     if (m.kind === "targets" && !this.awaiting) {
@@ -3135,6 +3237,12 @@ export class Board {
           // Endstep's own (hidden) damage bar listens for the same keys: it mustn't answer too.
           e.preventDefault();
           e.stopImmediatePropagation();
+          // On the table (a spell's damage), the dock's Submit and Reset.
+          if (this.boardDivide()) {
+            const dock = this.el.querySelector<HTMLButtonElement>(`.dock [data-act="${act === "[data-div-confirm]" ? "div-submit" : "div-reset"}"]`);
+            if (dock && !dock.disabled) this.onDockAction(dock.dataset.act!);
+            return;
+          }
           const btn = this.el.querySelector<HTMLButtonElement>(`.prompt .divide-box ${act}`);
           if (btn && !btn.disabled) this.divideButton(btn, false);
           return;
@@ -3272,8 +3380,19 @@ export class Board {
   private onSelectKey(key: string, e: MouseEvent): void {
     const state = this.state!;
     const m = this.mode;
+    if (m.kind === "divide") {
+      // A spell's damage on the table: a click on a target adds one (Ctrl: up to lethal).
+      const at = this.divideIndex(key);
+      if (at !== null) {
+        const more = document.createElement("button");
+        more.dataset.divAdd = String(at);
+        this.divideButton(more, e.ctrlKey || e.metaKey);
+      }
+      return;
+    }
     if (m.kind === "cards" && m.mana) {
-      if (m.valid.has(key)) { this.controller.tapMana(key); this.setAwaiting(true); }
+      if (key === this.phyrexianLifeKey()) { this.controller.payPhyrexianLife(); this.setAwaiting(true); }
+      else if (m.valid.has(key)) { this.controller.tapMana(key); this.setAwaiting(true); }
       return;
     }
     if (m.kind === "attackers") {
@@ -3351,6 +3470,15 @@ export class Board {
         return;
       case "resolve-all": c.resolveStack(); break;
       case "auto-pay": c.autoPay(); break;
+      case "pay-life": c.payPhyrexianLife(); break;
+      case "div-reset":
+      case "div-submit": {
+        const b = document.createElement("button");
+        if (act === "div-reset") b.dataset.divReset = "";
+        else b.dataset.divConfirm = "";
+        this.divideButton(b, false);
+        return;
+      }
       case "cancel": c.cancel(); break;
       case "decline": c.no(); break;
       case "yes":
@@ -3812,6 +3940,17 @@ export class Board {
   /** Right-click shows the card enlarged, plus a menu when there's something to do with it. */
   private onContextMenu(e: MouseEvent): void {
     const t = e.target as HTMLElement;
+    // Dividing a spell's damage on the table: a right-click on a target (or its counter) takes one back.
+    const divKey = this.boardDivide() ? this.keyFromTarget(t) : null;
+    const divAt = divKey ? this.divideIndex(divKey) : null;
+    const badge = t.closest<HTMLElement>(".dbadge");
+    if (divAt !== null || badge) {
+      e.preventDefault();
+      const sub = document.createElement("button");
+      sub.dataset.divSub = String(divAt ?? badge!.dataset.i);
+      this.divideButton(sub, e.ctrlKey || e.metaKey);
+      return;
+    }
     // In the damage box a right-click on a card takes one back (Ctrl: down to lethal).
     const dart = t.closest<HTMLElement>(".dtile .dart[data-div-add]");
     if (dart) {
@@ -4073,6 +4212,19 @@ function groupKey(c: CardView, local: string, effects: number): string | null {
     c.isAttacking, c.attackingDefenderId, c.isBlocking, [...c.blockingIds].sort(), local, effects]);
 }
 
+const PAY_LIFE_TITLE = "Pay 2 life for Phyrexian mana";
+
+/** Where each option is, when a choice mixes zones (Surgical Extraction: the copies in a hand, a
+    graveyard and a library look alike): "Hand", "Graveyard", "Library"… Undefined otherwise. */
+function optionZoneLabel(p: PendingActionView): ((c: CardView) => string) | undefined {
+  const zone = (id: string) => (p.optionZones[id] ?? "").toLowerCase();
+  if (new Set(p.optionCardIds.map(zone).filter(Boolean)).size < 2) return undefined;
+  return (c) => zone(c.id).replace(/_/g, " ").replace(/^w/, (ch) => ch.toUpperCase());
+}
+
+/** A division option's card or player key on the table (players are -(seat + 1)). */
+const divideKey = (id: string) => (isPlayerId(id) ? playerTargetKey(-Number(id) - 1) : id);
+
 /** Players appear among target options as -(seat + 1). */
 const isPlayerId = (id: string) => /^-\d+$/.test(id);
 
@@ -4173,9 +4325,10 @@ function promptTitle(state: GameState, m: Mode): { title: string; sub: string } 
     case "ORDER_BLOCKERS":
       return pick("Order Blockers", "Drag to set the damage order.");
     case "ASSIGN_DAMAGE":
+    case "DIVIDE_SHIELD": {
+      if (p.divide?.kind === "shield") return pick("Divide Shield Counters", "");
       return pick("Assign Combat Damage", "Divide the damage among the creatures blocking it.");
-    case "DIVIDE_SHIELD":
-      return pick("Divide Shield Counters", "");
+    }
     case "YES_NO":
       return pick(p.sourceCardName ?? "Decide", "");
     case "CHOOSE_COLOR":

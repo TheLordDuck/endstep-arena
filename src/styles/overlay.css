@@ -116,15 +116,17 @@ button {
   justify-content: space-between;
   gap: 8px;
 }
-.tools { display: flex; gap: 6px; }
-.tools button {
+.tools, .tools-row { display: flex; gap: 6px; }
+.tools-row { margin: 0 0 8px; }
+.tools button, .tools-row button {
   padding: 3px 8px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--bg-raised);
   font-size: 11px;
 }
-.tools button:hover { border-color: var(--gold); }
+.tools button:hover, .tools-row button:hover:not(:disabled) { border-color: var(--gold); }
+.tools-row button:disabled { opacity: 0.5; }
 
 .panel-body {
   flex: 1;

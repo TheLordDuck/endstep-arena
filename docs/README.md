@@ -2,7 +2,7 @@
 
 | File | Contents |
 | --- | --- |
-| [ENDSTEP_ANALYSIS.md](ENDSTEP_ANALYSIS.md) | How Endstep's client works: socket, state, actions, replays, disconnects, clocks, passing until, piles, sideboarding |
+| [ENDSTEP_ANALYSIS.md](ENDSTEP_ANALYSIS.md) | How Endstep's client works: socket, state, actions, replays, disconnects, clocks, passing until, piles, sideboarding, Phyrexian mana, divided damage |
 | [changelog.md](changelog.md) | What each work session changed, in order |
 | [testing.md](testing.md) | Testing the board without a match: harness scenarios, real clicks over CDP, unit tests |
 | [roadmap/](roadmap/README.md) | What's left to build, by phase; one file per feature with its status and approval |
@@ -15,3 +15,6 @@
 | [features/sideboarding.md](features/sideboarding.md) | Sideboarding between games on the board: deck by mana value, sideboard, click or drag |
 | [features/choose-pile.md](features/choose-pile.md) | Fact or Fiction's piles side by side with their cards |
 | [features/pass-until.md](features/pass-until.md) | Passing priority until combat, the end step, the opponent's end step or your next turn |
+| [features/phyrexian-mana.md](features/phyrexian-mana.md) | Paying Phyrexian mana with mana or 2 life, on the board |
+| [features/spell-damage-division.md](features/spell-damage-division.md) | A spell dividing its damage among its targets (Fireball, Arc Lightning), and its shares on the stack |
+| [features/unsupported-prompts.md](features/unsupported-prompts.md) | The log of prompts that step aside to Endstep's UI: debug panel and `.devlog` |

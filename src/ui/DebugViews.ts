@@ -3,6 +3,7 @@
 
 import type { CardView, GameEventEntry, GameState, PlayerView } from "../game/GameState";
 import type { NetworkEntry } from "./Overlay";
+import type { UnsupportedPrompt } from "../game/unsupportedPrompts";
 
 export const esc = (v: unknown): string =>
   String(v ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -81,7 +82,7 @@ export function renderState(state: GameState | null, socket: string): string {
   const pending = state.pending;
   const stack = state.stack
     .map((s, i) => `<li><span class="idx">${i}</span>${esc(s.name)}${s.isAbility ? ' <span class="flag">ability</span>' : ""}
-      <span class="muted">· ${n(s.controllerId)}${s.targets.length ? ` → ${s.targets.map((t) => esc(names.get(t) ?? t)).join(", ")}` : ""}</span></li>`)
+      <span class="muted">· ${n(s.controllerId)}${s.targets.length ? ` → ${s.targets.map((t) => `${s.divided?.[t] !== undefined ? `${esc(s.divided[t])} to ` : ""}${esc(names.get(t) ?? t)}`).join(", ")}` : ""}</span></li>`)
     .join("");
   const combat = [
     ...state.combat.attacks.map((l) => `<li><span class="flag atk">ATK</span> ${n(l.fromId)} → ${n(l.toId)}</li>`),
@@ -128,6 +129,19 @@ export function renderNetwork(entries: NetworkEntry[]): string {
     .map((e) => `<li class="${e.dir}"><span class="muted">${time(e.t)}</span> <span class="dir">${e.dir === "in" ? "↓" : "↑"}</span> <b>${esc(e.label)}</b>
       <span class="muted">${(e.bytes / 1024).toFixed(1)} KB</span>${e.detail ? `<code>${esc(JSON.stringify(e.detail))}</code>` : ""}</li>`)
     .join("")}</ul>`;
+}
+
+/** Prompts the board handed to Endstep's UI, most recent first, with what Endstep sent. */
+export function renderUnsupported(entries: UnsupportedPrompt[]): string {
+  const tools = `<p class="tools-row"><button data-action="copy-unsupported"${entries.length ? "" : " disabled"}>Copy all as JSON</button>
+    <button data-action="clear-unsupported"${entries.length ? "" : " disabled"}>Clear</button></p>`;
+  if (!entries.length) return `${tools}<p class="muted empty">No prompt has stepped aside to Endstep's UI yet. Every one that does is listed here, kept across matches.</p>`;
+  return `${tools}<ul class="log">${entries.map((e) => `<li>
+      <b>${esc(e.type)}</b>${e.contextType ? ` <span class="flag">${esc(e.contextType)}</span>` : ""}${e.sourceCardName ? ` · ${esc(e.sourceCardName)}` : ""}
+      <span class="muted">×${e.count} · last ${esc(new Date(e.last).toLocaleString([], { hour12: false }))}</span>
+      ${e.message ? `<div>${esc(e.message)}</div>` : ""}
+      <details><summary class="muted">pendingAction</summary><pre class="raw">${esc(e.sample)}</pre></details>
+    </li>`).join("")}</ul>`;
 }
 
 export function renderRaw(raw: unknown): string {

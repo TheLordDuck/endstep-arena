@@ -3,6 +3,7 @@
 //   frames.ndjson  every game socket frame (in/out), parsed
 //   state.json     latest normalized GameState
 //   raw.json       latest raw Endstep state (deltas applied)
+//   unsupported.ndjson  prompts the board handed to Endstep's UI (with their pendingAction)
 //   log.ndjson     everything else (hello, route changes, errors)
 import { createServer } from "node:http";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
@@ -33,6 +34,11 @@ createServer((req, res) => {
         case "state":
           writeFileSync(`${DIR}/state.json`, JSON.stringify(msg.data.state, null, 2));
           writeFileSync(`${DIR}/raw.json`, JSON.stringify(msg.data.raw, null, 2));
+          break;
+        // A prompt the board handed to Endstep's UI, with the pendingAction Endstep sent.
+        case "unsupported-prompt":
+          line("unsupported.ndjson", { t: msg.t, ...msg.data });
+          console.log(new Date(msg.t).toLocaleTimeString(), "unsupported prompt", msg.data.type, msg.data.sourceCardName ?? "");
           break;
         default:
           line("log.ndjson", msg);

@@ -38,6 +38,17 @@ Added later that day:
 | `sideboard` | Sideboarding before game 2: a 60-card Burn deck and 15-card sideboard |
 | `keywords` | Keyword boxes: hover Serra Angel (printed keywords, one lost) or Grizzly Bears (granted ones) |
 
+Added in the night session:
+
+| Scenario | Shows |
+| --- | --- |
+| `phyrexian` | Paying for Dismember: *Pay 2 life*, and your plate lit to pay life |
+| `fireball` | Arc Lightning dividing 3 damage among two creatures and the opponent, on the table (counters on the targets) |
+| `divided` | The same spell on the stack, each target's share on its arrow |
+| `self-discard` | Thoughtseize on yourself: your own hand in a fan |
+| `surgical` | Surgical Extraction: copies of Lightning Bolt in hand, graveyard and library, each labelled with its zone |
+| `surgical-target`, `surgical-grave`, `surgical-hand`, `surgical-hand-t`, `surgical-library` | Surgical Extraction step by step, as Endstep asks it: the target, then the copies in the graveyard, your hand (as a card or a target choice) and the library, each in its own fan |
+
 Older ones include `strike` (combat strike), `blocked`, `replay`, `reveal` and `control`.
 
 ## Real clicks over CDP
@@ -61,4 +72,4 @@ the repo; adding it to `tools/` is roadmap item
 pnpm test
 ```
 
-89 tests at the end of the 2026-10-07 evening session.
+97 tests at the end of the 2026-10-07 night session.
