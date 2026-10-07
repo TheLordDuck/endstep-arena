@@ -19,7 +19,7 @@ approved, rejected and marked done there. These files mirror its state as of
 
 ## Summary
 
-Awaiting approval: 12 · Approved: 3 · To do: 13 · Done: 2
+Awaiting approval: 12 · Approved: 3 · To do: 12 · Done: 3
 
 **Approved:**
 
@@ -33,7 +33,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 
 | Phase | Phase status | Done | Features by status |
 | --- | --- | --- | --- |
-| [Phase 0 · Finish open work](phase-0-finish-open-work/README.md) | **In progress** | 2/5 | To do: 3 · Done: 2 |
+| [Phase 0 · Finish open work](phase-0-finish-open-work/README.md) | **In progress** | 3/5 | To do: 2 · Done: 3 |
 | [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md) | **Not started** | 0/6 | Approved: 2 · To do: 4 |
 | [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **Not started** | 0/6 | Awaiting approval: 3 · Approved: 1 · To do: 2 |
 | [Phase 3 · Game information](phase-3-game-information/README.md) | **Not started** | 0/4 | Awaiting approval: 3 · To do: 1 |
@@ -42,13 +42,13 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 
 ## Progress by phase
 
-### [Phase 0 · Finish open work](phase-0-finish-open-work/README.md): In progress (2/5)
+### [Phase 0 · Finish open work](phase-0-finish-open-work/README.md): In progress (3/5)
 
 - [x] t0-1 · [Commit this session's changes](phase-0-finish-open-work/t0-1-commit-session-changes.md) — Done
 - [ ] t0-2 · [Verify in a real match](phase-0-finish-open-work/t0-2-verify-in-real-match.md) — To do
 - [ ] t0-3 · [Face-down card left under its holder](phase-0-finish-open-work/t0-3-face-down-card-left-on-table.md) — To do
 - [x] t0-4 · [Update the README](phase-0-finish-open-work/t0-4-update-readme.md) — Done
-- [ ] t0-5 · [Release 0.5.0](phase-0-finish-open-work/t0-5-release-0-5-0.md) — To do
+- [x] t0-5 · [Release 0.5.0](phase-0-finish-open-work/t0-5-release-0-5-0.md) — Done
 
 ### [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md): Not started (0/6)
 

@@ -2,10 +2,11 @@
 
 | | |
 | --- | --- |
-| Status | **To do** |
+| Status | **Done** |
 | Phase | [Phase 0 · Finish open work](README.md) |
 | Type | Technical |
 | Needs approval | No (marked done directly) |
+| Done on | 2026-10-07 |
 
 Bump the version in `public/manifest.json`, `pnpm run package`, GitHub release.
 
@@ -25,3 +26,4 @@ The latest release is 0.4.0.
 ## History
 
 - 2026-10-07: added to the roadmap.
+- 2026-10-07: done.
