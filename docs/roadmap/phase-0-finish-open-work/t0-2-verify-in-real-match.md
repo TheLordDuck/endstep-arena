@@ -2,10 +2,11 @@
 
 | | |
 | --- | --- |
-| Status | **To do** |
+| Status | **Done** |
 | Phase | [Phase 0 · Finish open work](README.md) |
 | Type | Fix |
 | Needs approval | No (marked done directly) |
+| Done on | 2026-10-07 |
 
 Play with `pnpm build:dev` and `pnpm dev-server` and check in `.devlog`: damage assignment, Thought-Knot Seer, a win in combat, the strike.
 
@@ -26,3 +27,4 @@ Everything from the 2026-10-07 session is tested in the harness and unit tests, 
 ## History
 
 - 2026-10-07: added to the roadmap.
+- 2026-10-07: done.
