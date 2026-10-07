@@ -1,5 +1,35 @@
 # Changelog
 
+## Session of 2026-10-07, evening
+
+On top of `368c60f Docs: roadmap, t0-2 done`. All 89 tests pass (11 new).
+
+1. **Sideboarding screen** (roadmap t1-1): sideboarding between games is done on the board, no
+   longer in Endstep's window. See [features/sideboarding.md](features/sideboarding.md).
+2. **Choosing a pile** (roadmap t1-4): Fact or Fiction's piles side by side with their cards; and
+   when an opponent casts it, you separate the cards into two piles (drag or click) instead of
+   picking cards from a fan. See [features/choose-pile.md](features/choose-pile.md).
+3. **Piles of four**: identical permanents (basic lands, tokens) pile up to four; more make
+   another pile beside it (9 Mountains: ×4, ×4 and one) instead of one tall pile
+   (`MAX_PILE` in `renderBattlefield()`). Harness: `#copies`.
+4. **Roadmap**: t0-2 (marked done by the user), t1-1 and t1-4 done in the tracker;
+   [roadmap/](roadmap/README.md) regenerated.
+
+### Files changed
+
+| File | Change |
+| --- | --- |
+| `src/game/GameState.ts` | `PileView`, `SideboardView`; `PendingActionView.piles` / `.sideboard` |
+| `src/game/endstep/normalize.ts` | `toPile()`, `toSideboard()`; `toPending()` gets the frame's skew and raw state |
+| `src/game/GameController.ts` | `submitSideboard()`, `withdrawSideboard()` |
+| `src/shared/protocol.ts` | `SIDEBOARD_SUBMIT`, `SIDEBOARD_WITHDRAW` allowed |
+| `src/ui/board/modes.ts` | Modes `piles` and `sideboard`, the sideboard's pure functions; `isPileSplit()` (separating piles shown as two piles) |
+| `src/ui/board/Board.ts` | `pilesBox()`, `sideboardBox()`, clicks and drags; `startTimerTicker()` |
+| `src/styles/board.css` | `.piles-pick`, `.pile-pick`, `.sb-*` |
+| `src/dev/harness.ts` | Scenarios `piles`, `split`, `sideboard`, `copies` |
+| `tests/piles-sideboard.test.ts` | New: 11 tests |
+| `docs/`, `README.md` | This documentation |
+
 ## Session of 2026-10-07, afternoon
 
 On top of `87da178 Docs: roadmap after the 0.5.0 release`. All 78 tests pass (20 new).

@@ -19,12 +19,10 @@ approved, rejected and marked done there. These files mirror its state as of
 
 ## Summary
 
-Awaiting approval: 6 · Approved: 6 · To do: 11 · Done: 7
+Awaiting approval: 6 · Approved: 4 · To do: 11 · Done: 11
 
 **Approved:**
 
-- [t1-1 · Sideboarding screen](phase-1-prompts-still-in-endstep/t1-1-sideboarding.md) (2026-10-07)
-- [t1-4 · Choosing a pile, with two visible piles](phase-1-prompts-still-in-endstep/t1-4-choose-pile.md) (2026-10-07)
 - [t2-1 · Spells travel when they resolve](phase-2-combat-and-effects/t2-1-spells-travel-on-resolve.md) (2026-10-07)
 - [t2-2 · Projectile to the target](phase-2-combat-and-effects/t2-2-projectile-to-target.md) (2026-10-07)
 - [t2-4 · Token entrance](phase-2-combat-and-effects/t2-4-token-entrance.md) (2026-10-07)
@@ -37,8 +35,8 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 | Phase | Phase status | Done | Features by status |
 | --- | --- | --- | --- |
 | [Phase 0 · Finish open work](phase-0-finish-open-work/README.md) | **In progress** | 4/5 | To do: 1 · Done: 4 |
-| [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md) | **Not started** | 0/6 | Approved: 2 · To do: 4 |
-| [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **Not started** | 0/6 | Approved: 4 · To do: 2 |
+| [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md) | **In progress** | 3/7 | To do: 4 · Done: 3 |
+| [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **In progress** | 1/7 | Approved: 4 · To do: 2 · Done: 1 |
 | [Phase 3 · Game information](phase-3-game-information/README.md) | **In progress** | 2/4 | Awaiting approval: 1 · To do: 1 · Done: 2 |
 | [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md) | **In progress** | 1/4 | Awaiting approval: 2 · To do: 1 · Done: 1 |
 | [Phase 5 · Modes and platform](phase-5-modes-and-platform/README.md) | **Not started** | 0/5 | Awaiting approval: 3 · To do: 2 |
@@ -53,16 +51,17 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t0-4 · [Update the README](phase-0-finish-open-work/t0-4-update-readme.md) — Done
 - [x] t0-5 · [Release 0.5.0](phase-0-finish-open-work/t0-5-release-0-5-0.md) — Done
 
-### [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md): Not started (0/6)
+### [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md): In progress (3/7)
 
-- [ ] t1-1 · [Sideboarding screen](phase-1-prompts-still-in-endstep/t1-1-sideboarding.md) — Approved
+- [x] t1-1 · [Sideboarding screen](phase-1-prompts-still-in-endstep/t1-1-sideboarding.md) — Done
 - [ ] t1-2 · [Paying Phyrexian mana](phase-1-prompts-still-in-endstep/t1-2-phyrexian-mana.md) — To do
 - [ ] t1-3 · [Log the prompts that step aside](phase-1-prompts-still-in-endstep/t1-3-log-prompts-that-step-aside.md) — To do
-- [ ] t1-4 · [Choosing a pile, with two visible piles](phase-1-prompts-still-in-endstep/t1-4-choose-pile.md) — Approved
+- [x] t1-4 · [Choosing a pile, with two visible piles](phase-1-prompts-still-in-endstep/t1-4-choose-pile.md) — Done
 - [ ] t1-5 · [Dividing spell damage](phase-1-prompts-still-in-endstep/t1-5-divide-spell-damage.md) — To do
 - [ ] t1-6 · [Check dividing shield counters](phase-1-prompts-still-in-endstep/t1-6-check-divide-shield.md) — To do
+- [x] t1-7 · [Separating cards into two piles](phase-1-prompts-still-in-endstep/t1-7-separate-piles.md) — Done
 
-### [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md): Not started (0/6)
+### [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md): In progress (1/7)
 
 - [ ] t2-1 · [Spells travel when they resolve](phase-2-combat-and-effects/t2-1-spells-travel-on-resolve.md) — Approved
 - [ ] t2-2 · [Projectile to the target](phase-2-combat-and-effects/t2-2-projectile-to-target.md) — Approved
@@ -70,6 +69,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [ ] t2-4 · [Token entrance](phase-2-combat-and-effects/t2-4-token-entrance.md) — Approved
 - [ ] t2-5 · [Animate counters and power/toughness](phase-2-combat-and-effects/t2-5-animate-counters.md) — Approved
 - [ ] t2-6 · [Commander damage on the player's picture](phase-2-combat-and-effects/t2-6-commander-damage.md) — To do
+- [x] t2-7 · [Piles of four identical cards](phase-2-combat-and-effects/t2-7-piles-of-four.md) — Done
 
 ### [Phase 3 · Game information](phase-3-game-information/README.md): In progress (2/4)
 

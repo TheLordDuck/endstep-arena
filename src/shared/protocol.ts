@@ -59,4 +59,6 @@ export const ALLOWED_ACTIONS = new Set([
   "ARRANGE_CARDS",
   // Conceding the game (or a best-of-three match), from the table menu, after confirming.
   "CONCEDE", "CONCEDE_MATCH",
+  // Sideboarding between games (Endstep's sideboard view): submit the main deck, or take it back.
+  "SIDEBOARD_SUBMIT", "SIDEBOARD_WITHDRAW",
 ]);

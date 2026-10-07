@@ -162,6 +162,17 @@ export class GameController {
     this.send({ type, stringValue: value });
   }
 
+  /** Sideboarding: the main deck, as the indexes of its cards in the prompt's list (Endstep's
+      sideboard view sends them in list order). */
+  submitSideboard(mainIndexes: number[]): void {
+    this.send({ type: "SIDEBOARD_SUBMIT", orderedCards: [...mainIndexes].sort((a, b) => a - b) });
+  }
+
+  /** Takes a submitted deck back to edit it again. */
+  withdrawSideboard(): void {
+    this.send({ type: "SIDEBOARD_WITHDRAW" });
+  }
+
   chooseNumber(value: number): void {
     this.send({ type: "CHOOSE_NUMBER", numberValue: value });
   }

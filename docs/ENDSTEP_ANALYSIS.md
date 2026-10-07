@@ -157,3 +157,24 @@ end step). While one is set, each priority prompt is answered with `PASS_PRIORIT
 its prompt version) until the mode's condition is met; any prompt other than `PRIORITY` cancels
 it. `prevEndStep` and `untilAction` add the stops they need to the `SET_PHASE_STOPS` they send
 (e.g. the opponent's `END_STEP`).
+
+## 8. Piles and sideboarding (from `GameView-CWl0Jtuj.js` / `SideboardViewBody-gdVnrTFx.js`, 2026-10-07)
+
+### `CHOOSE_PILE`
+
+The prompt carries `piles: [{ id, label, size, cards[] }]` (cards with `id`, `name`,
+`selectedSetCode`, `selectedCollectorNumber`); `size - cards.length` cards are face down to the
+viewer. Answer: `{ type: "CHOOSE_PILE", stringValue: <pile id> }`.
+
+### Sideboarding
+
+`CHOOSE_CARDS` with `contextType: "sideboard"`. `cardOptions` lists every card of the deck and
+sideboard (with `abilities[]` as rules text); `min` / `max` bound the main deck's size (Endstep
+falls back to 0 and the list's length); `sideboardState` is `{ mainCount, mode ("SIDEBOARD" |
+"COMMANDER_SWAP"), self, opponent ("EDITING" | "SUBMITTED"), sealed, deadlineMs }` (the deadline on
+the server's clock). The first `mainCount` (else `min`) cards start in the main deck.
+
+Answers: `{ type: "SIDEBOARD_SUBMIT", orderedCards: [<indexes in cardOptions of the main deck,
+ascending>] }`; `{ type: "DECLINE" }` keeps the registered deck ("Keep current");
+`{ type: "SIDEBOARD_WITHDRAW" }` takes a submitted deck back. The game number shown is
+`matchScore.gamesPlayed + 1` (or the sum of the players' wins + 1).

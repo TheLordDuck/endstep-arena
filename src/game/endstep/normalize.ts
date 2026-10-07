@@ -12,6 +12,8 @@ import type {
   GameState,
   IdleView,
   PendingActionView,
+  PileView,
+  SideboardView,
   PlayerView,
   RevealView,
   StackItemView,
@@ -29,7 +31,7 @@ const statValue = (v: unknown): number | string | undefined =>
 const KNOWN_TOP_LEVEL = new Set([
   "players", "stack", "pendingAction", "phase", "step", "activePlayerId", "priorityPlayerId",
   "turnNumber", "priorityPromptVersion", "sequenceNumber", "monarchPlayerId", "isDay", "isNight",
-  "clock", "idleTimeout", "status", "winnerId", "macro",
+  "clock", "idleTimeout", "status", "winnerId", "macro", "matchScore",
 ]);
 
 function toCounters(v: unknown): Record<string, number> {
@@ -234,7 +236,7 @@ function numberRange(v: Raw): { numberMin: number; numberMax: number; allowedNum
   return { numberMin: min, numberMax: Math.max(min, max), allowedNumbers: allowed };
 }
 
-function toPending(v: unknown): PendingActionView | null {
+function toPending(v: unknown, meta: Pick<FrameMeta, "serverSkew" | "frozen"> = {}, raw: Raw = {}): PendingActionView | null {
   if (!isObj(v)) return null;
   const options = arr(v.cardOptions).filter(isObj);
   const optionZones: Record<string, string> = {};
@@ -278,6 +280,47 @@ function toPending(v: unknown): PendingActionView | null {
     cancellable: v.cancellable === true,
     ...numberRange(v),
     ...(v.type === "ASSIGN_DAMAGE" || v.type === "DIVIDE_SHIELD" ? { divide: toDivide(v, options) } : {}),
+    ...(v.type === "CHOOSE_PILE" ? { piles: arr(v.piles).filter(isObj).map(toPile).filter((x): x is PileView => !!x) } : {}),
+    ...(v.type === "CHOOSE_CARDS" && v.contextType === "sideboard" ? { sideboard: toSideboard(v, options, meta, raw) } : {}),
+  };
+}
+
+/** A CHOOSE_PILE pile: { id, label, size, cards[] }, as Endstep's pile picker reads it. */
+function toPile(v: Raw): PileView | null {
+  const id = str(v.id);
+  if (!id) return null;
+  const cards = arr(v.cards).map(toCard).filter((c): c is CardView => c !== null);
+  return { id, label: str(v.label) ?? id, size: Math.max(num(v.size) ?? cards.length, cards.length), cards };
+}
+
+/** Sideboarding, as Endstep's sideboard view reads it: every card in cardOptions (the main deck
+    first), min/max for the main deck, and sideboardState { mainCount, mode, self, opponent,
+    deadlineMs }. Cards are kept by index, which is what the answer names. */
+function toSideboard(v: Raw, options: Raw[], meta: Pick<FrameMeta, "serverSkew" | "frozen">, raw: Raw): SideboardView {
+  const st = isObj(v.sideboardState) ? v.sideboardState : {};
+  const cards = options.map((o, i) => {
+    const c = toCard({ ...o, id: `sb:${i}` })!;
+    // Endstep lists a card's rules text as `abilities`.
+    const abilities = arr(o.abilities).map(str).filter((x): x is string => !!x);
+    return c.oracleText || !abilities.length ? c : { ...c, oracleText: abilities.join("\n") };
+  });
+  const min = num(v.min) ?? 0;
+  const deadline = num(st.deadlineMs);
+  const clock = isObj(raw.clock) ? raw.clock : {};
+  const serverNow = num(clock.serverNowMs);
+  const skew = meta.serverSkew ?? (serverNow !== undefined ? serverNow - Date.now() : 0);
+  const score = isObj(raw.matchScore) ? raw.matchScore : null;
+  const played = score ? num(score.gamesPlayed) ?? (num(score.player0Wins) ?? 0) + (num(score.player1Wins) ?? 0) : undefined;
+  return {
+    cards,
+    mainCount: Math.min(cards.length, num(st.mainCount) ?? min),
+    min,
+    max: num(v.max) ?? cards.length,
+    mode: str(st.mode) ?? "SIDEBOARD",
+    self: str(st.self) ?? "EDITING",
+    opponent: str(st.opponent) ?? "EDITING",
+    deadline: deadline !== undefined && !meta.frozen ? deadline - skew : undefined,
+    gameNumber: played !== undefined ? played + 1 : undefined,
   };
 }
 
@@ -404,7 +447,7 @@ export function normalize(raw: Raw, meta: FrameMeta): GameState {
     viewerHasPriority: priorityPlayerId === String(meta.viewerSeat),
     players,
     stack: arr(raw.stack).map(toStackItem).filter((s): s is StackItemView => s !== null),
-    pending: toPending(raw.pendingAction),
+    pending: toPending(raw.pendingAction, meta, raw),
     combat: combatOf(players),
     clock: toClock(raw.clock, meta),
     idle: toIdle(raw.idleTimeout, meta),

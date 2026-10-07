@@ -2531,3 +2531,134 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   .impact, .impact::after, .card.struck .face, .avatar.struck, .claws i, .card.charge .face, .dmg-pop,
   .card.fallen.dying, .card.fallen.dying::before, .side .slot.attacking::before, .side .slot.blocking::before { animation: none; }
 }
+
+/* ---------- Choosing a pile (Fact or Fiction…) ---------- */
+/* The piles side by side, each a framed panel with its cards; the one picked glows orange. */
+.piles-pick { display: flex; gap: 28px; justify-content: center; align-items: stretch; max-width: 92vw; }
+.pile-pick {
+  --cw: min(150px, 10vw, 24vh);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: calc(var(--cw) * 2.2);
+  max-width: 44vw;
+  padding: 0 18px 18px;
+  border: 1px solid rgba(232, 198, 120, 0.35);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.pile-pick:hover { border-color: var(--gold); background: rgba(232, 198, 120, 0.08); }
+.pile-pick.on { border-color: var(--picked); background: rgba(255, 138, 42, 0.12); box-shadow: 0 0 0 2px var(--picked), 0 0 30px rgba(255, 138, 42, 0.45); }
+.pl-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 -18px;
+  padding: 10px 18px 8px;
+  border-bottom: 1px solid;
+  border-image: linear-gradient(90deg, transparent, rgba(232, 198, 120, 0.6), transparent) 1;
+}
+.pl-head b { font: 600 clamp(18px, 1.8vw, 28px) / 1.1 "Cinzel", Georgia, serif; color: #f4eee2; }
+.pl-head span { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pl-cards { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; min-height: calc(var(--cw) * 1.4); align-content: center; }
+.pl-card {
+  width: var(--cw);
+  aspect-ratio: 63 / 88;
+  border-radius: calc(var(--cw) * 0.05);
+  overflow: hidden;
+  background: #1b1712;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.65);
+}
+.pl-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pl-card > span { display: block; padding: 10px; font-size: 13px; }
+.pl-empty { align-self: center; color: var(--muted); }
+
+/* ---------- Sideboarding ---------- */
+/* The main deck in columns by mana value, the sideboard in a column on the right; each stack of
+   copies shows the top of every card, with a count. Click or drag to move a card across. */
+.prompt.arena.sideboarding { justify-content: flex-start; gap: 12px; padding: 18px 24px 22px; }
+.sb-status { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 18px; font-size: 14px; color: #e6dcc8; font-variant-numeric: tabular-nums; }
+.sb-status > span { padding: 3px 12px; border-radius: 999px; background: rgba(14, 11, 9, 0.8); border: 1px solid var(--glass-line); }
+.sb-count { color: var(--gold-hi); font-weight: 700; }
+.sb-count.bad { color: #ffd2c8; border-color: rgba(255, 90, 60, 0.7) !important; }
+.sb-ready { color: #9be7a2; border-color: rgba(120, 220, 140, 0.55) !important; }
+.sb-timer::before { content: none !important; }
+.sb-board {
+  --cw: clamp(80px, min(10.5vw, 21vh), 170px);
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  gap: 18px;
+}
+.sb-zone {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 14px 14px;
+  border: 1px solid rgba(232, 198, 120, 0.35);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.sb-zone.main { flex: 1; min-width: 0; }
+.sb-zone.spare { flex: none; width: calc(var(--cw) * 1.25 + 30px); }
+.sb-zone.over { border-color: var(--gold-hi); background: rgba(232, 198, 120, 0.1); }
+.sb-zone h3 {
+  margin: 0 -14px 10px;
+  padding: 9px 14px 7px;
+  font: 600 clamp(16px, 1.5vw, 24px) / 1.1 "Cinzel", Georgia, serif;
+  text-align: center;
+  color: #f4eee2;
+  border-bottom: 1px solid;
+  border-image: linear-gradient(90deg, transparent, rgba(232, 198, 120, 0.6), transparent) 1;
+}
+.sb-zone h3 span, .sb-col h4 span { color: var(--gold); font-variant-numeric: tabular-nums; }
+.sb-cols { flex: 1; min-height: 0; display: flex; gap: 12px; justify-content: center; overflow: auto; }
+.sb-col { flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.sb-col h4 { margin: 0; font: 600 13px var(--font); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+/* Each card shows its top (name and cost); the last one in a column shows whole. */
+.sb-stack { display: flex; flex-direction: column; align-items: center; padding-bottom: 6px; }
+.sb-stack.spare { flex: 1; min-height: 0; overflow: auto; }
+.sb-card {
+  position: relative;
+  flex: none;
+  width: var(--cw);
+  aspect-ratio: 63 / 88;
+  padding: 0;
+  border: 0;
+  border-radius: calc(var(--cw) * 0.05);
+  background: #1b1712;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.6);
+  color: inherit;
+  cursor: grab;
+  touch-action: none;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.sb-card + .sb-card { margin-top: calc(var(--cw) * -1.1); }
+.sb-card:hover:not(:disabled) { transform: translateX(6px); z-index: 3; box-shadow: 0 0 0 2px var(--gold), 0 10px 22px rgba(0, 0, 0, 0.7); }
+.sb-card:disabled { cursor: default; }
+.sb-card.dragging { z-index: 20; cursor: grabbing; transition: none; transform: scale(1.06); box-shadow: 0 0 0 2px var(--target), 0 22px 40px rgba(0, 0, 0, 0.75); }
+.sb-card img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; display: block; }
+.sb-card > span { display: block; padding: 8px; font-size: 12px; text-align: left; }
+.sb-qty {
+  position: absolute;
+  top: calc(var(--cw) * 0.03);
+  right: calc(var(--cw) * -0.06);
+  min-width: 26px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font: 700 13px/1.4 var(--font);
+  color: #231a0c;
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+}
+.sb-empty { margin: auto; color: var(--muted); font-size: 13px; }
+.sb-board.submitted { opacity: 0.6; }
+.sb-actions { align-items: center; flex-wrap: wrap; }
+.sb-ask { margin: 0; font-size: 15px; color: #e6dcc8; }
+.sb-ask.bad { color: #ffb4a4; }

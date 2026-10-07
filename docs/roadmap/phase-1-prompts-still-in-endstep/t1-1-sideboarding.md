@@ -2,11 +2,13 @@
 
 | | |
 | --- | --- |
-| Status | **Approved** |
+| Status | **Done** |
 | Phase | [Phase 1 · Prompts still answered in Endstep's UI](README.md) |
 | Type | Feature |
 | Needs approval | Yes |
 | Approved on | 2026-10-07 |
+| Done on | 2026-10-07 |
+| Feature note | [sideboarding.md](../../features/sideboarding.md) |
 
 Between games, deck and sideboard side by side; drag cards from one to the other, as in Arena.
 
@@ -28,3 +30,4 @@ Between games of a best-of-three, the sideboarding prompt (`CHOOSE_CARDS` with `
 
 - 2026-10-07: added to the roadmap.
 - 2026-10-07: approved.
+- 2026-10-07: done.

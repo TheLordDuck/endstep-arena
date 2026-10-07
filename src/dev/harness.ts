@@ -343,6 +343,16 @@ const scenarios: Record<string, Scenario> = {
   },
   // A crowded board: creatures and lands shrink to fit their line, artifacts go in two rows,
   // planeswalkers/Sagas in a 3×2 grid, both paged with arrows.
+  // Many copies: nine Mountains and six Soldier tokens pile in fours.
+  copies: (s) => {
+    const [me] = players(s);
+    me!.battlefield = [
+      ...Array.from({ length: 9 }, () => land("Mountain")),
+      land("Island"), land("Island"),
+      ...Array.from({ length: 6 }, () => creature("Soldier", 1, 1, { isToken: true, tokenSetCode: "tdom", tokenCollectorNumber: "2", color: "W", basePower: 1, baseToughness: 1 })),
+      creature("Goblin Guide", 2, 2),
+    ];
+  },
   crowded: (s) => {
     const [me] = players(s);
     const creatures = ["Llanowar Elves", "Elvish Mystic", "Fyndhorn Elves", "Tarmogoyf", "Scavenging Ooze", "Grizzly Bears", "Goblin Guide",
@@ -506,6 +516,39 @@ const scenarios: Record<string, Scenario> = {
     byName(me!, "Tarmogoyf").oracleText = "Tarmogoyf's power is equal to the number of card types among cards in all graveyards and its toughness is equal to that number plus 1.";
     byName(me!, "Goblin Guide").oracleText = "Haste\nWhenever Goblin Guide attacks, defending player reveals the top card of their library. If it's a land card, that player puts it into their hand.";
     byName(opp!, "Vampire Nighthawk").oracleText = "Flying\nDeathtouch\nLifelink";
+  },
+  // Fact or Fiction: the opponent split five cards into two piles (one card face down to you).
+  piles: (s) => {
+    const c = (id: number, name: string, setCode?: string, n?: string) => ({ id, name, selectedSetCode: setCode, selectedCollectorNumber: n });
+    s.pendingAction = { type: "CHOOSE_PILE", promptVersion: 12, sourceCardId: 990, sourceCardName: "Fact or Fiction", message: "Choose a pile to put into your hand",
+      piles: [
+        { id: "A", label: "Pile 1", size: 2, cards: [c(991, "Counterspell"), c(992, "Snapcaster Mage")] },
+        { id: "B", label: "Pile 2", size: 3, cards: [c(993, "Island"), c(994, "Brainstorm")] },
+      ] };
+  },
+  // The opponent cast Fact or Fiction: you separate the top five cards of their library into two piles.
+  split: (s) => {
+    const names = ["Lightning Bolt", "Counterspell", "Island", "Snapcaster Mage", "Brainstorm"];
+    s.pendingAction = { type: "CHOOSE_CARDS", promptVersion: 13, sourceCardName: "Fact or Fiction", message: "Divide cards into two piles",
+      min: 0, max: 5, cardOptions: names.map((name, i) => ({ id: 980 + i, name, zone: "LIBRARY" })) };
+  },
+  // Sideboarding before game 2: a Burn deck (60) and its sideboard (15).
+  sideboard: (s) => {
+    const list: [number, string, string, string][] = [
+      [4, "Lightning Bolt", "{R}", "Instant"], [4, "Goblin Guide", "{R}", "Creature"], [4, "Monastery Swiftspear", "{R}", "Creature"],
+      [4, "Eidolon of the Great Revel", "{R}{R}", "Enchantment Creature"], [4, "Lava Spike", "{R}", "Sorcery"], [4, "Rift Bolt", "{2}{R}", "Sorcery"],
+      [4, "Skewer the Critics", "{2}{R}", "Sorcery"], [4, "Light Up the Stage", "{2}{R}", "Sorcery"], [4, "Boros Charm", "{R}{W}", "Instant"],
+      [4, "Lightning Helix", "{R}{W}", "Instant"], [8, "Mountain", "", "Basic Land"], [4, "Inspiring Vantage", "", "Land"],
+      [4, "Sacred Foundry", "", "Land"], [4, "Arid Mesa", "", "Land"],
+      // Sideboard.
+      [3, "Path to Exile", "{W}", "Instant"], [3, "Smash to Smithereens", "{1}{R}", "Instant"], [2, "Kor Firewalker", "{W}{W}", "Creature"],
+      [3, "Deflecting Palm", "{R}{W}", "Instant"], [4, "Searing Blood", "{R}{R}", "Instant"],
+    ];
+    const cardOptions = list.flatMap(([n, name, manaCost, typeLine]) =>
+      Array.from({ length: n }, () => ({ id: nextId++, name, manaCost, typeLine, types: typeLine.split(" ").filter((t) => t !== "Basic") })));
+    s.matchScore = { gamesPlayed: 1, player0Wins: 0, player1Wins: 1 };
+    s.pendingAction = { type: "CHOOSE_CARDS", contextType: "sideboard", promptVersion: 20, message: "Sideboard for game 2", min: 60, max: 999, cardOptions,
+      sideboardState: { mainCount: 60, mode: "SIDEBOARD", self: "EDITING", opponent: "SUBMITTED", deadlineMs: Date.now() + 154_000 } };
   },
   order: (s) => {
     s.pendingAction = { type: "ORDER_ABILITIES", promptVersion: 9, message: "Order your triggered abilities",

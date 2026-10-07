@@ -2,11 +2,13 @@
 
 | | |
 | --- | --- |
-| Status | **Approved** |
+| Status | **Done** |
 | Phase | [Phase 1 · Prompts still answered in Endstep's UI](README.md) |
 | Type | Feature |
 | Needs approval | Yes |
 | Approved on | 2026-10-07 |
+| Done on | 2026-10-07 |
+| Feature note | [choose-pile.md](../../features/choose-pile.md) |
 
 Fact or Fiction and the like (`CHOOSE_PILE`): the cards in two piles to pick one from, instead of buttons.
 
@@ -27,3 +29,4 @@ Fact or Fiction and the like (`CHOOSE_PILE`) are answered with text buttons.
 
 - 2026-10-07: added to the roadmap.
 - 2026-10-07: approved.
+- 2026-10-07: done.

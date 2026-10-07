@@ -4,10 +4,10 @@
 // All game actions go through GameController; this file never talks to
 // Endstep directly.
 
-import type { AbilityOption, CardView, DivideView, GameState, PendingActionView, PlayerView, StackItemView } from "../../game/GameState";
+import type { AbilityOption, CardView, DivideView, GameState, PendingActionView, PileView, PlayerView, SideboardView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
 import { CARD_BACK_URL, chosenLabels, createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
-import { arrangeMove, canConfirm, clickInMode, defenderForKey, deriveMode, divideLeft, divideLocked, divideStart, divideStep, humanize, keyForDefender, learnStep, promptKey, stepNumber, type Mode } from "./modes";
+import { arrangeMove, canConfirm, clickInMode, deckColumns, defenderForKey, deriveMode, divideLeft, divideLocked, divideStart, divideStep, humanize, keyForDefender, learnStep, promptKey, sideboardChanged, sideboardCheck, sideboardMove, sideboardStacks, stepNumber, type Mode, type SideboardStack } from "./modes";
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
 import { currentStep, stepIndex, stepLabel, TURN_STEPS } from "./phases";
 import type { PhaseStops, StopSide } from "../../game/endstep/phaseStops";
@@ -40,6 +40,8 @@ const PROMPT_KEY = "prompt";
 const ENDSTEP_LOGO = `<img class="logo" src="/favicon.svg" alt="" draggable="false">`;
 /** Clear space (px) kept around each player's avatar, so no card sits under it. */
 const AVATAR_CLEARANCE = 16;
+/** Identical permanents pile up to this many; more make another pile beside it. */
+const MAX_PILE = 4;
 /** Space between an enlarged card and its keyword boxes (px, as in the CSS). */
 const KW_GAP = 10;
 
@@ -182,6 +184,8 @@ export class Board {
   private handHover: string | null = null;
   /** The same for a card fan (a pile being looked at, cards to choose from): the fan and the card's place in it. */
   private fanHover: { key: string; index: number } | null = null;
+  /** Sideboarding: a card being dragged between the main deck and the sideboard. */
+  private sbDrag: { el: HTMLElement; startX: number; startY: number; toMain: boolean; index: number; active: boolean } | null = null;
   /** Scry/surveil: a card being dragged between the piles. */
   private arrDrag: { id: string; startX: number; startY: number; el: HTMLElement; active: boolean } | null = null;
   private arrowsTimer = 0;
@@ -272,7 +276,10 @@ export class Board {
     const key = promptKey(state);
     if (key !== this.modeKey) {
       this.modeKey = key;
-      this.mode = deriveMode(state);
+      const next = deriveMode(state);
+      // A reissued sideboarding prompt (the opponent submitted, time ticks…) keeps your changes.
+      const was = this.mode;
+      this.mode = was.kind === "sideboard" && next.kind === "sideboard" && was.deck === next.deck ? { ...next, main: was.main } : next;
       this.peeking = false;
       this.localWheel = null;
       this.abilityPick = null;
@@ -750,7 +757,13 @@ export class Board {
       if (unit) unit.push(c);
       else units.set(key, [c]);
     }
+    // Many copies (basic lands, tokens) make several piles of up to four, side by side, instead
+    // of one tall pile.
+    const piles: [string, CardView[]][] = [];
     for (const [key, unit] of units) {
+      for (let i = 0; i < unit.length; i += MAX_PILE) piles.push([i ? `${key}#${i / MAX_PILE}` : key, unit.slice(i, i + MAX_PILE)]);
+    }
+    for (const [key, unit] of piles) {
       const c = unit[0]!;
       const slotKey = unit.length > 1 ? `grp:${key}` : c.id;
       let slot = this.slotEls.get(slotKey);
@@ -1394,16 +1407,21 @@ export class Board {
       updateConn(conn);
     }
     this.renderTimers(orb, p, state);
-    if (this.el.querySelector(TIMERS)) {
-      this.timerTicker ||= window.setInterval(() => {
-        const tags = this.el.querySelectorAll<HTMLElement>(TIMERS);
-        tags.forEach(updateTimer);
-        if (!tags.length) {
-          clearInterval(this.timerTicker);
-          this.timerTicker = 0;
-        }
-      }, 250);
-    }
+    this.startTimerTicker();
+  }
+
+  /** Keeps the countdowns on the board up to date while there are any. */
+  private startTimerTicker(): void {
+    if (this.timerTicker || !this.el.querySelector(TIMERS)) return;
+    this.el.querySelectorAll<HTMLElement>(TIMERS).forEach(updateTimer);
+    this.timerTicker = window.setInterval(() => {
+      const tags = this.el.querySelectorAll<HTMLElement>(TIMERS);
+      tags.forEach(updateTimer);
+      if (!tags.length) {
+        clearInterval(this.timerTicker);
+        this.timerTicker = 0;
+      }
+    }, 250);
   }
 
   /** The player's match clock (when the match has one) and, while they're taking too long, the
@@ -1733,7 +1751,7 @@ export class Board {
         const { title, sub } = promptTitle(state, m);
         // A question from a card (a trigger's yes/no, a color, a number…) shows that card beside
         // the options. Modes, orders and pickers show their own cards.
-        const own = m.kind === "order" || m.kind === "divide" || p.type === "MULLIGAN" || p.type === "CHOOSE_MODE" || p.type === "CHOOSE_ABILITY";
+        const own = m.kind === "order" || m.kind === "divide" || m.kind === "sideboard" || m.kind === "piles" || p.type === "MULLIGAN" || p.type === "CHOOSE_MODE" || p.type === "CHOOSE_ABILITY";
         const srcCard = own ? undefined : this.sourceCard(p);
         const url = srcCard ? imageUrl(srcCard) : null;
         // Scry/surveil show the card that did it on the right, as Arena does.
@@ -1748,7 +1766,7 @@ export class Board {
     }
     // Never rebuild the order box under a tile being dragged. Reordering the same box only
     // moves its tiles, so the list doesn't jump (or replay its entrance) on every move.
-    if (box.dataset.sig !== html && !this.orderDrag?.active && !this.arrDrag?.active) {
+    if (box.dataset.sig !== html && !this.orderDrag?.active && !this.arrDrag?.active && !this.sbDrag?.active) {
       box.dataset.sig = html;
       // The damage box keeps its cards too: only the amounts change.
       const divideBox = m.kind === "divide" && box.dataset.orderKey === this.modeKey ? box.querySelector<HTMLElement>(".divide-box") : null;
@@ -1767,6 +1785,8 @@ export class Board {
     box.classList.toggle("show", html !== "");
     box.classList.toggle("center", controls !== "");
     box.classList.toggle("arena", arena);
+    box.classList.toggle("sideboarding", m.kind === "sideboard");
+    this.startTimerTicker();
     if (this.promptStackKey !== stackKey) {
       if (this.promptStackKey) this.cardEls.get(this.promptStackKey)?.classList.remove("asking");
       this.promptStackKey = stackKey;
@@ -1792,6 +1812,81 @@ export class Board {
     </button>`;
   }
 
+  /** Fact or Fiction and the like: the piles side by side, each with its cards (face down where
+      you can't see them). Click a pile, then take it. */
+  private pilesBox(piles: PileView[], m: Extract<Mode, { kind: "piles" }>): string {
+    const pile = (pl: PileView) => {
+      for (const c of pl.cards) this.cardData.set(c.id, c);
+      const faces = pl.cards.map((c) => {
+        const url = imageUrl(c, "large");
+        return `<div class="pl-card" data-zoom="${esc(c.id)}">${url ? `<img src="${esc(url)}" alt="${esc(c.name)}" draggable="false">` : `<span>${esc(c.name)}</span>`}</div>`;
+      });
+      const backs = Array.from({ length: pl.size - pl.cards.length }, () => `<div class="pl-card back"><img src="${esc(CARD_BACK_URL)}" alt="Face-down card" draggable="false"></div>`);
+      const cards = [...faces, ...backs].join("");
+      return `<button class="pile-pick${m.selected === pl.id ? " on" : ""}" data-pile="${esc(pl.id)}">
+        <div class="pl-head"><b>${esc(pl.label)}</b><span>${pl.size} card${pl.size === 1 ? "" : "s"}</span></div>
+        <div class="pl-cards">${cards || '<i class="pl-empty">Empty pile</i>'}</div></button>`;
+    };
+    const chosen = piles.find((pl) => pl.id === m.selected);
+    return `<div class="piles-pick">${piles.map(pile).join("")}</div>
+      <div class="choices big"><button class="opt primary" data-pile-take ${chosen && !this.awaiting ? "" : "disabled"}>${esc(chosen ? `Take ${chosen.label}` : "Choose a pile")}</button></div>`;
+  }
+
+  /** Sideboarding, Arena style: the main deck in columns by mana value (lands last), the
+      sideboard in a column on the right. Click a card (Shift: every copy) or drag it to move it
+      across; Confirm sends the main deck. */
+  private sideboardBox(sb: SideboardView, m: Extract<Mode, { kind: "sideboard" }>): string {
+    for (const c of sb.cards) this.cardData.set(c.id, c);
+    const submitted = sb.self === "SUBMITTED";
+    const sideLabel = sb.mode === "COMMANDER_SWAP" ? "Commanders" : "Sideboard";
+    const check = sideboardCheck(sb, m.main);
+    const off = submitted || this.awaiting ? "disabled" : "";
+    const stack = (st: SideboardStack, toMain: boolean, i: number) => {
+      const url = imageUrl(st.card, "large");
+      return `<button class="sb-card" data-sb-move="${toMain ? "main" : "side"}" data-sb-idx="${st.indexes.join(",")}" data-zoom="${esc(st.card.id)}" style="--i: ${i}" ${off}>
+        ${url ? `<img src="${esc(url)}" alt="${esc(st.name)}" draggable="false">` : `<span>${esc(st.name)}</span>`}
+        ${st.indexes.length > 1 ? `<b class="sb-qty">×${st.indexes.length}</b>` : ""}</button>`;
+    };
+    const count = (stacks: SideboardStack[]) => stacks.reduce((n, st) => n + st.indexes.length, 0);
+    const columns = deckColumns(sideboardStacks(sb, m.main, true)).map((col) => `<div class="sb-col">
+        <h4>${esc(col.label)} <span>${count(col.stacks)}</span></h4>
+        <div class="sb-stack">${col.stacks.map((st, i) => stack(st, false, i)).join("")}</div></div>`).join("");
+    const side = sideboardStacks(sb, m.main, false);
+    const opp = sb.opponent === "SUBMITTED" ? '<span class="sb-ready">Opponent ready</span>' : "<span>Opponent editing…</span>";
+    const problem = check.short ? ` · ${check.short} short` : check.over ? ` · ${check.over} over` : "";
+    const status = `<div class="sb-status">
+        <span class="sb-count${check.ok ? "" : " bad"}">Main ${check.size}${sb.min ? `/${sb.min}` : ""}${problem}</span>
+        <span>${esc(sideLabel)} ${sb.cards.length - check.size}</span>${opp}
+        ${sb.deadline !== undefined ? `<span class="mclock sb-timer running" role="timer" data-deadline="${sb.deadline}" title="Time left to sideboard"></span>` : ""}</div>`;
+    let buttons: string;
+    if (m.discarding) {
+      buttons = `<p class="sb-ask">Discard your changes? Your main deck goes back to the ${sb.mainCount} cards you registered.</p>
+        <button class="opt alt" data-sb="back">Go back</button><button class="opt primary" data-sb="discard" ${this.awaiting ? "disabled" : ""}>Discard changes</button>`;
+    } else if (submitted) {
+      buttons = `<p class="sb-ask">Submitted. Waiting for your opponent.</p><button class="opt primary" data-sb="withdraw" ${this.awaiting ? "disabled" : ""}>Withdraw</button>`;
+    } else {
+      const why = check.short ? `Move ${check.short} more in from the ${sideLabel.toLowerCase()}.` : check.over ? `Move ${check.over} out to the ${sideLabel.toLowerCase()}.` : "";
+      buttons = `${why ? `<p class="sb-ask bad">${esc(why)}</p>` : ""}<button class="opt alt" data-sb="keep" ${off}>Keep current</button>
+        <button class="opt primary" data-sb="confirm" ${off || (check.ok ? "" : "disabled")}>Confirm</button>`;
+    }
+    return `${status}
+      <div class="sb-board${submitted ? " submitted" : ""}">
+        <section class="sb-zone main" data-sb-drop="main"><h3>Main deck <span>${check.size}</span></h3><div class="sb-cols">${columns || '<i class="sb-empty">Drag cards here</i>'}</div></section>
+        <section class="sb-zone spare" data-sb-drop="side"><h3>${esc(sideLabel)} <span>${sb.cards.length - check.size}</span></h3>
+          <div class="sb-stack spare">${side.map((st, i) => stack(st, true, i)).join("") || '<i class="sb-empty">Drag cards here</i>'}</div></section>
+      </div>
+      <div class="choices big sb-actions">${buttons}</div>`;
+  }
+
+  /** Moves a card (Shift: every copy) to the other side of the sideboarding screen. */
+  private sideboardClick(btn: HTMLElement, all: boolean): boolean {
+    const m = this.mode;
+    if (m.kind !== "sideboard" || !btn.dataset.sbMove || this.awaiting) return false;
+    const indexes = btn.dataset.sbIdx!.split(",").map(Number);
+    this.setMode({ ...m, main: sideboardMove(m.main, all ? indexes : [indexes.at(-1)!], btn.dataset.sbMove === "main") });
+    return true;
+  }
+
   /** Scry/surveil in two piles, Arena style: the other pile (graveyard or bottom) on the left,
       the top of the library on the right (leftmost = next card). Click a card to move it
       across, or drag it (also to reorder). Other arrangements are one ordered row. */
@@ -1808,10 +1903,11 @@ export class Board {
       <h3>${esc(label)}</h3>
       <div class="arr-row" style="--n: ${Math.max(1, ids.length)}">${ids.map((id, i) => tile(id, i, key === "top")).join("") || '<div class="arr-empty">Drag cards here</div>'}</div>
     </section>`;
-    const trayLabel = m.context === "surveil" ? "Graveyard" : "Bottom of Library";
-    const topLabel = m.pick ? "Hand" : m.hasTray ? (m.context === "surveil" ? "Library" : "Top of Library") : m.context === "library_top" ? "Top of Library" : "Order";
+    const piles = m.context === "piles";
+    const trayLabel = piles ? "Pile 1" : m.context === "surveil" ? "Graveyard" : "Bottom of Library";
+    const topLabel = piles ? "Pile 2" : m.pick ? "Hand" : m.hasTray ? (m.context === "surveil" ? "Library" : "Top of Library") : m.context === "library_top" ? "Top of Library" : "Order";
     const ready = !m.pick || (m.tray.length >= m.pick.min && m.tray.length <= m.pick.max);
-    const done = m.pick ? `Done · ${m.tray.length}/${m.pick.max}` : "Done";
+    const done = piles ? `Done · ${m.tray.length} | ${m.top.length}` : m.pick ? `Done · ${m.tray.length}/${m.pick.max}` : "Done";
     return `<div class="arrange${m.hasTray ? " two" : ""}">
         ${m.hasTray ? zone("tray", trayLabel, m.tray) : ""}${zone("top", topLabel, m.top)}
       </div>
@@ -2221,6 +2317,8 @@ export class Board {
   private choiceControls(state: GameState): string {
     const p = state.pending!;
     const m = this.mode;
+    if (m.kind === "piles" && p.piles) return this.pilesBox(p.piles, m);
+    if (m.kind === "sideboard" && p.sideboard) return this.sideboardBox(p.sideboard, m);
     if (this.choiceInFan(p)) {
       // Cards from a library, graveyard or exile: an Arena fan to pick from (orange = picked).
       // Its buttons go under the fan, side by side: Cancel (when the choice can be declined) and Submit.
@@ -3156,6 +3254,7 @@ export class Board {
     if (btn?.dataset.act) return this.onDockAction(btn.dataset.act);
     if (btn?.dataset.focus) { this.focusedOpp = btn.dataset.focus; this.render(state); return; }
     if (btn && this.divideButton(btn, e.ctrlKey || e.metaKey)) return;
+    if (btn && this.sideboardClick(btn, e.shiftKey)) return;
     if (this.handlePromptButton(btn)) return;
     if (btn?.classList.contains("pile")) return this.openViewer(btn.dataset.player!, btn.dataset.zone!);
     const menuItem = t.closest<HTMLElement>("[data-menu]");
@@ -3340,6 +3439,37 @@ export class Board {
       const type = p.type === "CHOOSE_ABILITY" || p.type === "YES_NO" || p.type === "MULLIGAN" ? null : p.type;
       if (!type) return false;
       c.chooseString(type as "CHOOSE_COLOR", d.string);
+    } else if (d.pile !== undefined && m.kind === "piles") {
+      this.setMode({ ...m, selected: d.pile });
+      return true;
+    } else if (d.pileTake !== undefined && m.kind === "piles") {
+      if (!m.selected) return true;
+      c.chooseString("CHOOSE_PILE", m.selected);
+    } else if (d.sb !== undefined && m.kind === "sideboard" && p.sideboard) {
+      const sb = p.sideboard;
+      switch (d.sb) {
+        case "confirm":
+          if (!sideboardCheck(sb, m.main).ok) return true;
+          c.submitSideboard([...m.main]);
+          break;
+        case "keep":
+          // Keeping the registered deck throws your changes away: asked first.
+          if (sideboardChanged(sb, m.main)) { this.setMode({ ...m, discarding: true }); return true; }
+          c.decline();
+          break;
+        case "back":
+          this.setMode({ ...m, discarding: false });
+          return true;
+        case "discard":
+          this.setMode({ ...m, discarding: false });
+          c.decline();
+          break;
+        case "withdraw":
+          c.withdrawSideboard();
+          break;
+        default:
+          return true;
+      }
     } else if (d.arr !== undefined && m.kind === "arrange") {
       // A click sends the card to the other pile.
       this.setMode(arrangeMove(m, d.arr, m.top.includes(d.arr) ? "tray" : "top"));
@@ -3371,6 +3501,13 @@ export class Board {
     if (e.button === 0 && tile && !t.closest("button") && this.mode.kind === "order" && !this.awaiting) {
       e.preventDefault();
       this.orderDrag = { id: tile.dataset.orderId!, startX: e.clientX, active: false, tiles: [], ids: [], centers: [], step: 0, from: 0, to: 0 };
+      return;
+    }
+    const sbCard = t.closest<HTMLElement>(".sb-card[data-sb-move]");
+    if (e.button === 0 && sbCard && !(sbCard as HTMLButtonElement).disabled && this.mode.kind === "sideboard" && !this.awaiting) {
+      e.preventDefault();
+      const index = Number(sbCard.dataset.sbIdx!.split(",").at(-1));
+      this.sbDrag = { el: sbCard, startX: e.clientX, startY: e.clientY, toMain: sbCard.dataset.sbMove === "main", index, active: false };
       return;
     }
     const arr = t.closest<HTMLElement>(".arr-card[data-arr]");
@@ -3419,6 +3556,14 @@ export class Board {
     return true;
   }
 
+  /** The sideboarding side (main deck or sideboard) under the pointer. */
+  private sbZoneAt(x: number, y: number): HTMLElement | undefined {
+    return [...this.el.querySelectorAll<HTMLElement>(".sb-zone")].find((z) => {
+      const r = z.getBoundingClientRect();
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    });
+  }
+
   /** The scry/surveil pile under the pointer. */
   private arrZoneAt(x: number, y: number): HTMLElement | undefined {
     return [...this.el.querySelectorAll<HTMLElement>(".arr-zone")].find((z) => {
@@ -3434,6 +3579,21 @@ export class Board {
     if (this.aimSource()) {
       cancelAnimationFrame(this.aimFrame);
       this.aimFrame = requestAnimationFrame(() => this.drawArrows());
+    }
+    const sd = this.sbDrag;
+    if (sd) {
+      const dx = e.clientX - sd.startX;
+      const dy = e.clientY - sd.startY;
+      if (!sd.active && Math.hypot(dx, dy) < 6) return;
+      if (!sd.active) {
+        sd.active = true;
+        sd.el.classList.add("dragging");
+        this.hideZoom();
+      }
+      sd.el.style.translate = `${dx}px ${dy}px`;
+      const over = this.sbZoneAt(e.clientX, e.clientY);
+      for (const z of this.el.querySelectorAll<HTMLElement>(".sb-zone")) z.classList.toggle("over", z === over && (z.dataset.sbDrop === "main") === sd.toMain);
+      return;
     }
     const ad = this.arrDrag;
     if (ad) {
@@ -3491,6 +3651,21 @@ export class Board {
   }
 
   private onPointerUp(e: PointerEvent): void {
+    const sd = this.sbDrag;
+    this.sbDrag = null;
+    if (sd) {
+      // A press without a drag is a click (handled by onClick).
+      if (!sd.active) return;
+      this.suppressClickUntil = performance.now() + 250;
+      sd.el.classList.remove("dragging");
+      sd.el.style.translate = "";
+      for (const z of this.el.querySelectorAll(".sb-zone")) z.classList.remove("over");
+      const m = this.mode;
+      const zone = this.sbZoneAt(e.clientX, e.clientY);
+      if (m.kind === "sideboard" && zone && (zone.dataset.sbDrop === "main") === sd.toMain) this.setMode({ ...m, main: sideboardMove(m.main, [sd.index], sd.toMain) });
+      else if (this.state) this.render(this.state);
+      return;
+    }
     const ad = this.arrDrag;
     this.arrDrag = null;
     if (ad) {
@@ -3832,7 +4007,7 @@ function sessionStore(): Storage | undefined {
 
 /** "Lost connection · concedes in 1:23", or "· waiting to reconnect" with no deadline (as Endstep says it). */
 /** The countdowns the timer ticker keeps up to date. */
-const TIMERS = ".conn, .timers .mclock:not([hidden]), .timers .idle:not([hidden])";
+const TIMERS = ".conn, .timers .mclock:not([hidden]), .timers .idle:not([hidden]), .sb-timer";
 
 /** m:ss (h:mm:ss from an hour), rounded down as Endstep's clock shows it. */
 export function clockText(ms: number): string {
@@ -3961,6 +4136,14 @@ function promptTitle(state: GameState, m: Mode): { title: string; sub: string } 
   const msg = p.message ?? "";
   // A message that only repeats the heading isn't worth a second line.
   const pick = (title: string, fallback: string) => ({ title, sub: msg && msg.toLowerCase() !== title.toLowerCase() ? msg : fallback });
+  if (m.kind === "sideboard" && p.sideboard) {
+    const sb = p.sideboard;
+    if (sb.mode === "COMMANDER_SWAP") return { title: "Choose Commanders", sub: msg || "Click or drag cards between your main deck and your commanders." };
+    return { title: sb.gameNumber ? `Sideboarding for Game ${sb.gameNumber}` : "Sideboarding", sub: "Click or drag cards between your main deck and sideboard. Shift-click moves every copy." };
+  }
+  if (m.kind === "arrange" && m.context === "piles") {
+    return { title: "Separate into Piles", sub: `Drag or click cards to put them in pile 1 or pile 2${p.sourceCardName ? ` for ${p.sourceCardName}` : ""}. Then a pile is chosen.` };
+  }
   if (m.kind === "arrange" && m.pick) {
     const n = m.pick.max;
     return { title: "Mulligan", sub: `Choose ${n} card${n === 1 ? "" : "s"} to put on the bottom of your library. Drag or click cards to move them.` };
@@ -3981,6 +4164,8 @@ function promptTitle(state: GameState, m: Mode): { title: string; sub: string } 
         : ["Arrange Cards", "Drag to set the order. The leftmost comes first."];
       return { title: msg.toLowerCase().startsWith(base.toLowerCase()) ? msg : base, sub };
     }
+    case "CHOOSE_PILE":
+      return pick("Choose a Pile", "Click a pile, then take it.");
     case "ORDER_ABILITIES":
       return pick("Order Triggers", "Drag to set the order. The leftmost resolves first.");
     case "ORDER_ATTACKERS":

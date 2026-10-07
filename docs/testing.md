@@ -32,6 +32,10 @@ Added later that day:
 | --- | --- |
 | `clock` | A timed match: your clock running, and your idle timer in its last stretch |
 | `clock-opp` | The opponent's clock running low while they decide |
+| `piles` | Fact or Fiction: two piles, one card face down |
+| `copies` | Nine Mountains and six Soldier tokens, piled in fours |
+| `split` | The opponent's Fact or Fiction: you separate five cards into two piles |
+| `sideboard` | Sideboarding before game 2: a 60-card Burn deck and 15-card sideboard |
 | `keywords` | Keyword boxes: hover Serra Angel (printed keywords, one lost) or Grizzly Bears (granted ones) |
 
 Older ones include `strike` (combat strike), `blocked`, `replay`, `reveal` and `control`.
@@ -57,4 +61,4 @@ the repo; adding it to `tools/` is roadmap item
 pnpm test
 ```
 
-78 tests at the end of the 2026-10-07 afternoon session.
+89 tests at the end of the 2026-10-07 evening session.

@@ -2,7 +2,7 @@
 // Pure functions: the Board keeps one Mode and swaps it on each click.
 
 import { playerTargetKey } from "../../game/GameController";
-import type { DivideView, GameState, ModeOption, PendingActionView } from "../../game/GameState";
+import type { CardView, DivideView, GameState, ModeOption, PendingActionView, SideboardView } from "../../game/GameState";
 
 export type Mode =
   | { kind: "idle" }
@@ -30,6 +30,11 @@ export type Mode =
   | { kind: "arrange"; top: string[]; tray: string[]; hasTray: boolean; context: string; pick?: { min: number; max: number } }
   /** Combat damage (or shield counters) divided among blockers: the amount on each option. */
   | { kind: "divide"; amounts: number[] }
+  /** Fact or Fiction and the like: the piles side by side, one picked, then taken. */
+  | { kind: "piles"; selected: string | null }
+  /** Sideboarding: the indexes (in the prompt's list) of the cards in the main deck; `deck` tells
+      the same deck apart when the prompt is reissued; `discarding` asks before throwing changes away. */
+  | { kind: "sideboard"; main: Set<number>; deck: string; discarding: boolean }
   /** Answered from the prompt panel (modes, colors, numbers, yes/no, mulligan). */
   | { kind: "choice"; selectedModes: number[]; number: number }
   /** Not supported by the Arena UI yet: hand the prompt to Endstep's own UI. */
@@ -83,7 +88,16 @@ export function deriveMode(state: GameState | null): Mode {
       return { kind: "targets", valid, selected: [], min: p.min, max: p.max, mandatory: p.mandatory };
     }
     case "CHOOSE_CARDS": {
-      if (p.contextType === "sideboard") return { kind: "classic", reason: "Sideboarding" };
+      if (p.contextType === "sideboard") {
+        if (!p.sideboard?.cards.length) return { kind: "classic", reason: "Sideboarding" };
+        return { kind: "sideboard", main: sideboardStart(p.sideboard), deck: deckKey(p.sideboard), discarding: false };
+      }
+      if (isPileSplit(p)) {
+        // The cards picked make pile 1, the rest pile 2: shown as the two piles.
+        const n = p.optionCardIds.length;
+        const pick = { min: Math.min(p.min, n), max: p.max > 0 ? Math.min(p.max, n) : n };
+        return { kind: "arrange", top: [...p.optionCardIds], tray: [], hasTray: true, context: "piles", pick };
+      }
       if (isBottomFromHand(state, p)) {
         const pick = { min: Math.min(p.min, p.optionCardIds.length), max: Math.max(p.min, p.max) };
         return { kind: "arrange", top: [...p.optionCardIds], tray: [], hasTray: true, context: "mulligan", pick };
@@ -126,6 +140,9 @@ export function deriveMode(state: GameState | null): Mode {
     case "DIVIDE_SHIELD":
       if (!p.divide?.options.length) return { kind: "classic", reason: humanize(p.type) };
       return { kind: "divide", amounts: divideStart(p.divide) };
+    case "CHOOSE_PILE":
+      if (p.piles?.length) return { kind: "piles", selected: null };
+      return { kind: "choice", selectedModes: [], number: p.min };
     default:
       if (CHOICE_TYPES.has(p.type)) return { kind: "choice", selectedModes: [], number: p.type === "CHOOSE_NUMBER" ? p.numberMin : p.min };
       if (p.type === "CHOOSE_CARD_NAME" && p.stringOptions.length > 0) return { kind: "choice", selectedModes: [], number: 0 };
@@ -197,6 +214,20 @@ export function divideSet(d: DivideView, amounts: number[], i: number, n: number
 }
 
 /** Cards from your hand to put on the bottom of your library (the London mulligan). */
+// Cards whose caster separates cards into two piles for an opponent (or themselves) to choose from.
+const PILE_SPLITTERS = new Set([
+  "Fact or Fiction", "Steam Augury", "Epiphany at the Drownyard", "Truth or Tale", "Sphinx of Uthuun",
+  "Brilliant Ultimatum", "Unesh, Criosphinx Sovereign", "Jace, Architect of Thought", "Boneyard Parley",
+  "Kiora's Dismissal", "Mystic Genesis", "Stolen Goods",
+]);
+
+/** Separating cards into two piles (the other player of Fact or Fiction): Endstep asks it as a
+    card choice, the cards picked making one pile. */
+export function isPileSplit(p: PendingActionView): boolean {
+  if (p.type !== "CHOOSE_CARDS" || p.optionCardIds.length < 2) return false;
+  return /\bpiles?\b/i.test(p.message ?? "") || PILE_SPLITTERS.has(p.sourceCardName ?? "");
+}
+
 export function isBottomFromHand(state: GameState, p: PendingActionView): boolean {
   if (p.type !== "CHOOSE_CARDS" || !p.optionCardIds.length) return false;
   if (/mulligan/i.test(p.contextType ?? "")) return true;
@@ -355,3 +386,85 @@ export function canConfirm(mode: Mode): boolean {
   return mode.kind === "attackers" || mode.kind === "blockers";
 }
 
+
+// Sideboarding, by Endstep's sideboard view's rules: the cards are one list, the first
+// `mainCount` in the main deck; moving a card changes which side its index is on; the main deck
+// must end between min and max cards; the answer is the main deck's indexes.
+
+export function sideboardStart(sb: SideboardView): Set<number> {
+  return new Set(sb.cards.slice(0, sb.mainCount).map((_, i) => i));
+}
+
+/** Tells one deck from another (the same deck when the prompt is reissued). */
+export function deckKey(sb: SideboardView): string {
+  return sb.cards.map((c) => c.name).join("|");
+}
+
+/** Moves cards (by index) into the main deck, or out of it. */
+export function sideboardMove(main: ReadonlySet<number>, indexes: number[], toMain: boolean): Set<number> {
+  const next = new Set(main);
+  for (const i of indexes) {
+    if (toMain) next.add(i);
+    else next.delete(i);
+  }
+  return next;
+}
+
+/** How the main deck's size compares with what's allowed. */
+export function sideboardCheck(sb: SideboardView, main: ReadonlySet<number>): { size: number; short: number; over: number; ok: boolean } {
+  const size = main.size;
+  const short = Math.max(0, sb.min - size);
+  const over = sb.max > 0 ? Math.max(0, size - sb.max) : 0;
+  return { size, short, over, ok: !short && !over };
+}
+
+/** True when the main deck isn't the one registered. */
+export function sideboardChanged(sb: SideboardView, main: ReadonlySet<number>): boolean {
+  const start = sideboardStart(sb);
+  return start.size !== main.size || [...main].some((i) => !start.has(i));
+}
+
+/** A card's mana value from its cost ("{2}{U}{U}" = 4; X counts 0, hybrid and Phyrexian 1). */
+export function manaValue(cost: string | undefined): number {
+  let total = 0;
+  for (const [, sym] of (cost ?? "").matchAll(/\{([^}]+)\}/g)) {
+    if (/^\d+$/.test(sym!)) total += Number(sym);
+    else if (/^\d+\//.test(sym!)) total += Number(sym!.split("/")[0]);
+    else if (!/^[XYZ]$/i.test(sym!)) total += 1;
+  }
+  return total;
+}
+
+export const isLandCard = (c: Pick<CardView, "types" | "typeLine">) =>
+  c.types.some((t) => t.toLowerCase() === "land") || /\bLand\b/.test(c.typeLine ?? "");
+
+/** Copies of one card on one side: shown as one stack with a count. */
+export interface SideboardStack {
+  name: string;
+  card: CardView;
+  indexes: number[];
+}
+
+/** One side's cards stacked by name, cheapest first (by name within a cost). */
+export function sideboardStacks(sb: SideboardView, main: ReadonlySet<number>, inMain: boolean): SideboardStack[] {
+  const byName = new Map<string, SideboardStack>();
+  sb.cards.forEach((card, i) => {
+    if (main.has(i) !== inMain) return;
+    const stack = byName.get(card.name);
+    if (stack) stack.indexes.push(i);
+    else byName.set(card.name, { name: card.name, card, indexes: [i] });
+  });
+  return [...byName.values()].sort((a, b) => manaValue(a.card.manaCost) - manaValue(b.card.manaCost) || a.name.localeCompare(b.name));
+}
+
+/** The main deck in columns, as Arena lays out a deck: by mana value (1 or less, 2… 6+), lands
+    last. Empty columns are left out. */
+export function deckColumns(stacks: SideboardStack[]): { label: string; stacks: SideboardStack[] }[] {
+  const labels = ["0–1", "2", "3", "4", "5", "6+", "Lands"];
+  const cols = labels.map((label) => ({ label, stacks: [] as SideboardStack[] }));
+  for (const s of stacks) {
+    const col = isLandCard(s.card) ? 6 : Math.min(5, Math.max(0, manaValue(s.card.manaCost) - 1));
+    cols[col]!.stacks.push(s);
+  }
+  return cols.filter((c) => c.stacks.length);
+}

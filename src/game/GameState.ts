@@ -187,6 +187,39 @@ export interface PendingActionView {
   /** ASSIGN_DAMAGE / DIVIDE_SHIELD: the amount to divide among the options, as Endstep's damage
       bar reads it (maxValue, cardOptions with lethalDamage, overrideOrder). */
   divide?: DivideView;
+  /** CHOOSE_PILE (Fact or Fiction…): the piles to take one of. */
+  piles?: PileView[];
+  /** CHOOSE_CARDS with contextType "sideboard": sideboarding between games. */
+  sideboard?: SideboardView;
+}
+
+export interface PileView {
+  /** Sent back as the answer. */
+  id: string;
+  label: string;
+  /** Cards in it; those not listed in `cards` are face down to the viewer. */
+  size: number;
+  cards: CardView[];
+}
+
+export interface SideboardView {
+  /** Every card of the deck and sideboard, in the prompt's order: the answer is the indexes of
+      the ones in the main deck. Ids are "sb:<index>" (Endstep's may repeat or be missing). */
+  cards: CardView[];
+  /** The first this many cards start in the main deck. */
+  mainCount: number;
+  /** The main deck's allowed size. */
+  min: number;
+  max: number;
+  /** "SIDEBOARD", or "COMMANDER_SWAP" (choosing commanders: the other part is "Commanders"). */
+  mode: string;
+  /** "EDITING" or "SUBMITTED", for you and your opponent(s). */
+  self: string;
+  opponent: string;
+  /** When sideboarding time runs out (local clock, ms). */
+  deadline?: number;
+  /** The game about to start (2 for the second of a best of three). */
+  gameNumber?: number;
 }
 
 export interface DivideView {
