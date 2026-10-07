@@ -19,7 +19,7 @@ approved, rejected and marked done there. These files mirror its state as of
 
 ## Summary
 
-Awaiting approval: 6 · Approved: 4 · To do: 11 · Done: 11
+Awaiting approval: 6 · Approved: 4 · To do: 8 · Done: 15
 
 **Approved:**
 
@@ -35,7 +35,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 | Phase | Phase status | Done | Features by status |
 | --- | --- | --- | --- |
 | [Phase 0 · Finish open work](phase-0-finish-open-work/README.md) | **In progress** | 4/5 | To do: 1 · Done: 4 |
-| [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md) | **In progress** | 3/7 | To do: 4 · Done: 3 |
+| [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md) | **In progress** | 7/8 | To do: 1 · Done: 7 |
 | [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **In progress** | 1/7 | Approved: 4 · To do: 2 · Done: 1 |
 | [Phase 3 · Game information](phase-3-game-information/README.md) | **In progress** | 2/4 | Awaiting approval: 1 · To do: 1 · Done: 2 |
 | [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md) | **In progress** | 1/4 | Awaiting approval: 2 · To do: 1 · Done: 1 |
@@ -51,15 +51,16 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t0-4 · [Update the README](phase-0-finish-open-work/t0-4-update-readme.md) — Done
 - [x] t0-5 · [Release 0.5.0](phase-0-finish-open-work/t0-5-release-0-5-0.md) — Done
 
-### [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md): In progress (3/7)
+### [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md): In progress (7/8)
 
 - [x] t1-1 · [Sideboarding screen](phase-1-prompts-still-in-endstep/t1-1-sideboarding.md) — Done
-- [ ] t1-2 · [Paying Phyrexian mana](phase-1-prompts-still-in-endstep/t1-2-phyrexian-mana.md) — To do
-- [ ] t1-3 · [Log the prompts that step aside](phase-1-prompts-still-in-endstep/t1-3-log-prompts-that-step-aside.md) — To do
+- [x] t1-2 · [Paying Phyrexian mana](phase-1-prompts-still-in-endstep/t1-2-phyrexian-mana.md) — Done
+- [x] t1-3 · [Log the prompts that step aside](phase-1-prompts-still-in-endstep/t1-3-log-prompts-that-step-aside.md) — Done
 - [x] t1-4 · [Choosing a pile, with two visible piles](phase-1-prompts-still-in-endstep/t1-4-choose-pile.md) — Done
-- [ ] t1-5 · [Dividing spell damage](phase-1-prompts-still-in-endstep/t1-5-divide-spell-damage.md) — To do
+- [x] t1-5 · [Dividing spell damage](phase-1-prompts-still-in-endstep/t1-5-divide-spell-damage.md) — Done
 - [ ] t1-6 · [Check dividing shield counters](phase-1-prompts-still-in-endstep/t1-6-check-divide-shield.md) — To do
 - [x] t1-7 · [Separating cards into two piles](phase-1-prompts-still-in-endstep/t1-7-separate-piles.md) — Done
+- [x] t1-8 · [Choosing cards from your own hand in a fan](phase-1-prompts-still-in-endstep/t1-8-own-hand-in-a-fan.md) — Done
 
 ### [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md): In progress (1/7)
 

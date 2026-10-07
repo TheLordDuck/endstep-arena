@@ -2,10 +2,12 @@
 
 | | |
 | --- | --- |
-| Status | **To do** |
+| Status | **Done** |
 | Phase | [Phase 1 · Prompts still answered in Endstep's UI](README.md) |
 | Type | Feature |
 | Needs approval | No (marked done directly) |
+| Done on | 2026-10-07 |
+| Feature note | [phyrexian-mana.md](../../features/phyrexian-mana.md) |
 
 Choose life or mana for each symbol, within the normal payment.
 
@@ -25,3 +27,4 @@ Payments with Phyrexian mana step aside to Endstep's UI.
 ## History
 
 - 2026-10-07: added to the roadmap.
+- 2026-10-07: done.

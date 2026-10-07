@@ -2,10 +2,12 @@
 
 | | |
 | --- | --- |
-| Status | **To do** |
+| Status | **Done** |
 | Phase | [Phase 1 · Prompts still answered in Endstep's UI](README.md) |
 | Type | Feature |
 | Needs approval | No (marked done directly) |
+| Done on | 2026-10-07 |
+| Feature note | [spell-damage-division.md](../../features/spell-damage-division.md) |
 
 Fireball, Arc Lightning…: use the damage assignment screen if Endstep asks for a division. Check how the prompt arrives first.
 
@@ -25,3 +27,4 @@ How Endstep asks to divide a spell's damage (Fireball, Arc Lightning…) isn't k
 ## History
 
 - 2026-10-07: added to the roadmap.
+- 2026-10-07: done.

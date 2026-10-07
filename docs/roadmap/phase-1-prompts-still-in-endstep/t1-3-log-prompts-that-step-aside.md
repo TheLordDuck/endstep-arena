@@ -2,10 +2,12 @@
 
 | | |
 | --- | --- |
-| Status | **To do** |
+| Status | **Done** |
 | Phase | [Phase 1 · Prompts still answered in Endstep's UI](README.md) |
 | Type | Technical |
 | Needs approval | No (marked done directly) |
+| Done on | 2026-10-07 |
+| Feature note | [unsupported-prompts.md](../../features/unsupported-prompts.md) |
 
 Record in the debug panel each prompt type the board can't answer, to know from real data what's missing.
 
@@ -24,3 +26,4 @@ When the board can't answer a prompt it steps aside for Endstep's UI (`kind: "cl
 ## History
 
 - 2026-10-07: added to the roadmap.
+- 2026-10-07: done.
