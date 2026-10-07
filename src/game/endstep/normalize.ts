@@ -7,6 +7,7 @@ import type {
   ChosenMark,
   ModeOption,
   CombatLink,
+  DivideView,
   GameState,
   PendingActionView,
   PlayerView,
@@ -274,6 +275,20 @@ function toPending(v: unknown): PendingActionView | null {
     canUndo: v.canUndo === true,
     cancellable: v.cancellable === true,
     ...numberRange(v),
+    ...(v.type === "ASSIGN_DAMAGE" || v.type === "DIVIDE_SHIELD" ? { divide: toDivide(v, options) } : {}),
+  };
+}
+
+/** ASSIGN_DAMAGE / DIVIDE_SHIELD, as Endstep's damage bar reads them: the total in maxValue, and
+    each option's lethalDamage (none for a player, whose types include "Player"). */
+function toDivide(v: Raw, options: Raw[]): DivideView {
+  return {
+    total: num(v.maxValue) ?? 0,
+    freeSpill: v.overrideOrder === true,
+    options: options.filter((o) => str(o.id)).map((o) => {
+      const player = arr(o.types).includes("Player");
+      return { id: String(o.id), name: str(o.name) ?? (player ? "Defending player" : "Unknown"), lethal: player ? null : num(o.lethalDamage) ?? null, player };
+    }),
   };
 }
 

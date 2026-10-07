@@ -191,6 +191,68 @@ const scenarios: Record<string, Scenario> = {
       die(opp2!, "Vampire Nighthawk");
     };
   },
+  // Dividing combat damage: our Rampaging Baloths (8/8 trample, two +1/+1 counters) is blocked by the Serra Angel
+  // (4 is lethal) and the Vampire Nighthawk (2 left); whatever's past lethal can trample over.
+  damage: (s) => {
+    const [me, opp] = players(s);
+    const baloths = creature("Rampaging Baloths", 8, 8, { counters: { P1P1: 2 }, oracleText: "Trample\nLandfall — Whenever a land you control enters, you may create a 4/4 green Beast creature token.", isAttacking: true, attackingDefenderId: "1", tapped: true });
+    bf(me!).push(baloths);
+    const angel = byName(opp!, "Serra Angel");
+    const hawk = byName(opp!, "Vampire Nighthawk");
+    for (const c of [angel, hawk]) { c.isBlocking = true; c.blockingIds = [baloths.id]; }
+    s.phase = "COMBAT_DAMAGE";
+    s.pendingAction = { type: "ASSIGN_DAMAGE", promptVersion: 21, sourceCardName: "Rampaging Baloths", maxValue: 8,
+      message: "Assign 8 combat damage from Rampaging Baloths.",
+      cardOptions: [
+        { id: angel.id, name: "Serra Angel", types: ["Creature"], lethalDamage: 4 },
+        { id: hawk.id, name: "Vampire Nighthawk", types: ["Creature"], lethalDamage: 2 },
+        { id: -2, name: "Opponent", types: ["Player"] },
+      ] };
+  },
+  // The same without trample: Tarmogoyf's 4 split between two blockers, nothing to the player.
+  "damage-split": (s) => {
+    const [me, opp] = players(s);
+    const goyf = byName(me!, "Tarmogoyf");
+    goyf.isAttacking = true; goyf.attackingDefenderId = "1"; goyf.tapped = true;
+    const angel = byName(opp!, "Serra Angel");
+    const hawk = byName(opp!, "Vampire Nighthawk");
+    for (const c of [angel, hawk]) { c.isBlocking = true; c.blockingIds = [goyf.id]; }
+    s.phase = "COMBAT_DAMAGE";
+    s.pendingAction = { type: "ASSIGN_DAMAGE", promptVersion: 22, sourceCardName: "Tarmogoyf", maxValue: 4,
+      message: "Assign 4 combat damage from Tarmogoyf.",
+      cardOptions: [
+        { id: angel.id, name: "Serra Angel", types: ["Creature"], lethalDamage: 4 },
+        { id: hawk.id, name: "Vampire Nighthawk", types: ["Creature"], lethalDamage: 2 },
+      ] };
+  },
+  // Winning in combat: our Tarmogoyf is unblocked and the opponent is at 4; their Nighthawk
+  // blocks our Grizzly Bears. The game ends where it was (blockers declared), as Endstep may
+  // finish it: the fight plays, then Victory.
+  win: (s) => {
+    const [me, opp] = players(s);
+    s.phase = "DECLARE_BLOCKERS";
+    s.pendingAction = null;
+    opp!.life = 4;
+    const goyf = byName(me!, "Tarmogoyf");
+    goyf.isAttacking = true; goyf.attackingDefenderId = "1"; goyf.tapped = true;
+    const bears = byName(me!, "Grizzly Bears");
+    bears.isAttacking = true; bears.attackingDefenderId = "1"; bears.tapped = true;
+    const hawk = byName(opp!, "Vampire Nighthawk");
+    hawk.isBlocking = true; hawk.blockingIds = [bears.id];
+    return (n) => {
+      const [me2, opp2] = players(n);
+      opp2!.life = 0;
+      n.status = "COMPLETE";
+      n.winnerId = "0";
+      const die = (p: Raw, name: string) => {
+        const c = byName(p, name);
+        p.battlefield = (p.battlefield as Raw[]).filter((x) => x !== c);
+        (p.graveyard as Raw[]).push({ ...c, isBlocking: false, isAttacking: false, blockingIds: [] });
+      };
+      die(me2!, "Grizzly Bears");
+      die(opp2!, "Vampire Nighthawk");
+    };
+  },
   // The same fight before damage: attackers stepped out, the blocker in front of its attacker.
   blocked: (s) => void scenarios.strike!(s),
   target: (s) => {
@@ -319,6 +381,29 @@ const scenarios: Record<string, Scenario> = {
       { type: "CARD_REVEALED", sequenceNumber: 501, playerName: "Opponent", toZone: "HAND", cardNames: ["Thoughtseize", "Counterspell", "Lightning Bolt"], cardIds: [991, 993, 996], _t: now },
       { type: "CARD_REVEALED", sequenceNumber: 502, playerName: "Opponent", toZone: "LIBRARY", cardName: "Emrakul, the Aeons Torn", cardId: 994 },
     ];
+  },
+  // Our Thoughtseize: their hand is revealed and we pick the card they discard. Their hand stays
+  // backs on the table; the cards to pick from are a fan, like a graveyard's.
+  discard: (s) => {
+    const [, opp] = players(s);
+    opp!.hand = Array.from({ length: 4 }, (_, i) => ({ id: 1010000028 + i, name: "Hidden card", zone: "Hand", faceDown: true }));
+    opp!.handSize = 4;
+    const names: [string, string][] = [["Griselbrand", "Legendary Creature — Demon"], ["Swamp", "Basic Land — Swamp"], ["Dark Ritual", "Instant"], ["Counterspell", "Instant"]];
+    s.pendingAction = { type: "CHOOSE_CARDS", promptVersion: 23, sourceCardName: "Thoughtseize", min: 1, max: 1, mandatory: true,
+      message: "Choose a nonland card to discard.",
+      cardOptions: names.map(([name, typeLine], i) => ({ id: 2000 + i, name, typeLine, zone: "HAND", ownerName: "Opponent" })).filter((c) => c.name !== "Swamp") };
+  },
+  // Thought-Knot Seer: their hand is revealed (sent face up) and we choose a nonland card from
+  // it, asked as a target choice that names the cards by id only. Picked from a fan all the same.
+  tks: (s) => {
+    const [, opp] = players(s);
+    const hand = [card("Griselbrand", { typeLine: "Legendary Creature — Demon" }), card("Swamp", { typeLine: "Basic Land — Swamp" }),
+      card("Dark Ritual", { typeLine: "Instant" }), card("Counterspell", { typeLine: "Instant" })];
+    opp!.hand = hand;
+    opp!.handSize = hand.length;
+    s.pendingAction = { type: "CHOOSE_TARGETS", promptVersion: 24, sourceCardName: "Thought-Knot Seer", min: 1, max: 1, mandatory: true,
+      message: "Choose a nonland card to exile.",
+      cardOptions: hand.filter((c) => c.name !== "Swamp").map((c) => ({ id: c.id })) };
   },
   // Emrakul, the Promised End: we play the opponent's turn. Their hand is sent face up, they are
   // `controlledBySeat` us, and the prompt offers their cards.

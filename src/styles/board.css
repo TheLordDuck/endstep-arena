@@ -1734,6 +1734,70 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .otile .omove button { padding: 1px 8px; font-size: 11px; }
 .otile .omove button:disabled { opacity: 0.3; cursor: default; }
 .order-legend { display: flex; justify-content: space-between; gap: 16px; width: 100%; font: 600 11px var(--font); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+/* Damage box (dividing combat damage among blockers, or shield counters): the attacker with the
+   damage still to assign, then each blocker's card. Pips fill up to lethal, a gold seal marks a
+   lethal one, and the defending player (trample) stays locked until every blocker has lethal. */
+.divide-box { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 100%; }
+.divide-row { display: flex; align-items: stretch; justify-content: center; gap: 14px; padding: 12px 10px 4px; max-width: 94vw; overflow-x: auto; }
+.dsrc, .dtile {
+  --w: clamp(120px, min(15vw, 24vh), 190px);
+  flex: none;
+  width: var(--w);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #3a3026, #1e1812);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.6);
+}
+.dsrc { border: 3px solid var(--atk); box-shadow: 0 0 22px rgba(255, 90, 60, 0.45), 0 10px 22px rgba(0, 0, 0, 0.6); margin-right: 18px; position: relative; }
+.dsrc::after { content: "›"; position: absolute; right: -26px; top: 40%; font: 700 34px/1 var(--font); color: var(--atk); }
+.dsrc.ready { border-color: var(--gold); box-shadow: 0 0 22px rgba(232, 198, 120, 0.5), 0 10px 22px rgba(0, 0, 0, 0.6); }
+.dsrc.ready::after { color: var(--gold); }
+.dsrc-art, .dtile .dart { width: 100%; aspect-ratio: 488 / 680; border-radius: 8px; overflow: hidden; background: #1b1712; }
+.dsrc-art img, .dtile .dart img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dtile { border: 3px solid rgba(255, 90, 60, 0.55); transition: border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease; }
+.dtile.some { border-color: var(--atk); }
+.dtile.lethal { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold), 0 0 24px rgba(232, 198, 120, 0.45), 0 10px 22px rgba(0, 0, 0, 0.6); }
+.dtile.locked { opacity: 0.55; filter: grayscale(0.6); border-color: rgba(255, 255, 255, 0.15); }
+.dtile .dart { position: relative; padding: 0; border: 0; cursor: pointer; transition: transform 0.12s ease; }
+.dtile .dart:not(:disabled):hover { transform: translateY(-4px); }
+.dtile .dart:not(:disabled):active { transform: translateY(-1px) scale(0.98); }
+.dtile .dart:disabled { cursor: not-allowed; }
+.dtile .dblank { display: grid; place-items: center; height: 100%; padding: 8px; font: 700 13px "Cinzel", Georgia, serif; color: var(--gold-hi); }
+.dtile .dplayer { display: grid; place-items: center; height: 100%; background: radial-gradient(circle at 50% 40%, rgba(255, 90, 60, 0.22), #1b1712 70%); }
+.dtile .dplayer svg { width: 46%; fill: rgba(255, 90, 60, 0.18); stroke: var(--atk); stroke-width: 2; stroke-linejoin: round; }
+.dtile .dseal, .dtile .dlock { position: absolute; display: none; place-items: center; border-radius: 50%; }
+.dtile .dseal { top: 6px; right: 6px; width: 30px; height: 30px; background: radial-gradient(circle at 35% 30%, var(--gold-hi), var(--gold)); border: 2px solid rgba(12, 10, 8, 0.9); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6); }
+.dtile .dseal::after { content: "✓"; font: 900 16px/1 var(--font); color: #231a0c; }
+.dtile.lethal .dseal { display: grid; animation: dseal 0.28s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes dseal { from { transform: scale(0.2); opacity: 0; } }
+.dtile .dlock { inset: 0; margin: auto; width: 44px; height: 44px; background: rgba(12, 10, 8, 0.8); }
+.dtile .dlock::after { content: "🔒"; font-size: 20px; }
+.dtile.locked .dlock { display: grid; }
+.dsrc .dname, .dtile .dname { width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 700 12px/1.25 "Cinzel", Georgia, serif; color: var(--gold-hi); }
+.dpips, .dpool { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px; min-height: 12px; }
+.dpips i, .dpool i { width: 10px; height: 10px; border-radius: 50%; background: rgba(255, 255, 255, 0.14); transition: background 0.15s ease, box-shadow 0.15s ease; }
+.dpips i.on { background: var(--atk); box-shadow: 0 0 6px rgba(255, 90, 60, 0.7); }
+.dtile.lethal .dpips i.on { background: var(--gold); box-shadow: 0 0 6px rgba(232, 198, 120, 0.7); }
+.dpool i.on { background: var(--atk); box-shadow: 0 0 6px rgba(255, 90, 60, 0.7); }
+.dsrc.ready .dpool i { background: rgba(232, 198, 120, 0.25); }
+.dpips .dover { font: 700 11px var(--font); color: var(--atk); }
+.dpips .dtext { font: 600 11px var(--font); color: var(--muted); text-align: center; }
+.dtile.lethal .dpips .dtext { color: var(--gold); }
+.dleft { display: flex; flex-direction: column; align-items: center; line-height: 1; }
+.dleft b { font: 800 34px/1 "Cinzel", Georgia, serif; color: var(--atk); }
+.dsrc.ready .dleft b { color: var(--gold); }
+.dleft small { margin-top: 3px; font: 600 10px var(--font); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.dctl { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: auto; }
+.prompt.arena .dctl .opt.round { width: 34px; height: 34px; font-size: 20px; }
+.dctl .damt { min-width: 28px; text-align: center; font: 800 24px/1 "Cinzel", Georgia, serif; color: var(--text, #f3ead6); }
+.dtile.lethal .dctl .damt { color: var(--gold-hi); }
+.divide-notes { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; font: 600 12px var(--font); }
+.divide-notes span { padding: 3px 10px; border-radius: 999px; color: var(--gold-hi); background: rgba(255, 90, 60, 0.14); border: 1px solid rgba(255, 90, 60, 0.4); }
 .c-white { background: #f4efe0; color: #2a2418; }
 .c-blue { background: #2e6fb8; }
 .c-black { background: #2a2626; }
@@ -2218,6 +2282,12 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   backdrop-filter: blur(8px);
 }
 .replay-bar.show { display: flex; }
+/* Moved by its grip: placed by its top left (set inline), no longer centered. */
+.replay-bar.moved { translate: none; }
+.replay-bar.dragging { box-shadow: 0 0 0 1px var(--gold), 0 14px 32px rgba(0, 0, 0, 0.7); }
+.rb-grip { display: grid; place-items: center; width: 18px; height: 30px; margin-right: 2px; font: 700 15px/1 var(--font); color: var(--muted); cursor: grab; touch-action: none; user-select: none; }
+.rb-grip:hover { color: var(--gold-hi); }
+.replay-bar.dragging .rb-grip { cursor: grabbing; color: var(--gold-hi); }
 .rb {
   min-width: 30px;
   height: 30px;

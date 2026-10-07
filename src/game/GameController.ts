@@ -137,6 +137,12 @@ export class GameController {
     this.send({ type: "CHOOSE_CARDS", orderedCards: ids.map(wireId) });
   }
 
+  /** ASSIGN_DAMAGE / DIVIDE_SHIELD: the amount for each option, in the prompt's order, as
+      Endstep's damage bar sends it. */
+  divide(amounts: number[]): void {
+    this.send({ type: "CHOOSE_CARDS", orderedCards: amounts });
+  }
+
   /** Trigger order (leftmost resolves first), as Endstep's own order box sends it: every
       option in `orderedCards`, plus the optional ones left out in `declinedCards`. */
   orderAbilities(ordered: string[], declined: string[]): void {

@@ -2,7 +2,7 @@
 // Pure functions: the Board keeps one Mode and swaps it on each click.
 
 import { playerTargetKey } from "../../game/GameController";
-import type { GameState, ModeOption, PendingActionView } from "../../game/GameState";
+import type { DivideView, GameState, ModeOption, PendingActionView } from "../../game/GameState";
 
 export type Mode =
   | { kind: "idle" }
@@ -28,6 +28,8 @@ export type Mode =
       With `pick` (after a mulligan) it's a card choice laid out the same way: the hand on top,
       the cards picked for the bottom of the library in the tray, sent as the chosen cards. */
   | { kind: "arrange"; top: string[]; tray: string[]; hasTray: boolean; context: string; pick?: { min: number; max: number } }
+  /** Combat damage (or shield counters) divided among blockers: the amount on each option. */
+  | { kind: "divide"; amounts: number[] }
   /** Answered from the prompt panel (modes, colors, numbers, yes/no, mulligan). */
   | { kind: "choice"; selectedModes: number[]; number: number }
   /** Not supported by the Arena UI yet: hand the prompt to Endstep's own UI. */
@@ -46,9 +48,12 @@ export function promptKey(state: GameState | null): string {
 
 function battlefieldIds(state: GameState): Set<string> {
   const ids = new Set<string>();
+  const viewer = state.players.find((p) => p.isViewer)?.id;
   for (const p of state.players) {
     for (const c of p.battlefield) ids.add(c.id);
-    for (const c of p.hand ?? []) ids.add(c.id);
+    // Only hands you play from count as the table. A card from an opponent's hand (the one
+    // they discard to your Thoughtseize) is picked from a list, like a graveyard's cards.
+    if (p.isViewer || (viewer !== undefined && p.controlledBy === viewer)) for (const c of p.hand ?? []) ids.add(c.id);
   }
   for (const s of state.stack) ids.add(s.id);
   return ids;
@@ -117,11 +122,78 @@ export function deriveMode(state: GameState | null): Mode {
     case "ORDER_ATTACKERS":
     case "ORDER_BLOCKERS":
       return { kind: "order", order: p.orderOptions.map((o) => o.id), declined: [] };
+    case "ASSIGN_DAMAGE":
+    case "DIVIDE_SHIELD":
+      if (!p.divide?.options.length) return { kind: "classic", reason: humanize(p.type) };
+      return { kind: "divide", amounts: divideStart(p.divide) };
     default:
       if (CHOICE_TYPES.has(p.type)) return { kind: "choice", selectedModes: [], number: p.type === "CHOOSE_NUMBER" ? p.numberMin : p.min };
       if (p.type === "CHOOSE_CARD_NAME" && p.stringOptions.length > 0) return { kind: "choice", selectedModes: [], number: 0 };
       return { kind: "classic", reason: humanize(p.type) };
   }
+}
+
+// Dividing combat damage, by Endstep's damage bar's rules: every blocker must have lethal damage
+// before any goes past it to the player (trample), unless the prompt says otherwise; all of the
+// damage must be assigned.
+
+/** The split offered first: lethal to each blocker in order, the rest to the last one reached
+    (the player, with trample). Nothing when the first option's lethal isn't known. */
+export function divideStart(d: DivideView): number[] {
+  const out = d.options.map(() => 0);
+  if (d.options[0]?.lethal == null) return out;
+  let left = d.total;
+  let last = 0;
+  for (let i = 0; i < d.options.length && left > 0; i++) {
+    const lethal = d.options[i]!.lethal;
+    out[i] = lethal == null ? left : Math.min(lethal, left);
+    left -= out[i]!;
+    last = i;
+  }
+  if (left > 0) out[last]! += left;
+  return out;
+}
+
+/** Every blocker has lethal damage assigned. */
+export function allLethal(d: DivideView, amounts: number[]): boolean {
+  return d.options.every((o, i) => o.player || o.lethal == null || amounts[i]! >= o.lethal);
+}
+
+/** The player can't take any while a blocker lacks lethal damage. */
+export function divideLocked(d: DivideView, amounts: number[], i: number): boolean {
+  return !!d.options[i]?.player && !d.freeSpill && !allLethal(d, amounts);
+}
+
+export const divideLeft = (d: DivideView, amounts: number[]) => d.total - amounts.reduce((a, b) => a + b, 0);
+
+/** Taking a blocker below lethal takes back what had spilled over to the player. */
+function divideFix(d: DivideView, amounts: number[]): number[] {
+  return d.freeSpill || allLethal(d, amounts) ? amounts : amounts.map((n, i) => (d.options[i]!.player ? 0 : n));
+}
+
+/** One more (or one less) on option `i`; `lethal` jumps to lethal (or, for less, down to it). */
+export function divideStep(d: DivideView, amounts: number[], i: number, more: boolean, lethal = false): number[] {
+  const o = d.options[i];
+  if (!o) return amounts;
+  const now = amounts[i]!;
+  const cap = o.lethal ?? Infinity;
+  const left = divideLeft(d, amounts);
+  let by = more ? 1 : -1;
+  if (lethal) by = more ? (cap - now > 0 && Number.isFinite(cap) ? cap - now : left) : (now > cap ? cap - now : -now);
+  by = Math.min(by, left);
+  if ((more && divideLocked(d, amounts, i)) || by === 0 || now + by < 0) return amounts;
+  const next = [...amounts];
+  next[i] = now + by;
+  return divideFix(d, next);
+}
+
+/** Option `i` set to `n` (typed in), within what's left. */
+export function divideSet(d: DivideView, amounts: number[], i: number, n: number): number[] {
+  if (divideLocked(d, amounts, i)) return amounts;
+  const others = amounts.reduce((a, b, j) => (j === i ? a : a + b), 0);
+  const next = [...amounts];
+  next[i] = Math.max(0, Math.min(Number.isFinite(n) ? Math.floor(n) : 0, d.total - others));
+  return divideFix(d, next);
 }
 
 /** Cards from your hand to put on the bottom of your library (the London mulligan). */

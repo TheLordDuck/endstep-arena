@@ -184,6 +184,27 @@ export interface PendingActionView {
   numberMin: number;
   numberMax: number;
   allowedNumbers: number[];
+  /** ASSIGN_DAMAGE / DIVIDE_SHIELD: the amount to divide among the options, as Endstep's damage
+      bar reads it (maxValue, cardOptions with lethalDamage, overrideOrder). */
+  divide?: DivideView;
+}
+
+export interface DivideView {
+  /** All of it must be assigned. */
+  total: number;
+  /** In damage order; a trampler's defending player (or planeswalker) comes last. */
+  options: DivideOption[];
+  /** Anything may go past the blockers without lethal to each first (overrideOrder). */
+  freeSpill: boolean;
+}
+
+export interface DivideOption {
+  id: string;
+  name: string;
+  /** Damage that's lethal to it (1 against deathtouch), or null for a player. */
+  lethal: number | null;
+  /** The defending player (or what a trampler spills over to). */
+  player: boolean;
 }
 
 /** Cards someone revealed (from a hand, a library…), from Endstep's CARD_REVEALED events. */

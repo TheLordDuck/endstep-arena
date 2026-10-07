@@ -4,10 +4,10 @@
 // All game actions go through GameController; this file never talks to
 // Endstep directly.
 
-import type { AbilityOption, CardView, GameState, PendingActionView, PlayerView, StackItemView } from "../../game/GameState";
+import type { AbilityOption, CardView, DivideView, GameState, PendingActionView, PlayerView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
 import { CARD_BACK_URL, chosenLabels, createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
-import { arrangeMove, canConfirm, clickInMode, defenderForKey, deriveMode, humanize, keyForDefender, learnStep, promptKey, stepNumber, type Mode } from "./modes";
+import { arrangeMove, canConfirm, clickInMode, defenderForKey, deriveMode, divideLeft, divideLocked, divideStart, divideStep, humanize, keyForDefender, learnStep, promptKey, stepNumber, type Mode } from "./modes";
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
 import { currentStep, stepIndex, stepLabel, TURN_STEPS } from "./phases";
 import type { PhaseStops, StopSide } from "../../game/endstep/phaseStops";
@@ -18,6 +18,16 @@ import { HandKnowledge } from "../../game/handKnowledge";
 
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+/** Where the player moved the replay bar, kept across games. */
+const REPLAY_BAR_KEY = "endstepArena.replayBar";
+function readReplayBarAt(): { x: number; y: number } | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(REPLAY_BAR_KEY) ?? "null") as { x?: unknown; y?: unknown } | null;
+    return v && typeof v.x === "number" && typeof v.y === "number" && Number.isFinite(v.x) && Number.isFinite(v.y) ? { x: v.x, y: v.y } : null;
+  } catch {
+    return null;
+  }
+}
 /** How long a reveal stays on screen (ms), unless closed sooner. */
 const REVEAL_MS = 12_000;
 /** A prompt answered from the search box: naming a card, or a type among more than a screenful. */
@@ -94,6 +104,9 @@ export class Board {
   private hoverStack: string | null = null;
   /** The result screen is set aside to look at the battlefield. */
   private endPeek = false;
+  /** The game's result waits until then (ms, Date.now()), for the fight that ended it. */
+  private endHoldUntil = 0;
+  private endHoldTimer = 0;
   /** The ids Endstep may target a stack item by (its stack id, a spell's card id) → its element id. */
   private stackAlias = new Map<string, string>();
   /** The X you chose for what you're casting, by source card id and by "name:<card name>": shown
@@ -123,6 +136,8 @@ export class Board {
   private fallen = new Map<string, HTMLElement>();
   /** The replay's position slider is being dragged. */
   private replayScrubbing = false;
+  /** Where the replay bar was moved to (its top left, as a share of the board), or null: top center. */
+  private replayBarAt: { x: number; y: number } | null = readReplayBarAt();
   /** Updates the disconnected players' countdowns while there are any. */
   private connTicker = 0;
   /** Clicked a permanent with several abilities: plain mana ones open the color wheel, the
@@ -225,7 +240,11 @@ export class Board {
       <div class="toast"></div>
       <div class="classic-chip"></div>`;
     this.bindEvents();
-    new ResizeObserver(() => this.layout()).observe(this.el);
+    new ResizeObserver(() => {
+      this.layout();
+      // A moved replay bar stays whole on the board.
+      if (this.replayBarAt) this.placeReplayBar(this.q(".replay-bar"));
+    }).observe(this.el);
   }
 
   // ---------------------------------------------------------------- public
@@ -407,7 +426,16 @@ export class Board {
     if (!prev || prev.turnNumber !== state.turnNumber || !prev.combat.attacks.length) return null;
     const from = stepIndex(currentStep(prev.phase, prev.step) ?? "");
     const to = stepIndex(currentStep(state.phase, state.step) ?? "");
-    if (from < 0 || to < 0 || from >= stepIndex("COMBAT_DAMAGE") || to < stepIndex("FIRST_STRIKE_DAMAGE")) return null;
+    if (from < 0 || from >= stepIndex("COMBAT_DAMAGE")) return null;
+    // The game ended in combat damage: Endstep may finish it where it was, without moving on
+    // to the damage step. Someone lost life, or a creature in the fight died.
+    if (state.status === "COMPLETE" && prev.status !== "COMPLETE" && from >= stepIndex("DECLARE_ATTACKERS") && (to < 0 || to <= from)) {
+      const alive = new Set(state.players.flatMap((p) => p.battlefield.map((c) => c.id)));
+      const hurt = state.players.some((p) => (p.life ?? 0) < (prev.players.find((q) => q.id === p.id)?.life ?? 0))
+        || [...prev.combat.attacks, ...prev.combat.blocks].some((l) => !alive.has(l.fromId));
+      return hurt ? "cd" : null;
+    }
+    if (to < stepIndex("FIRST_STRIKE_DAMAGE")) return null;
     return to === stepIndex("FIRST_STRIKE_DAMAGE") ? "fs" : "cd";
   }
 
@@ -567,6 +595,9 @@ export class Board {
     const START = 330;
     const end = runs.reduce((m, r, i) => Math.max(m, starts[i]! + runTime(r.targets.length)), 0);
     crumble(START + end);
+    // The result of a game won in combat waits for the fight (and the dead burning away).
+    if (runs.length) this.endHoldUntil = Math.max(this.endHoldUntil, Date.now() + START + end + 900);
+    this.renderEnd(state, state.players.find((p) => p.isViewer));
     window.setTimeout(() => {
       const box = this.el.getBoundingClientRect();
       runs.forEach((run, i) => {
@@ -1189,7 +1220,7 @@ export class Board {
     for (const [id, el] of this.cardEls) {
       const c = this.cardData.get(id);
       const key = this.stackEls.has(id) ? this.stackTargetKey(id) : id;
-      const selectable = this.isSelectable(key);
+      const selectable = this.isSelectable(key) && !this.pickedInFan(el);
       const linked = this.linked.has(id) && !!el.closest(".slot");
       el.classList.toggle("linked", linked);
       if (!linked) el.style.removeProperty("--li");
@@ -1233,6 +1264,27 @@ export class Board {
       for (const [alias, id] of this.stackAlias) if (id === elId && m.valid.has(alias)) return alias;
     }
     return elId;
+  }
+
+  /**
+   * The prompt's cards are picked from a fan: some aren't on the table (a library, graveyard or
+   * exile; a pile's top card is drawn, but it's still in its pile), or they're in an opponent's
+   * hand (Thoughtseize, Thought-Knot Seer: you choose from their hand, it isn't yours to play from).
+   */
+  private choiceInFan(p: PendingActionView | null | undefined): boolean {
+    const m = this.mode;
+    if (!p || (m.kind !== "cards" && m.kind !== "targets")) return false;
+    if (m.kind === "cards" && m.offBoard) return true;
+    const onTable = (id: string) => {
+      const el = this.elFor(id);
+      return !!el?.isConnected && !el.closest(".pile, .opp-hand");
+    };
+    return p.optionCardIds.some((id) => !isPlayerId(id) && !onTable(id));
+  }
+
+  /** A card in an opponent's hand while a choice is made from a fan: it's picked there instead. */
+  private pickedInFan(el: HTMLElement): boolean {
+    return !!el.closest(".opp-hand") && this.choiceInFan(this.state?.pending);
   }
 
   private isSelectable(key: string): boolean {
@@ -1430,6 +1482,7 @@ export class Board {
     if (!status) return;
     if (!bar.firstElementChild) {
       bar.innerHTML = `
+        <span class="rb-grip" title="Drag to move · double-click to put back" aria-hidden="true">⠿</span>
         <button class="rb" data-replay="turn:-1" title="Previous turn (Shift+←)">⏮</button>
         <button class="rb" data-replay="step:-1" title="Previous change (←)">◀</button>
         <button class="rb play" data-replay="toggle" title="Play / pause (Space)"></button>
@@ -1439,7 +1492,9 @@ export class Board {
         <span class="rb-read"></span>
         <button class="rb speed" data-replay="speed" title="Playback speed"></button>
         <button class="rb leave" data-replay="leave" title="Leave the replay">Leave</button>`;
+      this.bindReplayDrag(bar);
     }
+    this.placeReplayBar(bar);
     bar.querySelector(".play")!.textContent = status.playing ? "❚❚" : "▶";
     bar.querySelector(".speed")!.textContent = `${status.speed}×`;
     const track = bar.querySelector<HTMLInputElement>(".rb-track")!;
@@ -1450,6 +1505,62 @@ export class Board {
     const read = `Turn ${status.turn || "–"} · ${status.frame + 1}/${status.frames}`;
     const readEl = bar.querySelector(".rb-read")!;
     if (readEl.textContent !== read) readEl.textContent = read;
+  }
+
+  /** The replay bar is moved by its grip; where it was put (as a share of the board, so it
+      holds when the window is resized) is remembered. Double-clicking the grip puts it back. */
+  private bindReplayDrag(bar: HTMLElement): void {
+    const grip = bar.querySelector<HTMLElement>(".rb-grip")!;
+    grip.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const box = this.el.getBoundingClientRect();
+      const r = bar.getBoundingClientRect();
+      const dx = e.clientX - r.left;
+      const dy = e.clientY - r.top;
+      grip.setPointerCapture(e.pointerId);
+      bar.classList.add("dragging");
+      const move = (ev: PointerEvent) => {
+        this.replayBarAt = {
+          x: (ev.clientX - dx - box.left) / box.width,
+          y: (ev.clientY - dy - box.top) / box.height,
+        };
+        this.placeReplayBar(bar);
+      };
+      const up = () => {
+        bar.classList.remove("dragging");
+        grip.removeEventListener("pointermove", move);
+        grip.removeEventListener("pointerup", up);
+        grip.removeEventListener("pointercancel", up);
+        try { localStorage.setItem(REPLAY_BAR_KEY, JSON.stringify(this.replayBarAt)); } catch { /* not kept */ }
+      };
+      grip.addEventListener("pointermove", move);
+      grip.addEventListener("pointerup", up);
+      grip.addEventListener("pointercancel", up);
+    });
+    grip.addEventListener("dblclick", () => {
+      this.replayBarAt = null;
+      try { localStorage.removeItem(REPLAY_BAR_KEY); } catch { /* nothing kept */ }
+      this.placeReplayBar(bar);
+    });
+  }
+
+  /** Puts the replay bar where it was moved to, kept whole on the board; or top center. */
+  private placeReplayBar(bar: HTMLElement): void {
+    const at = this.replayBarAt;
+    bar.classList.toggle("moved", !!at);
+    if (!at) {
+      bar.style.removeProperty("left");
+      bar.style.removeProperty("top");
+      return;
+    }
+    const w = this.el.clientWidth;
+    const h = this.el.clientHeight;
+    const x = Math.max(0, Math.min(at.x * w, w - bar.offsetWidth));
+    const y = Math.max(0, Math.min(at.y * h, h - bar.offsetHeight));
+    bar.style.left = `${x}px`;
+    bar.style.top = `${y}px`;
   }
 
   private replayButton(what: string): void {
@@ -1481,8 +1592,14 @@ export class Board {
       Defeat under it and the way back to Endstep. "View battlefield" (top right) sets it aside. */
   private renderEnd(state: GameState, me: PlayerView | null | undefined): void {
     const box = this.q(".endgame");
+    // While the last fight plays out, the result waits; it comes up as the fight ends.
+    const wait = this.endHoldUntil - Date.now();
+    window.clearTimeout(this.endHoldTimer);
+    if (wait > 0 && state.status === "COMPLETE") {
+      this.endHoldTimer = window.setTimeout(() => this.state && this.renderEnd(this.state, this.state.players.find((p) => p.isViewer)), wait);
+    }
     // A replay's last frame is a finished game, but the replay goes on being watched.
-    const over = state.status === "COMPLETE" && !state.replay;
+    const over = state.status === "COMPLETE" && !state.replay && wait <= 0;
     if (!over) this.endPeek = false;
     const won = state.winnerId !== undefined && state.winnerId === me?.id;
     const title = state.winnerId === undefined ? "Game over" : won ? "Victory" : "Defeat";
@@ -1550,7 +1667,7 @@ export class Board {
         const { title, sub } = promptTitle(state, m);
         // A question from a card (a trigger's yes/no, a color, a number…) shows that card beside
         // the options. Modes, orders and pickers show their own cards.
-        const own = m.kind === "order" || p.type === "MULLIGAN" || p.type === "CHOOSE_MODE" || p.type === "CHOOSE_ABILITY";
+        const own = m.kind === "order" || m.kind === "divide" || p.type === "MULLIGAN" || p.type === "CHOOSE_MODE" || p.type === "CHOOSE_ABILITY";
         const srcCard = own ? undefined : this.sourceCard(p);
         const url = srcCard ? imageUrl(srcCard) : null;
         // Scry/surveil show the card that did it on the right, as Arena does.
@@ -1567,7 +1684,10 @@ export class Board {
     // moves its tiles, so the list doesn't jump (or replay its entrance) on every move.
     if (box.dataset.sig !== html && !this.orderDrag?.active && !this.arrDrag?.active) {
       box.dataset.sig = html;
-      const sameBox = m.kind === "order" && box.dataset.orderKey === this.modeKey && this.patchOrderBox(box, m);
+      // The damage box keeps its cards too: only the amounts change.
+      const divideBox = m.kind === "divide" && box.dataset.orderKey === this.modeKey ? box.querySelector<HTMLElement>(".divide-box") : null;
+      const sameBox = (m.kind === "order" && box.dataset.orderKey === this.modeKey && this.patchOrderBox(box, m))
+        || (!!divideBox && !!p?.divide && m.kind === "divide" && this.fillDivideBox(divideBox, p.divide, m));
       if (!sameBox) this.swapHtml(box, html);
       const q = box.querySelector<HTMLInputElement>(".name-q");
       if (q) {
@@ -1575,7 +1695,7 @@ export class Board {
         // Without scrolling: focusing the box (or typing in it) must not push the screen up.
         q.focus({ preventScroll: true });
       }
-      if (m.kind === "order") box.dataset.orderKey = this.modeKey;
+      if (m.kind === "order" || m.kind === "divide") box.dataset.orderKey = this.modeKey;
       else delete box.dataset.orderKey;
     }
     box.classList.toggle("show", html !== "");
@@ -1915,15 +2035,127 @@ export class Board {
     return true;
   }
 
+  /** The creature dividing its damage (Endstep names it; the one in combat with that name). */
+  private divideSource(state: GameState, p: PendingActionView): CardView | undefined {
+    const name = p.sourceCardName;
+    const fighting = name ? state.players.flatMap((pl) => pl.battlefield).find((c) => c.name === name && (c.isAttacking || c.isBlocking)) : undefined;
+    return (fighting && this.cardData.get(fighting.id)) ?? fighting ?? (name ? this.sourceCard(p) : undefined);
+  }
+
+  /**
+   * Dividing combat damage among blockers (and, with trample, the defending player), Arena
+   * style: the attacker on the left with the damage still to assign, then each blocker's card
+   * with pips up to lethal and a seal once it's lethal. Click a card for +1, right-click for −1,
+   * Ctrl-click for lethal; − / + under each. The player stays locked until every blocker has
+   * lethal damage. Done once it's all assigned.
+   */
+  private divideBox(state: GameState, p: PendingActionView, m: Extract<Mode, { kind: "divide" }>): string {
+    const d = p.divide!;
+    const src = this.divideSource(state, p);
+    const url = src ? imageUrl(src, "large") : null;
+    const text = src ? [src.oracleText ?? "", ...(src.keywordsGranted ?? [])].join("\n") : "";
+    const deathtouch = /\bdeathtouch\b/i.test(text);
+    const trample = d.options.some((o) => o.player);
+    const shield = `<svg viewBox="0 0 34 40" aria-hidden="true"><path d="M17 2 L31 7 V20 C31 30 24 36 17 38 C10 36 3 30 3 20 V7 Z"/></svg>`;
+    const tiles = d.options.map((o, i) => {
+      const card = o.player ? undefined : this.cardData.get(o.id) ?? p.optionCards.find((c) => c.id === o.id);
+      const art = card ? imageUrl(card, "large") : null;
+      const pic = o.player ? `<div class="dplayer">${shield}</div>`
+        : art ? `<img src="${esc(art)}" alt="${esc(o.name)}" draggable="false">` : `<span class="dblank">${esc(o.name)}</span>`;
+      return `<div class="dtile${o.player ? " player" : ""}" data-div-tile="${i}">
+        <button class="dart" data-div-add="${i}" ${card ? `data-zoom="${esc(card.id)}"` : ""}>${pic}<span class="dseal"></span><span class="dlock"></span></button>
+        <div class="dname">${esc(o.player ? "Defending player" : o.name)}</div>
+        <div class="dpips"></div>
+        <div class="dctl"><button class="opt round" data-div-sub="${i}" title="−1 (right-click the card)">−</button><b class="damt"></b><button class="opt round" data-div-add="${i}" title="+1 (Ctrl-click: lethal)">+</button></div>
+      </div>`;
+    }).join("");
+    const notes = [deathtouch ? "Deathtouch · 1 is lethal" : "", trample && !d.freeSpill ? "Trample · every blocker needs lethal before the rest goes to the player" : ""].filter(Boolean);
+    const box = `<div class="divide-box">
+      <div class="divide-row" style="--n: ${d.options.length + 1}">
+        <div class="dsrc">
+          <div class="dsrc-art"${src ? ` data-zoom="${esc(src.id)}"` : ""}>${url ? `<img src="${esc(url)}" alt="${esc(src!.name)}" draggable="false">` : ""}</div>
+          <div class="dname">${esc(src?.name ?? p.sourceCardName ?? "Attacker")}</div>
+          <div class="dpool"></div>
+          <div class="dleft"><b></b><small>left of ${d.total}</small></div>
+        </div>
+        ${tiles}
+      </div>
+      ${notes.length ? `<div class="divide-notes">${notes.map((n) => `<span>${esc(n)}</span>`).join("")}</div>` : ""}
+      <div class="order-legend"><span>Click +1</span><span>Right-click −1</span><span>Ctrl-click lethal</span></div>
+      <div class="choices big">
+        <button class="opt alt" data-div-reset title="R">Reset</button>
+        <button class="opt primary" data-div-confirm title="Space">Done</button>
+      </div>
+    </div>`;
+    // Built empty, then filled by the same code that refreshes it (patchDivideBox).
+    const t = document.createElement("template");
+    t.innerHTML = box;
+    this.fillDivideBox(t.content.firstElementChild as HTMLElement, d, m);
+    return (t.content.firstElementChild as HTMLElement).outerHTML;
+  }
+
+  /** Writes the amounts into a damage box: each tile's pips, seal and lock, what's left, Done. */
+  private fillDivideBox(box: HTMLElement, d: DivideView, m: Extract<Mode, { kind: "divide" }>): boolean {
+    const tiles = [...box.querySelectorAll<HTMLElement>(".dtile[data-div-tile]")];
+    if (tiles.length !== d.options.length) return false;
+    const left = divideLeft(d, m.amounts);
+    const off = this.awaiting;
+    tiles.forEach((tile, i) => {
+      const o = d.options[i]!;
+      const n = m.amounts[i] ?? 0;
+      const lethal = o.lethal != null && o.lethal > 0 && n >= o.lethal;
+      const locked = divideLocked(d, m.amounts, i);
+      tile.classList.toggle("lethal", lethal);
+      tile.classList.toggle("locked", locked);
+      tile.classList.toggle("some", n > 0);
+      tile.querySelector(".damt")!.textContent = String(n);
+      // Pips up to lethal (when there are few), and what goes past it; or "2/5 lethal".
+      const pips = o.player ? `<span class="dtext">${n ? `${n} to the player` : locked ? "Lethal to every blocker first" : "Spillover"}</span>`
+        : o.lethal != null && o.lethal > 0 && o.lethal <= 8
+          ? Array.from({ length: o.lethal }, (_, k) => `<i class="${k < n ? "on" : ""}"></i>`).join("") + (n > o.lethal ? `<span class="dover">+${n - o.lethal}</span>` : "")
+          : `<span class="dtext">${n}${o.lethal != null ? `/${o.lethal} lethal` : ""}</span>`;
+      const pipBox = tile.querySelector<HTMLElement>(".dpips")!;
+      if (pipBox.innerHTML !== pips) pipBox.innerHTML = pips;
+      // The card itself stays live with nothing left: a right-click on it takes one back.
+      tile.querySelector<HTMLButtonElement>(".dctl [data-div-add]")!.disabled = off || locked || left <= 0;
+      tile.querySelector<HTMLButtonElement>(".dart")!.disabled = off || locked;
+      tile.querySelector<HTMLButtonElement>("[data-div-sub]")!.disabled = off || n <= 0;
+    });
+    const src = box.querySelector<HTMLElement>(".dsrc")!;
+    src.classList.toggle("ready", left === 0);
+    src.querySelector(".dleft b")!.textContent = String(left);
+    const pool = d.total <= 12 ? Array.from({ length: d.total }, (_, k) => `<i class="${k < left ? "on" : ""}"></i>`).join("") : "";
+    const poolBox = src.querySelector<HTMLElement>(".dpool")!;
+    if (poolBox.innerHTML !== pool) poolBox.innerHTML = pool;
+    const done = box.querySelector<HTMLButtonElement>("[data-div-confirm]")!;
+    done.disabled = off || left !== 0;
+    box.querySelector<HTMLButtonElement>("[data-div-reset]")!.disabled = off;
+    return true;
+  }
+
+  /** A click in the damage box: +1 / −1 (Ctrl: to lethal), Reset, Done. */
+  private divideButton(btn: HTMLElement, lethal: boolean): boolean {
+    const d = btn.dataset;
+    if (d.divAdd === undefined && d.divSub === undefined && d.divReset === undefined && d.divConfirm === undefined) return false;
+    const p = this.state?.pending;
+    const m = this.mode;
+    if (!p?.divide || m.kind !== "divide" || this.awaiting) return true;
+    if (d.divConfirm !== undefined) {
+      if (divideLeft(p.divide, m.amounts) !== 0) return true;
+      this.controller.divide(m.amounts);
+      this.setAwaiting(true);
+      this.render(this.state);
+      return true;
+    }
+    if (d.divReset !== undefined) this.setMode({ ...m, amounts: divideStart(p.divide) });
+    else this.setMode({ ...m, amounts: divideStep(p.divide, m.amounts, Number(d.divAdd ?? d.divSub), d.divAdd !== undefined, lethal) });
+    return true;
+  }
+
   private choiceControls(state: GameState): string {
     const p = state.pending!;
     const m = this.mode;
-    // A pile's top card is drawn, but it's still a card in a graveyard or exile: it goes in the fan.
-    const onTable = (id: string) => {
-      const el = this.elFor(id);
-      return !!el?.isConnected && !el.closest(".pile");
-    };
-    if ((m.kind === "cards" && m.offBoard) || (m.kind === "targets" && p.optionCardIds.some((id) => !isPlayerId(id) && !onTable(id)))) {
+    if (this.choiceInFan(p)) {
       // Cards from a library, graveyard or exile: an Arena fan to pick from (orange = picked).
       // Its buttons go under the fan, side by side: Cancel (when the choice can be declined) and Submit.
       const sel = m.kind === "cards" || m.kind === "targets" ? m.selected : [];
@@ -1944,10 +2176,12 @@ export class Board {
         const count = `${m.selected.length}${m.max > 1 && m.max < 99 ? `/${m.max}` : ""}`;
         buttons = `<div class="choices big">${m.mandatory ? "" : `<button class="opt alt" data-act="decline" ${off}>Cancel</button>`}<button class="opt primary" data-act="confirm" ${off || (canConfirm(m) ? "" : "disabled")}>Submit ${esc(count)}</button></div>`;
       }
-      return this.fanHtml(`pick:${this.modeKey}`, p.optionCards.filter((c) => !isPlayerId(c.id)),
+      // The fuller card where it's known (a prompt may name an opponent's hand card by id only).
+      return this.fanHtml(`pick:${this.modeKey}`, p.optionCards.filter((c) => !isPlayerId(c.id)).map((c) => this.cardData.get(c.id) ?? c),
         (c) => `data-pick="${esc(c.id)}"`, (c) => (sel.includes(c.id) ? "on" : "selectable")) + buttons;
     }
     if (m.kind === "order") return this.orderBox(p, m);
+    if (m.kind === "divide") return this.divideBox(state, p, m);
     if (m.kind === "arrange") return this.arrangeBox(m);
     // A color of mana is picked on the wheel over its card; the corner just says so.
     if (this.promptWheel(p)) return "";
@@ -2721,6 +2955,19 @@ export class Board {
           return;
         }
       }
+      // Dividing damage: Space or Enter confirms (once it's all assigned), R resets.
+      if (m.kind === "divide" && p?.divide && this.el.classList.contains("live") && !e.ctrlKey && !e.altKey && !e.metaKey
+        && !(e.target as HTMLElement | null)?.closest?.("input, textarea, [contenteditable]")) {
+        const act = e.key === " " || e.key === "Enter" ? "[data-div-confirm]" : e.key === "r" || e.key === "R" ? "[data-div-reset]" : null;
+        if (act) {
+          // Endstep's own (hidden) damage bar listens for the same keys: it mustn't answer too.
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          const btn = this.el.querySelector<HTMLButtonElement>(`.prompt .divide-box ${act}`);
+          if (btn && !btn.disabled) this.divideButton(btn, false);
+          return;
+        }
+      }
       // H: hold priority on or off (not while typing a card name).
       if ((e.key === "h" || e.key === "H") && this.el.classList.contains("live") && !e.ctrlKey && !e.altKey && !e.metaKey && !(e.target as HTMLElement | null)?.closest?.("input, textarea, [contenteditable]")) {
         e.preventDefault();
@@ -2834,6 +3081,7 @@ export class Board {
     }
     if (btn?.dataset.act) return this.onDockAction(btn.dataset.act);
     if (btn?.dataset.focus) { this.focusedOpp = btn.dataset.focus; this.render(state); return; }
+    if (btn && this.divideButton(btn, e.ctrlKey || e.metaKey)) return;
     if (this.handlePromptButton(btn)) return;
     if (btn?.classList.contains("pile")) return this.openViewer(btn.dataset.player!, btn.dataset.zone!);
     const menuItem = t.closest<HTMLElement>("[data-menu]");
@@ -2843,6 +3091,8 @@ export class Board {
     // Aiming an attacker: a click on nothing in particular puts the arrow down.
     if (!key && !btn && this.mode.kind === "attackers" && this.mode.aiming) { this.setMode({ ...this.mode, aiming: null }); return; }
     if (!key || this.awaiting) return;
+    // Cards from an opponent's hand are picked in the fan, not on their hand.
+    if (this.pickedInFan(t)) return;
     this.onSelectKey(key, e);
   }
 
@@ -3290,6 +3540,15 @@ export class Board {
   /** Right-click shows the card enlarged, plus a menu when there's something to do with it. */
   private onContextMenu(e: MouseEvent): void {
     const t = e.target as HTMLElement;
+    // In the damage box a right-click on a card takes one back (Ctrl: down to lethal).
+    const dart = t.closest<HTMLElement>(".dtile .dart[data-div-add]");
+    if (dart) {
+      e.preventDefault();
+      const sub = document.createElement("button");
+      sub.dataset.divSub = dart.dataset.divAdd;
+      this.divideButton(sub, e.ctrlKey || e.metaKey);
+      return;
+    }
     const zoomEl = t.closest<HTMLElement>("[data-zoom], .pile .card[data-id]");
     if (zoomEl) {
       e.preventDefault();
@@ -3593,6 +3852,10 @@ function promptTitle(state: GameState, m: Mode): { title: string; sub: string } 
       return pick("Order Attackers", "Drag to set the order.");
     case "ORDER_BLOCKERS":
       return pick("Order Blockers", "Drag to set the damage order.");
+    case "ASSIGN_DAMAGE":
+      return pick("Assign Combat Damage", "Divide the damage among the creatures blocking it.");
+    case "DIVIDE_SHIELD":
+      return pick("Divide Shield Counters", "");
     case "YES_NO":
       return pick(p.sourceCardName ?? "Decide", "");
     case "CHOOSE_COLOR":

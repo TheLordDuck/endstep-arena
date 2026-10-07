@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GameController } from "../src/game/GameController";
 import { normalize, type Raw } from "../src/game/endstep/normalize";
-import { clickInMode, defenderForKey, deriveMode, keyForDefender, learnStep } from "../src/ui/board/modes";
+import { clickInMode, defenderForKey, deriveMode, divideLeft, divideLocked, divideSet, divideStep, keyForDefender, learnStep } from "../src/ui/board/modes";
 import type { WireAction } from "../src/shared/protocol";
 import { coversStops } from "../src/game/endstep/phaseStops";
 import { isFrontRow, isLand, ptCounterDelta } from "../src/ui/board/cards";
@@ -224,4 +224,71 @@ test("learn: Lessons first, then the hand to discard from; either is sent as the
   const lm = deriveMode(live.state);
   assert.ok(lm.kind === "cards" && lm.learn);
   assert.deepEqual([lm.learn.lessons, lm.learn.hand], [["70"], ["31"]]);
+});
+
+// Combat damage among blockers, as Endstep's damage bar divides it.
+const assign = (extra: Raw = {}) => setup({ type: "ASSIGN_DAMAGE", promptVersion: 30, sourceCardName: "Bear", maxValue: 8,
+  cardOptions: [
+    { id: 21, name: "Angel", types: ["Creature"], lethalDamage: 4 },
+    { id: 22, name: "Hawk", types: ["Creature"], lethalDamage: 2 },
+    { id: -2, name: "Opp", types: ["Player"] },
+  ], ...extra });
+
+test("damage: lethal to each blocker in order first, the rest to the trampled player", () => {
+  const { state } = assign();
+  const d = state.pending!.divide!;
+  assert.deepEqual(d.options.map((o) => [o.id, o.lethal, o.player]), [["21", 4, false], ["22", 2, false], ["-2", null, true]]);
+  const m = deriveMode(state);
+  assert.ok(m.kind === "divide");
+  assert.deepEqual(m.amounts, [4, 2, 2]);
+  assert.equal(divideLeft(d, m.amounts), 0);
+});
+
+test("damage: the player is locked (and loses its share) while a blocker lacks lethal", () => {
+  const d = assign().state.pending!.divide!;
+  const less = divideStep(d, [4, 2, 2], 0, false);
+  assert.deepEqual(less, [3, 2, 0]);
+  assert.ok(divideLocked(d, less, 2));
+  assert.deepEqual(divideStep(d, less, 2, true), less, "no +1 on a locked player");
+  assert.deepEqual(divideSet(d, less, 2, 3), less, "nor typed in");
+  // Ctrl: straight to lethal, then the player opens up again.
+  const back = divideStep(d, less, 0, true, true);
+  assert.deepEqual(back, [4, 2, 0]);
+  assert.ok(!divideLocked(d, back, 2));
+  assert.deepEqual(divideStep(d, back, 2, true), [4, 2, 1]);
+  // Never more than what's left; never below 0.
+  assert.deepEqual(divideStep(d, [4, 2, 2], 1, true), [4, 2, 2]);
+  assert.deepEqual(divideStep(d, [0, 0, 0], 1, false), [0, 0, 0]);
+  // Ctrl on less: down to lethal from overkill, or to 0.
+  assert.deepEqual(divideStep(d, [6, 2, 0], 0, false, true), [4, 2, 0]);
+  assert.deepEqual(divideStep(d, [4, 2, 0], 1, false, true), [4, 0, 0]);
+});
+
+test("damage: overrideOrder lets damage past blockers without lethal; confirm sends amounts", () => {
+  const free = assign({ overrideOrder: true });
+  const d = free.state.pending!.divide!;
+  assert.ok(!divideLocked(d, [0, 0, 0], 2));
+  assert.deepEqual(divideStep(d, [3, 2, 0], 2, true), [3, 2, 1]);
+  free.controller.divide([3, 2, 3]);
+  assert.deepEqual(free.sent[0], { type: "CHOOSE_CARDS", orderedCards: [3, 2, 3], promptVersion: 30 });
+  // Without lethal to go by, nothing is assigned up front.
+  const unknown = setup({ type: "ASSIGN_DAMAGE", maxValue: 3, cardOptions: [{ id: 21, name: "Angel" }, { id: 22, name: "Hawk" }] });
+  const m = deriveMode(unknown.state);
+  assert.ok(m.kind === "divide");
+  assert.deepEqual(m.amounts, [0, 0]);
+});
+
+test("a card from an opponent's hand is picked from a fan; your own (or a hand you control) on the table", () => {
+  const hands = (oppControlled: boolean) => ({
+    players: [
+      { name: "Me", life: 20, battlefield: [], hand: [{ id: 31, name: "Opt" }] },
+      { name: "Opp", life: 20, battlefield: [], hand: [{ id: 41, name: "Griselbrand" }, { id: 42, name: "Dark Ritual" }], ...(oppControlled ? { controlledBySeat: 0 } : {}) },
+    ],
+  });
+  const theirs = deriveMode(setup({ type: "CHOOSE_CARDS", cardOptions: [{ id: 41, zone: "HAND" }, { id: 42, zone: "HAND" }] }, hands(false)).state);
+  assert.ok(theirs.kind === "cards" && theirs.offBoard);
+  const mine = deriveMode(setup({ type: "CHOOSE_CARDS", cardOptions: [{ id: 31, zone: "HAND" }] }, hands(false)).state);
+  assert.ok(mine.kind === "cards" && !mine.offBoard);
+  const controlled = deriveMode(setup({ type: "CHOOSE_CARDS", cardOptions: [{ id: 41, zone: "HAND" }] }, hands(true)).state);
+  assert.ok(controlled.kind === "cards" && !controlled.offBoard);
 });
