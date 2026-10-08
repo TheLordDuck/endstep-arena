@@ -6,10 +6,12 @@ import overlayCss from "../styles/overlay.css";
 import boardCss from "../styles/board.css";
 import { Board } from "../ui/board/Board";
 import { GameController } from "../game/GameController";
-import { normalize, toReveal, type Raw } from "../game/endstep/normalize";
-import type { RevealView } from "../game/GameState";
+import { normalize, toLogEntry, toReveal, type Raw } from "../game/endstep/normalize";
+import type { LogEntry, RevealView } from "../game/GameState";
 import type { ReplayStatus } from "../game/ReplayPlayer";
 import { loadStops, saveStops } from "../game/endstep/phaseStops";
+import { cleanPrefs } from "../ui/board/prefs";
+import { StatePacer } from "../ui/StatePacer";
 
 // Timers the page starts, so `?freeze` can cancel the ones still pending; and when each
 // scripted animation started (headless runs don't always advance them on their own).
@@ -91,7 +93,10 @@ function baseState(): Raw {
 }
 
 /** Sets up the state; may return a second step, shown as the next update (for transitions). */
-type Scenario = (s: Raw) => void | ((s: Raw) => void);
+/** A step changes the state; it may return the next one (each makes its own update, as Endstep
+    sending states in a row). */
+type Step = (s: Raw) => void | Step;
+type Scenario = Step;
 const players = (s: Raw) => s.players as Raw[];
 const bf = (p: Raw) => p.battlefield as Raw[];
 const byName = (p: Raw, n: string) => bf(p).find((c) => c.name === n)!;
@@ -143,6 +148,212 @@ const scenarios: Record<string, Scenario> = {
       t.pendingAction = { type: "PRIORITY", promptVersion: 6, cardOptions: [] };
     };
   },
+  // A creature spell resolves: our Baneslayer Angel goes from the stack onto the battlefield.
+  resolve: (s) => {
+    const spell = creature("Baneslayer Angel", 5, 5, { typeLine: "Creature — Angel", types: ["Creature"], manaCost: "{3}{W}{W}", controllerId: "0" });
+    s.stack = [{ stackTargetId: spell.id, isAbility: false, sourceCard: spell }];
+    s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
+    return (t) => {
+      t.stack = [];
+      bf(players(t)[0]!).push(spell);
+    };
+  },
+  // An instant resolves: the opponent's Lightning Bolt hits us and goes to their graveyard.
+  "resolve-bolt": (s) => {
+    const bolt = card("Lightning Bolt", { typeLine: "Instant", types: ["Instant"], manaCost: "{R}", controllerId: "1" });
+    s.stack = [{ stackTargetId: bolt.id, isAbility: false, sourceCard: bolt, targets: [{ id: -1, zone: "Player" }] }];
+    s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
+    return (t) => {
+      const [me, opp] = players(t);
+      t.stack = [];
+      me!.life = (me!.life as number) - 3;
+      (opp!.graveyard as Raw[]).push(bolt);
+    };
+  },
+  // Our Arc Lightning resolves: 2 to the Vampire Nighthawk (it dies) and 1 to the opponent, each
+  // shown by a bolt from the stack; then 3 more from a Lightning Bolt at the Serra Angel.
+  "spell-damage": (s) => {
+    const [, opp] = players(s);
+    const hawk = byName(opp!, "Vampire Nighthawk");
+    const angel = byName(opp!, "Serra Angel");
+    const arc = card("Arc Lightning", { typeLine: "Sorcery", types: ["Sorcery"], controllerId: "0", oracleText: "Arc Lightning deals 3 damage divided as you choose among one, two, or three targets." });
+    const bolt = card("Lightning Bolt", { typeLine: "Instant", types: ["Instant"], controllerId: "0", oracleText: "Lightning Bolt deals 3 damage to any target." });
+    s.stack = [
+      { stackTargetId: arc.id, sourceCard: arc, targets: [{ id: hawk.id, zone: "Battlefield", dividedAmount: 2 }, { id: -2, zone: "Player", dividedAmount: 1 }] },
+      { stackTargetId: bolt.id, sourceCard: bolt, targets: [{ id: angel.id, zone: "Battlefield" }] },
+    ];
+    s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
+    return (t) => {
+      const [me2, opp2] = players(t);
+      t.stack = [];
+      opp2!.life = (opp2!.life as number) - 1;
+      opp2!.battlefield = bf(opp2!).filter((c) => c.id !== hawk.id);
+      (opp2!.graveyard as Raw[]).push(hawk);
+      byName(opp2!, "Serra Angel").damage = 3;
+      (me2!.graveyard as Raw[]).push(arc, bolt);
+    };
+  },
+  // Raise the Alarm resolves: two Soldier tokens come in.
+  tokens: (s) => {
+    const raise = card("Raise the Alarm", { typeLine: "Instant", types: ["Instant"], controllerId: "0", oracleText: "Create two 1/1 white Soldier creature tokens." });
+    s.stack = [{ stackTargetId: raise.id, sourceCard: raise }];
+    s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
+    return (t) => {
+      const [me2] = players(t);
+      t.stack = [];
+      (me2!.graveyard as Raw[]).push(raise);
+      for (let i = 0; i < 2; i++) bf(me2!).push(creature("Soldier", 1, 1, { isToken: true, tokenSetCode: "tdom", tokenCollectorNumber: "2", color: "W", basePower: 1, baseToughness: 1 }));
+    };
+  },
+  // Stats change: Tarmogoyf's pump resolves (+1/+1 until end of turn), the Grizzly Bears get a
+  // +1/+1 counter, and the opponent's Serra Angel gets -2/-2.
+  pump: (s) => {
+    s.stack = [{ stackTargetId: 902, isAbility: true, abilityDescription: "Target creature gets +1/+1 until end of turn.", targets: [{ id: 111, zone: "Battlefield" }], sourceCard: { id: 110, name: "Tarmogoyf", controllerId: "0", types: ["Creature"] } }];
+    s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
+    return (t) => {
+      const [me2, opp2] = players(t);
+      t.stack = [];
+      const goyf = byName(me2!, "Tarmogoyf");
+      goyf.power = 4; goyf.toughness = 5;
+      const bears = byName(me2!, "Grizzly Bears");
+      bears.power = 4; bears.toughness = 4; bears.counters = { P1P1: 1 };
+      const angel = byName(opp2!, "Serra Angel");
+      angel.power = 2; angel.toughness = 2;
+    };
+  },
+  // Our Swords to Plowshares resolves: the opponent's Serra Angel is exiled (into their exile
+  // vortex, not the graveyard) and they gain 4 life.
+  "exile-creature": (s) => {
+    const [, opp] = players(s);
+    const angel = byName(opp!, "Serra Angel");
+    const swords = card("Swords to Plowshares", { typeLine: "Instant", types: ["Instant"], controllerId: "0", oracleText: "Exile target creature. Its controller gains life equal to its power." });
+    s.stack = [{ stackTargetId: swords.id, sourceCard: swords, targets: [{ id: angel.id, zone: "Battlefield" }] }];
+    s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
+    return (t) => {
+      const [me2, opp2] = players(t);
+      t.stack = [];
+      opp2!.battlefield = bf(opp2!).filter((c) => c.id !== angel.id);
+      (opp2!.exile as Raw[]).push(angel);
+      opp2!.life = (opp2!.life as number) + 4;
+      (me2!.graveyard as Raw[]).push(swords);
+    };
+  },
+  // The game log (open it with ?prefs={"logOpen":true}): a few turns of events as Endstep sends them.
+  log: (s) => {
+    const [me, opp] = players(s);
+    const goyf = byName(me!, "Tarmogoyf");
+    const angel = byName(opp!, "Serra Angel");
+    const hawk = byName(opp!, "Vampire Nighthawk");
+    const bolt = (me!.hand as Raw[])[0]!;
+    let seq = 40;
+    const ev = (type: string, message: string, seat: number | null, extra: Raw = {}) => ({
+      type, message, sequenceNumber: seq++, turnNumber: extra.turnNumber ?? 6,
+      ...(seat === null ? {} : { playerIndex: String(seat), playerName: seat === 0 ? "Flavio" : "Opponent" }), ...extra,
+    });
+    s.__events = [
+      ev("TURN_BEGAN", "Turn 5: Opponent", 1, { turnNumber: 5 }),
+      ev("LAND_PLAYED", "Opponent plays [[Plains]].", 1, { turnNumber: 5 }),
+      ev("SPELL_CAST", "Opponent casts [[Vampire Nighthawk]].", 1, { turnNumber: 5, cardId: hawk.id, cardName: "Vampire Nighthawk" }),
+      ev("SPELL_RESOLVED", "[[Vampire Nighthawk]] resolves.", 1, { turnNumber: 5, cardId: hawk.id, cardName: "Vampire Nighthawk" }),
+      ev("ATTACKERS_DECLARED", "Opponent attacks with [[Serra Angel]].", 1, { turnNumber: 5, cardIds: [angel.id], cardNames: ["Serra Angel"] }),
+      ev("PLAYER_DAMAGED", "[[Serra Angel]] deals 4 damage to Flavio.", 0, { turnNumber: 5, cardId: angel.id, cardName: "Serra Angel" }),
+      ev("TURN_BEGAN", "Turn 6: Flavio", 0),
+      ev("LAND_PLAYED", "Flavio plays [[Mountain]].", 0),
+      ev("ABILITY_ACTIVATED", "[[Tarmogoyf]]: Target creature gets +1/+1 until end of turn. {targets=[Tarmogoyf (111)]}", 0, { cardId: goyf.id, cardName: "Tarmogoyf" }),
+      ev("CARD_COUNTERS", "[[Tarmogoyf]] gets a +1/+1 counter.", 0, { cardId: goyf.id, cardName: "Tarmogoyf" }),
+      ev("SPELL_CAST", "Flavio casts [[Lightning Bolt]] targeting [[Vampire Nighthawk]].", 0, { cardIds: [bolt.id, hawk.id], cardNames: ["Lightning Bolt", "Vampire Nighthawk"] }),
+      ev("CARD_DAMAGED", "[[Lightning Bolt]] deals 3 damage to [[Vampire Nighthawk]].", 0, { cardIds: [bolt.id, hawk.id], cardNames: ["Lightning Bolt", "Vampire Nighthawk"] }),
+      ev("PLAYER_LIFE_CHANGED", "Opponent gains 2 life.", 1),
+      ev("TURN_PHASE", "Combat", null),
+    ];
+  },
+  // Watching someone else's game from Flavio's side: their hand isn't shown, nothing to answer.
+  spectate: (s) => {
+    const [me] = players(s);
+    me!.hand = null;
+    s.pendingAction = null;
+    s.__spectating = true;
+  },
+  // Waiting: the opponent can respond to our Lightning Bolt (it's on the stack, priority is theirs).
+  "wait-respond": (s) => {
+    const bolt = (players(s)[0]!.hand as Raw[]).shift()!;
+    s.stack = [{ stackTargetId: bolt.id, sourceCard: { ...bolt, controllerId: "0" }, targets: [{ id: -2, zone: "Player" }] }];
+    s.priorityPlayerId = "1";
+    s.pendingAction = null;
+  },
+  // Waiting: our Tarmogoyf attacks and the opponent is declaring blockers.
+  "wait-blockers": (s) => {
+    const goyf = byName(players(s)[0]!, "Tarmogoyf");
+    goyf.isAttacking = true; goyf.attackingDefenderId = -2; goyf.tapped = true;
+    s.phase = "DECLARE_BLOCKERS";
+    s.priorityPlayerId = "1";
+    s.pendingAction = null;
+  },
+  // Waiting: the opponent is making a choice (their idle timer runs; priority isn't theirs).
+  "wait-deciding": (s) => {
+    const now = Date.now();
+    s.priorityPlayerId = "0";
+    s.pendingAction = null;
+    s.idleTimeout = { seat: "1", deadlineMs: now + 50_000, serverNowMs: now, graceMs: 30_000 };
+  },
+  // Our Murder resolves: the opponent's Serra Angel is destroyed (a dark bolt, then smoke).
+  murder: (s) => {
+    const [, opp] = players(s);
+    const angel = byName(opp!, "Serra Angel");
+    const murder = card("Murder", { typeLine: "Instant", types: ["Instant"], controllerId: "0", oracleText: "Destroy target creature." });
+    s.stack = [{ stackTargetId: murder.id, sourceCard: murder, targets: [{ id: angel.id, zone: "Battlefield" }] }];
+    s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
+    return (t) => {
+      const [me2, opp2] = players(t);
+      t.stack = [];
+      opp2!.battlefield = bf(opp2!).filter((c) => c.id !== angel.id);
+      (opp2!.graveyard as Raw[]).push(angel);
+      (me2!.graveyard as Raw[]).push(murder);
+    };
+  },
+  // A board wipe: every creature dies at once, with no bolt (each crumbles where it stood).
+  wrath: (s) => {
+    const wrath = card("Wrath of God", { typeLine: "Sorcery", types: ["Sorcery"], controllerId: "1", oracleText: "Destroy all creatures. They can't be regenerated." });
+    s.stack = [{ stackTargetId: wrath.id, sourceCard: wrath }];
+    s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
+    return (t) => {
+      t.stack = [];
+      for (const p of players(t)) {
+        const dead = bf(p).filter((c) => /Creature/.test(String(c.typeLine ?? "")) || c.power !== undefined);
+        p.battlefield = bf(p).filter((c) => !dead.includes(c));
+        (p.graveyard as Raw[]).push(...dead);
+      }
+      (players(t)[1]!.graveyard as Raw[]).push(wrath);
+    };
+  },
+  // Proliferate: our Tarmogoyf (+1/+1), Jace (loyalty), The Eldest Reborn (lore) and the poisoned
+  // opponent can get one more counter. All light up; "All yours" sends ours.
+  proliferate: (s) => {
+    const [me] = players(s);
+    const ids = ["Tarmogoyf", "Jace, the Mind Sculptor", "The Eldest Reborn"].map((n) => byName(me!, n).id);
+    s.pendingAction = { type: "CHOOSE_CARDS", promptVersion: 27, sourceCardName: "Thrummingbird", min: 0, max: 99, mandatory: false,
+      message: "Proliferate: choose any number of permanents and/or players", cardOptions: [...ids.map((id) => ({ id })), { id: -2 }] };
+  },
+  // Against a bot: our Lightning Bolt goes on the stack and resolves at once (two states in a
+  // row). The pacer keeps it on the stack a moment; then it flies, and the bolt hits the opponent.
+  "bot-cast": (s) => {
+    const bolt = (players(s)[0]!.hand as Raw[])[0]!;
+    return (t) => {
+      const [me] = players(t);
+      me!.hand = (me!.hand as Raw[]).filter((c) => c.id !== bolt.id);
+      t.stack = [{ stackTargetId: bolt.id, sourceCard: { ...bolt, controllerId: "0", oracleText: "Lightning Bolt deals 3 damage to any target." }, targets: [{ id: -2, zone: "Player" }] }];
+      t.pendingAction = null;
+      t.priorityPlayerId = "1";
+      return (u) => {
+        const [me2, opp2] = players(u);
+        u.stack = [];
+        opp2!.life = (opp2!.life as number) - 3;
+        (me2!.graveyard as Raw[]).push(bolt);
+        u.priorityPlayerId = "0";
+        u.pendingAction = { type: "PRIORITY", promptVersion: 9, cardOptions: [] };
+      };
+    };
+  },
   won: (s) => { s.status = "COMPLETE"; s.winnerId = "0"; s.pendingAction = null; },
   lost: (s) => { s.status = "COMPLETE"; s.winnerId = "1"; s.pendingAction = null; },
   attack: (s) => {
@@ -156,9 +367,9 @@ const scenarios: Record<string, Scenario> = {
     s.phase = "DECLARE_BLOCKERS";
     s.activePlayerId = "1";
     const angel = byName(opp!, "Serra Angel");
-    angel.isAttacking = true; angel.attackingDefenderId = "0"; angel.tapped = false;
+    angel.isAttacking = true; angel.attackingDefenderId = -1; angel.tapped = false;
     const hawk = byName(opp!, "Vampire Nighthawk");
-    hawk.isAttacking = true; hawk.attackingDefenderId = "0";
+    hawk.isAttacking = true; hawk.attackingDefenderId = -1;
     const goyf = byName(me!, "Tarmogoyf");
     goyf.isBlocking = true; goyf.blockingIds = [hawk.id];
     s.pendingAction = { type: "DECLARE_BLOCKERS", promptVersion: 6, cardOptions: [{ id: byName(me!, "Grizzly Bears").id }],
@@ -173,9 +384,9 @@ const scenarios: Record<string, Scenario> = {
     s.activePlayerId = "1";
     s.pendingAction = null;
     const angel = byName(opp!, "Serra Angel");
-    angel.isAttacking = true; angel.attackingDefenderId = "0"; angel.tapped = false;
+    angel.isAttacking = true; angel.attackingDefenderId = -1; angel.tapped = false;
     const hawk = byName(opp!, "Vampire Nighthawk");
-    hawk.isAttacking = true; hawk.attackingDefenderId = "0";
+    hawk.isAttacking = true; hawk.attackingDefenderId = -1;
     const goyf = byName(me!, "Tarmogoyf");
     goyf.isBlocking = true; goyf.blockingIds = [hawk.id];
     return (n) => {
@@ -195,7 +406,7 @@ const scenarios: Record<string, Scenario> = {
   // (4 is lethal) and the Vampire Nighthawk (2 left); whatever's past lethal can trample over.
   damage: (s) => {
     const [me, opp] = players(s);
-    const baloths = creature("Rampaging Baloths", 8, 8, { counters: { P1P1: 2 }, oracleText: "Trample\nLandfall — Whenever a land you control enters, you may create a 4/4 green Beast creature token.", isAttacking: true, attackingDefenderId: "1", tapped: true });
+    const baloths = creature("Rampaging Baloths", 8, 8, { counters: { P1P1: 2 }, oracleText: "Trample\nLandfall — Whenever a land you control enters, you may create a 4/4 green Beast creature token.", isAttacking: true, attackingDefenderId: -2, tapped: true });
     bf(me!).push(baloths);
     const angel = byName(opp!, "Serra Angel");
     const hawk = byName(opp!, "Vampire Nighthawk");
@@ -213,7 +424,7 @@ const scenarios: Record<string, Scenario> = {
   "damage-split": (s) => {
     const [me, opp] = players(s);
     const goyf = byName(me!, "Tarmogoyf");
-    goyf.isAttacking = true; goyf.attackingDefenderId = "1"; goyf.tapped = true;
+    goyf.isAttacking = true; goyf.attackingDefenderId = -2; goyf.tapped = true;
     const angel = byName(opp!, "Serra Angel");
     const hawk = byName(opp!, "Vampire Nighthawk");
     for (const c of [angel, hawk]) { c.isBlocking = true; c.blockingIds = [goyf.id]; }
@@ -234,9 +445,9 @@ const scenarios: Record<string, Scenario> = {
     s.pendingAction = null;
     opp!.life = 4;
     const goyf = byName(me!, "Tarmogoyf");
-    goyf.isAttacking = true; goyf.attackingDefenderId = "1"; goyf.tapped = true;
+    goyf.isAttacking = true; goyf.attackingDefenderId = -2; goyf.tapped = true;
     const bears = byName(me!, "Grizzly Bears");
-    bears.isAttacking = true; bears.attackingDefenderId = "1"; bears.tapped = true;
+    bears.isAttacking = true; bears.attackingDefenderId = -2; bears.tapped = true;
     const hawk = byName(opp!, "Vampire Nighthawk");
     hawk.isBlocking = true; hawk.blockingIds = [bears.id];
     return (n) => {
@@ -415,13 +626,20 @@ const scenarios: Record<string, Scenario> = {
       message: "Choose a nonland card to exile.",
       cardOptions: hand.filter((c) => c.name !== "Swamp").map((c) => ({ id: c.id })) };
   },
-  // Thoughtseize on ourselves: we choose a nonland card from our own hand, in a fan as well.
+  // Thoughtseize on ourselves: a discard from our own hand, picked right on the hand (no fan).
   "self-discard": (s) => {
     const [me] = players(s);
     const hand = me!.hand as Raw[];
     s.pendingAction = { type: "CHOOSE_CARDS", promptVersion: 25, sourceCardName: "Thoughtseize", min: 1, max: 1, mandatory: true,
       message: "Choose a nonland card to discard.",
       cardOptions: hand.filter((c) => !/Land/.test(String(c.typeLine))).map((c) => ({ id: c.id, zone: "HAND" })) };
+  },
+  // An activated ability's cost: "{T}, Discard a card: Draw a card." Picked on our hand, no fan, no arrow.
+  "discard-cost": (s) => {
+    const [me] = players(s);
+    const hand = me!.hand as Raw[];
+    s.pendingAction = { type: "CHOOSE_CARDS", contextType: "discard", promptVersion: 26, sourceCardName: "Rummaging Goblin", min: 1, max: 1, mandatory: false,
+      message: "Discard a card", cardOptions: hand.map((c) => ({ id: c.id, zone: "HAND" })) };
   },
   // Surgical Extraction on our own graveyard's Lightning Bolt: the copies to exile, from our hand
   // (asked first on its own, then with the graveyard and library ones), in a fan.
@@ -664,6 +882,8 @@ const build = (meta: { viewerSeat?: number; seq: number }) => {
     ...s,
     players: s.players.map((p, i) => (i === gone ? { ...p, disconnected: { deadline: Date.now() + 83_000 } } : p)),
     reveals: ((raw.__events as Raw[] | undefined) ?? []).map((e) => toReveal(e)).filter((r): r is RevealView => !!r),
+    log: ((raw.__events as Raw[] | undefined) ?? []).map((e, i) => toLogEntry(e, i + 1)).filter((e): e is LogEntry => !!e),
+    ...(raw.__spectating ? { spectating: true } : {}),
     ...(raw.__replay ? { replay: raw.__replay as ReplayStatus } : {}),
   };
 };
@@ -680,11 +900,12 @@ const controller = new GameController(() => state, (matchId, action) => {
   if (action.type !== "SET_PHASE_STOPS" && action.type !== "SET_AUTO_YIELDS") {
     raw.pendingAction = { type: "PRIORITY", promptVersion: 100 + seq, cardOptions: [] };
     state = build({ seq: ++seq });
-    setTimeout(() => board.update(state), 150);
+    setTimeout(() => pacer.push(state), 150);
   }
 });
 (window as unknown as { __actions: unknown[] }).__actions = [];
 const stops = loadStops();
+let prefs = cleanPrefs((() => { try { return JSON.parse(new URLSearchParams(location.search).get("prefs") ?? "null") ?? undefined; } catch { return undefined; } })());
 const board = new Board(controller, {
   onToggleDebug: () => {}, onHide: () => {},
   phaseStops: () => stops,
@@ -695,13 +916,20 @@ const board = new Board(controller, {
   runTableItem: (label) => console.log("TABLE ITEM", label),
   replay: (cmd) => console.log("REPLAY", JSON.stringify(cmd)),
   leaveReplay: () => console.log("LEAVE REPLAY"),
+  leaveSpectate: () => console.log("LEAVE SPECTATE"),
+  // `?prefs={"cardScale":1.3}` starts with other settings.
+  prefs: () => prefs,
+  setPrefs: (patch) => { prefs = { ...prefs, ...patch }; console.log("PREFS", JSON.stringify(prefs)); },
 });
 root.querySelector(".layer")!.appendChild(board.el);
-board.update(state);
-if (nextStep) {
-  nextStep(raw);
+// States reach the board through the pacer, as in the extension.
+const pacer = new StatePacer({ show: (s) => board.update(s), busyUntil: () => board.busyUntil(), dwellMs: () => board.dwellMs() });
+pacer.push(state);
+for (let step = nextStep; step;) {
+  const after = step(raw);
   state = build({ seq: ++seq });
-  board.update(state);
+  pacer.push(state);
+  step = after || undefined;
 }
 
 // Dev hook: `?freeze=ms` stops every animation that long after the board is up (for screenshots
@@ -737,6 +965,8 @@ if (point?.length === 2) {
   }
 }
 
+// Dev hook: the board itself, to open its panels from a test script.
+(window as unknown as { __board: Board }).__board = board;
 // Dev hook: the current raw state, to build a follow-up state from in a test script.
 (window as unknown as { __raw: Raw }).__raw = raw;
 // Dev hook: load a real state copied from the debug panel ({ matchId, viewerSeat, seq, state }).

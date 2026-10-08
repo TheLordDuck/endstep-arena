@@ -123,14 +123,20 @@ export function updateCardEl(el: HTMLElement, c: CardView, showStats: boolean): 
     const counters = Object.entries(c.counters).filter(([k]) => !hidden.has(k.toLowerCase()));
     // Counters: a pin each on the card's left edge, with how many.
     for (const [k, n] of counters) pins.push(counterPin(k, n));
-    if (c.damage) badges.push(`<span class="b dmg" title="Damage">${c.damage}</span>`);
+    const pt = c.power !== undefined && c.toughness !== undefined && isFrontRow(c);
+    // A creature's damage shows in its toughness (below); anything else gets its own badge.
+    if (c.damage && !(pt && typeof c.toughness === "number")) badges.push(`<span class="b dmg" title="Damage">${c.damage}</span>`);
     // Endstep sends 0/0 (and loyalty 0) for every card, so stats follow the card's type.
     if (c.loyalty !== undefined && hasType(c, "planeswalker")) badges.push(`<span class="b loy">${attr(c.loyalty)}</span>`);
     // Power or toughness that isn't the printed value is blue.
     // (+1/+1, -1/-1… counters change it too, even when Endstep's base values don't show it.)
-    if (c.power !== undefined && c.toughness !== undefined && isFrontRow(c)) {
+    // Damage marked on it comes off its toughness, in red, as in Arena.
+    if (pt) {
       const delta = ptCounterDelta(c.counters);
-      badges.push(`<span class="b pt">${stat(c.power, c.basePower, delta.power !== 0)}/${stat(c.toughness, c.baseToughness, delta.toughness !== 0)}</span>`);
+      const toughness = c.damage && typeof c.toughness === "number"
+        ? `<i class="hurt" title="Toughness ${c.toughness}, ${c.damage} damage marked">${c.toughness - c.damage}</i>`
+        : stat(c.toughness!, c.baseToughness, delta.toughness !== 0);
+      badges.push(`<span class="b pt">${stat(c.power!, c.basePower, delta.power !== 0)}/${toughness}</span>`);
     }
   }
   el.querySelector(".badges")!.innerHTML = badges.join("");
@@ -209,7 +215,7 @@ function counterPin(kind: string, n: number): string {
     for (const ch of label) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
     color = ` style="--pc:${PIN_COLORS[h % PIN_COLORS.length]}"`;
   }
-  return `<span class="pin${cls}"${color} title="${n} ${attr(label)} counter${n === 1 ? "" : "s"}"><b>${n}</b><small>${attr(label)}</small></span>`;
+  return `<span class="pin${cls}"${color} data-kind="${attr(kind)}" title="${n} ${attr(label)} counter${n === 1 ? "" : "s"}"><b>${n}</b><small>${attr(label)}</small></span>`;
 }
 
 const counterCount = (c: CardView, kind: string) =>

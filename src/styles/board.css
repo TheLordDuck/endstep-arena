@@ -13,12 +13,13 @@
   --glass-line: rgba(232, 198, 120, 0.22);
 
   --gutter: clamp(200px, 17vw, 330px);
-  --bf-w: min(8vw, 12.6vh);
+  /* --cs: the card size chosen in the settings. */
+  --bf-w: calc(min(8vw, 12.6vh) * var(--cs, 1));
   /* Battlefield cards show only their top (name bar + art), Arena style. */
   --bf-h: calc(var(--bf-w) * 0.8);
   /* The card that resolves next, big on the right as in Arena. */
   --stack-w: min(14vw, 27vh);
-  --hand-w: min(7.4vw, 14vh);
+  --hand-w: calc(min(7.4vw, 14vh) * var(--cs, 1));
   --hand-h: calc(var(--hand-w) * 1.397);
   --ohand-w: calc(var(--bf-w) * 0.62);
   /* Most of each hand card is visible, not just its top. */
@@ -485,6 +486,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .b.pt i { font-style: normal; }
 /* Power or toughness changed from the printed value. */
 .b.pt i.mod { color: #5ab8ff; }
+/* Toughness left after the damage marked on it. */
+.b.pt i.hurt { color: #ff4a2a; }
 .zextra.col { flex-direction: column; gap: 2px; }
 .zextra .kgain { color: #9be7a2; }
 .zextra .kchosen { color: var(--gold-hi); }
@@ -2106,6 +2109,16 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .menu button.danger:hover, .menu button.danger:focus-visible { background: linear-gradient(90deg, rgba(255, 90, 60, 0.22), rgba(255, 90, 60, 0.04)); color: #ffb0a0; }
 .menu button.danger:hover::before, .menu button.danger:focus-visible::before { background: var(--atk); }
 .menu button.sep { margin-top: 7px; }
+.menu button.sep-after { margin-bottom: 7px; }
+.menu button.sep-after::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -4px;
+  height: 1px;
+  background: rgba(232, 198, 120, 0.2);
+}
 .menu button.sep::after {
   content: "";
   position: absolute;
@@ -2181,6 +2194,52 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   animation: fade-in 0.2s ease;
 }
 .confirm.open { display: flex; }
+
+/* The board's own settings (table menu → Arena UI settings), in the same full-screen style. */
+.settings {
+  position: absolute;
+  inset: 0;
+  z-index: 96;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  background: radial-gradient(ellipse 80% 70% at 50% 45%, rgba(10, 8, 6, 0.75), rgba(4, 3, 2, 0.92));
+  backdrop-filter: blur(2px);
+  animation: fade-in 0.2s ease;
+}
+.settings.open { display: flex; }
+.set-rows {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 14px 28px;
+  align-items: center;
+  padding: 22px 28px;
+  border-radius: 14px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+.set-row { display: contents; }
+.set-row > span { font: 600 14px var(--font); color: var(--text); letter-spacing: 0.02em; }
+.seg { display: inline-flex; border: 1px solid rgba(232, 198, 120, 0.35); border-radius: 999px; overflow: hidden; }
+.seg button {
+  padding: 7px 16px;
+  border: 0;
+  background: none;
+  font: 600 13px var(--font);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.seg button + button { border-left: 1px solid rgba(232, 198, 120, 0.2); }
+.seg button:hover:not(:disabled) { color: var(--gold-hi); background: rgba(232, 198, 120, 0.1); }
+.seg button.on { color: #231a0c; background: linear-gradient(180deg, var(--gold-hi), var(--gold)); }
+.seg.off { opacity: 0.45; }
+.seg button:disabled { cursor: default; }
+.settings .vol { width: 220px; accent-color: var(--gold); }
+.settings .vol:disabled { opacity: 0.45; }
 @keyframes pop { from { opacity: 0; scale: 0.96; } }
 
 .viewer { position: absolute; inset: 0; z-index: 80; display: none; place-items: center; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(3px); }
@@ -2445,6 +2504,29 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   backdrop-filter: blur(8px);
 }
 .replay-bar.show { display: flex; }
+/* Watching someone else's game: a pill top center saying so, with the way out. */
+.spectate-bar {
+  position: absolute;
+  left: 50%;
+  top: 10px;
+  z-index: 60;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  translate: -50% 0;
+  padding: 5px 6px 5px 14px;
+  border-radius: 999px;
+  font: 700 12px/1 "Cinzel", Georgia, serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold-hi);
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+}
+.spectate-bar.show { display: flex; }
+.spectate-bar .eye { font-size: 14px; letter-spacing: 0; }
 /* Moved by its grip: placed by its top left (set inline), no longer centered. */
 .replay-bar.moved { translate: none; }
 .replay-bar.dragging { box-shadow: 0 0 0 1px var(--gold), 0 14px 32px rgba(0, 0, 0, 0.7); }
@@ -2591,8 +2673,112 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   100% { opacity: 0; translate: -50% -110%; }
 }
 
+/* Damage from a spell or ability: a bolt of light from the stack to its target. Its head is at
+   the element's anchor point (left/top), its tail trails behind along its rotation. */
+.shot {
+  position: absolute;
+  z-index: 44;
+  width: 70px;
+  height: 12px;
+  margin: -6px 0 0 -62px;
+  transform-origin: 62px 50%;
+  border-radius: 999px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(160, 200, 255, 0.45) 40%, #eaf4ff 82%, #fff);
+  box-shadow: 0 0 14px 4px rgba(150, 195, 255, 0.75), 0 0 34px 10px rgba(110, 150, 255, 0.35);
+  mix-blend-mode: screen;
+}
+
+/* A token comes in: a burst of light and a ring opening out. */
+.token-burst {
+  position: absolute;
+  z-index: 44;
+  width: 160px;
+  height: 160px;
+  margin: -80px 0 0 -80px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(255, 255, 240, 0.95) 0 8%, rgba(255, 226, 140, 0.6) 22%, rgba(255, 200, 90, 0.18) 42%, transparent 62%);
+  mix-blend-mode: screen;
+  animation: impact 0.6s ease-out forwards;
+}
+.token-burst::after {
+  content: "";
+  position: absolute;
+  inset: 18%;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 236, 170, 0.9);
+  box-shadow: 0 0 18px rgba(255, 214, 120, 0.8), inset 0 0 12px rgba(255, 214, 120, 0.5);
+  animation: token-ring 0.6s ease-out forwards;
+}
+@keyframes token-ring { from { scale: 0.2; opacity: 1; } to { scale: 1.6; opacity: 0; } }
+
+/* A permanent exiled: it flares up in pale violet light where it stood, then spins into the vortex. */
+.card.flying.exiling .face { box-shadow: 0 0 0 2px rgba(214, 196, 255, 0.9), 0 0 30px 8px rgba(170, 140, 255, 0.6); }
+.exile-burst {
+  position: absolute;
+  z-index: 44;
+  width: 190px;
+  height: 190px;
+  margin: -95px 0 0 -95px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(250, 245, 255, 0.95) 0 7%, rgba(200, 180, 255, 0.6) 20%, rgba(140, 110, 230, 0.2) 42%, transparent 62%);
+  mix-blend-mode: screen;
+  animation: impact 0.7s ease-out forwards;
+}
+.exile-burst::after {
+  content: "";
+  position: absolute;
+  inset: 20%;
+  border-radius: 50%;
+  border: 2px solid rgba(220, 205, 255, 0.9);
+  box-shadow: 0 0 20px rgba(170, 140, 255, 0.85), inset 0 0 14px rgba(170, 140, 255, 0.5);
+  animation: token-ring 0.7s ease-out forwards;
+}
+
+/* Power/toughness changed: the change floats up from the card, blue as modified stats (red when lower). */
+.stat-pop {
+  position: absolute;
+  z-index: 46;
+  translate: -50% -50%;
+  pointer-events: none;
+  font: 800 clamp(20px, 2vw, 30px)/1 "Cinzel", Georgia, serif;
+  color: #5ab8ff;
+  -webkit-text-stroke: 1.2px #04162a;
+  text-shadow: 0 0 14px rgba(70, 160, 255, 0.85), 0 3px 6px rgba(0, 0, 0, 0.9);
+  animation: dmg-pop 1.2s ease-out forwards;
+}
+.stat-pop.loss { color: #ff4a2a; -webkit-text-stroke-color: #2a0a04; text-shadow: 0 0 14px rgba(255, 80, 40, 0.8), 0 3px 6px rgba(0, 0, 0, 0.9); }
+@media (prefers-reduced-motion: reduce) {
+  .shot, .token-burst, .stat-pop, .exile-burst { display: none; }
+}
+
+/* A spell leaving the stack: a full-size copy flies to where it went (battlefield, graveyard, exile).
+   Cropped to its top like a permanent, so it lands looking like one. */
+.card.flying { position: absolute; z-index: 36; margin: 0; pointer-events: none; transition: none; }
+.card.flying .img { object-position: 50% 0; }
+.card.flying .face { border: 2px solid rgba(20, 16, 12, 0.95); box-shadow: 0 16px 34px rgba(0, 0, 0, 0.6), 0 0 26px 4px rgba(255, 214, 90, 0.4); }
+.card.flying.theirs .face { box-shadow: 0 16px 34px rgba(0, 0, 0, 0.6), 0 0 26px 4px rgba(255, 90, 60, 0.4); }
+
 /* A creature that died in the fight: a copy stays where it stood, then crumbles into dark smoke. */
 .card.fallen { position: absolute; z-index: 35; margin: 0; pointer-events: none; }
+/* A permanent that died crumbles into dark smoke where it stands on the table. */
+.card.perishing { animation: crumble 0.9s ease-in forwards; pointer-events: none; z-index: 30; }
+.card .smoke {
+  position: absolute;
+  inset: -30%;
+  z-index: 8;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 30% 40%, rgba(22, 14, 30, 0.95), transparent 34%),
+    radial-gradient(circle at 70% 35%, rgba(30, 18, 40, 0.9), transparent 32%),
+    radial-gradient(circle at 50% 65%, rgba(14, 10, 20, 0.95), transparent 40%),
+    radial-gradient(circle at 25% 70%, rgba(40, 24, 54, 0.8), transparent 28%),
+    radial-gradient(circle at 78% 68%, rgba(26, 16, 36, 0.85), transparent 30%);
+  filter: blur(6px);
+  animation: smoke 0.9s ease-out forwards;
+}
 .card.fallen.dying { animation: crumble 0.9s ease-in forwards; }
 .card.fallen.dying::before {
   content: "";
@@ -2753,3 +2939,166 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .sb-actions { align-items: center; flex-wrap: wrap; }
 .sb-ask { margin: 0; font-size: 15px; color: #e6dcc8; }
 .sb-ask.bad { color: #ffb4a4; }
+
+/* Animations turned off in the settings: nothing moves (as with "reduce motion"). */
+.board.still *, .board.still *::before, .board.still *::after {
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+}
+
+/* The game log (L, or the Log button): a panel down the left side of the table, a line per
+   event, newest at the bottom. Pointing at a line lights up its cards on the table. */
+.log {
+  position: absolute;
+  top: 92px;
+  bottom: 250px;
+  left: 12px;
+  z-index: 60;
+  display: none;
+  flex-direction: column;
+  width: clamp(240px, 19vw, 320px);
+  border-radius: 12px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  animation: slide-in-left 0.18s ease;
+}
+.board.log-open .log { display: flex; }
+@keyframes slide-in-left { from { opacity: 0; translate: -14px 0; } }
+.log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid var(--glass-line);
+  font: 700 12px/1 "Cinzel", Georgia, serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold-hi);
+}
+.log-x { border: 0; background: none; color: var(--muted); font-size: 14px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
+.log-x:hover { color: var(--gold-hi); background: rgba(232, 198, 120, 0.12); }
+.log-list { flex: 1; overflow-y: auto; padding: 6px 0 10px; scrollbar-width: thin; scrollbar-color: rgba(232, 198, 120, 0.3) transparent; }
+.log-empty { margin: 14px; font: italic 13px var(--font); color: var(--muted); }
+.log-turn {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 10px 10px 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font: 600 12px var(--font);
+  color: var(--text);
+  background: rgba(232, 198, 120, 0.08);
+}
+.log-turn b { font: 700 12px "Cinzel", Georgia, serif; color: var(--gold-hi); }
+.log-turn.you { background: linear-gradient(90deg, rgba(232, 198, 120, 0.22), rgba(232, 198, 120, 0.04)); }
+.log-turn.opp { background: linear-gradient(90deg, rgba(255, 90, 60, 0.18), rgba(255, 90, 60, 0.03)); }
+.log-row {
+  display: flex;
+  gap: 8px;
+  padding: 3px 12px 3px 10px;
+  border-left: 2px solid transparent;
+  font: 400 12.5px/1.4 var(--font);
+  color: #ddd2bd;
+  cursor: default;
+}
+.log-row.you { border-left-color: rgba(232, 198, 120, 0.7); }
+.log-row.opp { border-left-color: rgba(255, 90, 60, 0.6); }
+.log-row:hover { background: rgba(232, 198, 120, 0.08); }
+.log-row .g { flex: none; width: 14px; font-style: normal; text-align: center; color: var(--muted); }
+.log-row.spell .g { color: #8fc8ff; }
+.log-row.trigger .g, .log-row.ability .g { color: #c9b6ff; }
+.log-row.damage .g { color: #ff7a5c; }
+.log-row.life .g { color: #7ad08a; }
+.log-row.combat .g { color: #ffb066; }
+.log-row.land .g { color: #b8d68a; }
+.log-row.counter .g { color: #5ab8ff; }
+.log-row.outcome .g { color: var(--gold-hi); }
+.log-row .lc { font-weight: 600; color: var(--gold-hi); cursor: help; }
+.log-row .lc:hover { text-decoration: underline; text-underline-offset: 2px; }
+/* A picture of the card named under the pointer, beside the log. */
+.log-peek {
+  position: absolute;
+  left: calc(100% + 10px);
+  width: 160px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.log-peek.show { opacity: 1; }
+.log-peek img { display: block; width: 100%; border-radius: 8px; box-shadow: 0 10px 26px rgba(0, 0, 0, 0.7); }
+/* The cards of the log line pointed at. */
+.card.log-hl .face { box-shadow: 0 0 0 3px #8fc8ff, 0 0 24px 6px rgba(120, 180, 255, 0.6); }
+
+/* Not your move: who the game waits on, and for what, with a pulsing dot. */
+.prompt .msg.wait { display: inline-flex; align-items: center; gap: 8px; color: #d8ccb4; }
+.wait-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--atk); box-shadow: 0 0 8px var(--atk); animation: wait-dot 1.2s ease-in-out infinite; }
+.msg.wait.resolving .wait-dot { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
+.msg.wait.attackers .wait-dot, .msg.wait.blockers .wait-dot { background: #ffb066; box-shadow: 0 0 8px #ffb066; }
+@keyframes wait-dot { 50% { opacity: 0.3; scale: 0.7; } }
+/* The picture of the player the game waits on glows softly. */
+.life-orb.waited .avatar { animation: waited 1.8s ease-in-out infinite; }
+@keyframes waited { 50% { box-shadow: 0 0 0 3px rgba(255, 120, 80, 0.55), 0 0 26px 6px rgba(255, 110, 70, 0.4); } }
+@media (prefers-reduced-motion: reduce) {
+  .wait-dot, .life-orb.waited .avatar { animation: none; }
+}
+
+/* Keyboard shortcuts (?, or the table menu): groups of keys in the settings' panel. */
+.keys {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(300px, 400px));
+  gap: 18px 32px;
+  padding: 22px 28px;
+  border-radius: 14px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+.keys h3 { margin: 0 0 8px; font: 700 12px/1 "Cinzel", Georgia, serif; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold-hi); }
+.keys section { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; align-content: start; align-items: baseline; }
+.keys h3 { grid-column: 1 / -1; }
+.key-row { display: contents; font: 400 13px/1.35 var(--font); color: var(--text); }
+.key-row > span:last-child { font: 400 13px/1.35 var(--font); color: var(--text); }
+.key-row .kk { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.key-row kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  border: 1px solid rgba(232, 198, 120, 0.45);
+  border-bottom-width: 2px;
+  background: rgba(232, 198, 120, 0.08);
+  font: 600 12px/1.2 var(--font);
+  color: var(--gold-hi);
+  text-align: center;
+}
+
+/* A destroy (Murder, Doom Blade): a dark bolt and a black-violet burst. An exile (Swords to
+   Plowshares): a pale violet one. */
+.shot.destroy {
+  background: linear-gradient(90deg, transparent, rgba(80, 30, 110, 0.5) 40%, #2a0f3a 82%, #6b2fa0);
+  box-shadow: 0 0 14px 4px rgba(120, 40, 170, 0.8), 0 0 34px 10px rgba(40, 0, 60, 0.6);
+  mix-blend-mode: normal;
+}
+.shot.exile {
+  background: linear-gradient(90deg, transparent, rgba(200, 180, 255, 0.45) 40%, #f3eeff 82%, #fff);
+  box-shadow: 0 0 14px 4px rgba(190, 160, 255, 0.8), 0 0 34px 10px rgba(150, 120, 240, 0.4);
+}
+.impact.destroy {
+  background: radial-gradient(circle, #e7c8ff 0 6%, rgba(120, 40, 170, 0.9) 16%, rgba(60, 10, 90, 0.7) 32%, rgba(20, 0, 30, 0.35) 50%, transparent 66%);
+  mix-blend-mode: normal;
+}
+.impact.exile {
+  background: radial-gradient(circle, #fff 0 9%, rgba(240, 230, 255, 0.95) 16%, rgba(190, 160, 255, 0.55) 32%, rgba(150, 120, 240, 0.15) 50%, transparent 66%);
+}
+
+/* Proliferate: every permanent and player that can get one more counter lights up brightly; the
+   ones picked turn orange. */
+.board.proliferating .card.selectable .face { box-shadow: 0 0 0 3px #7ee8ff, 0 0 26px 8px rgba(110, 220, 255, 0.75); filter: brightness(1.15); animation: none; }
+.board.proliferating .card.selected .face { box-shadow: 0 0 0 3px var(--picked), 0 0 26px 8px rgba(255, 138, 42, 0.8); filter: brightness(1.1); }
+.board.proliferating .life-orb.selectable .avatar { box-shadow: 0 0 0 3px #7ee8ff, 0 0 26px 8px rgba(110, 220, 255, 0.75); }
+.board.proliferating .life-orb.selected .avatar { box-shadow: 0 0 0 3px var(--picked), 0 0 26px 8px rgba(255, 138, 42, 0.8); }

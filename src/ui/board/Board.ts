@@ -4,10 +4,10 @@
 // All game actions go through GameController; this file never talks to
 // Endstep directly.
 
-import type { AbilityOption, CardView, DivideView, GameState, PendingActionView, PileView, PlayerView, SideboardView, StackItemView } from "../../game/GameState";
+import type { AbilityOption, CardView, DivideView, GameState, LogEntry, PendingActionView, PileView, PlayerView, SideboardView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
 import { CARD_BACK_URL, chosenLabels, createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
-import { arrangeMove, canConfirm, clickInMode, deckColumns, defenderForKey, deriveMode, divideLeft, divideLocked, divideReady, divideShort, divideStart, divideStep, humanize, keyForDefender, learnStep, promptKey, sideboardChanged, sideboardCheck, sideboardMove, sideboardStacks, stepNumber, type Mode, type SideboardStack } from "./modes";
+import { arrangeMove, canConfirm, clickInMode, deckColumns, defenderForKey, deriveMode, discardInHand, isProliferate, divideLeft, divideLocked, divideReady, divideShort, divideStart, divideStep, humanize, keyForDefender, learnStep, promptKey, sideboardChanged, sideboardCheck, sideboardMove, sideboardStacks, stepNumber, type Mode, type SideboardStack } from "./modes";
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
 import { currentStep, stepIndex, stepLabel, TURN_STEPS } from "./phases";
 import type { PhaseStops, StopSide } from "../../game/endstep/phaseStops";
@@ -16,10 +16,15 @@ import { avatarPicture } from "../../game/endstep/avatars";
 import { ExileLinks } from "../../game/exileLinks";
 import { HandKnowledge } from "../../game/handKnowledge";
 import { keywordNotes } from "./keywords";
+import { ANIM_SPEEDS, CARD_SCALES, type BoardPrefs } from "./prefs";
+import { Sounds, type Sfx } from "./sounds";
+import { waitingFor, type Waiting } from "../../game/waiting";
 import { PASS_TARGETS, passLabel, passUntilStep, passUntilStops, startPassUntil, type PassTarget, type PassUntil } from "../../game/passUntil";
 
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+/** Animations turned off in the board's settings (as "reduce motion" does). */
+let motionOff = false;
+const reducedMotion = () => motionOff || matchMedia("(prefers-reduced-motion: reduce)").matches;
 /** Where the player moved the replay bar, kept across games. */
 const REPLAY_BAR_KEY = "endstepArena.replayBar";
 function readReplayBarAt(): { x: number; y: number } | null {
@@ -45,6 +50,35 @@ const MAX_PILE = 4;
 /** Space between an enlarged card and its keyword boxes (px, as in the CSS). */
 const KW_GAP = 10;
 
+/** A card still gliding into its place (from the hand onto the stack, say) gets there now, so it's
+    measured where it is, not halfway. */
+function settle(el: HTMLElement): void {
+  for (const a of el.getAnimations()) {
+    if (a instanceof CSSAnimation || a instanceof CSSTransition) continue;
+    try {
+      a.finish();
+    } catch {
+      // An endless one can't be finished; it doesn't move the card anyway.
+    }
+  }
+}
+
+/** What a resolved spell or ability did to one target (see planHits). */
+interface SpellHit {
+  /** The stack item. */
+  item: string;
+  /** The target: a card id, or "player:<seat>". */
+  key: string;
+  kind: "damage" | "destroy" | "exile";
+  /** The player hit, for a player target. */
+  playerId?: string;
+  dmg: number;
+  /** It left the battlefield for a graveyard. */
+  died: boolean;
+  /** Players whose life the same spell changed otherwise, shown as this hit lands. */
+  alsoRelease?: string[];
+}
+
 interface Zones {
   opp: PlayerView | null;
   me: PlayerView | null;
@@ -65,6 +99,11 @@ export interface BoardHooks {
   /** Drives the replay being watched (play, step, seek…). */
   replay(cmd: ReplayCommand): void;
   leaveReplay(): void;
+  /** Stops watching someone else's game (Endstep's own way out). */
+  leaveSpectate(): void;
+  /** The player's board settings, and saving a change to them. */
+  prefs(): BoardPrefs;
+  setPrefs(patch: Partial<BoardPrefs>): void;
 }
 
 export class Board {
@@ -141,8 +180,20 @@ export class Board {
   private zoomPinned = false;
   /** The last combat damage shown (match, turn and step), so it plays once. */
   private struck = "";
-  /** Fighters that died in this update's combat damage: the copies left where they fought. */
-  private fallen = new Map<string, HTMLElement>();
+  /** Fighters that died in this update's combat damage (they stay to fight, then crumble). */
+  private fallen = new Set<string>();
+  /** Permanents that died in this update outside combat (they stay until they crumble). */
+  private dying = new Set<string>();
+  /** Permanents gone from the battlefield that stay in their place a little longer, as they were
+      (`card`), for an animation to finish with them: fighting, crumbling, being hit by a bolt. */
+  private lingering = new Map<string, { card: CardView; playerId: string; index: number }>();
+  /** Shown as they were until the animation that changes them lands: a player's life, a
+      permanent's damage (see hold and release). */
+  private heldLife = new Map<string, number>();
+  /** Until when (performance.now() ms) this board's animations are playing, for the pace states
+      are shown at (see StatePacer). */
+  private busy = 0;
+  private heldDamage = new Map<string, number>();
   /** The replay's position slider is being dragged. */
   private replayScrubbing = false;
   /** Where the replay bar was moved to (its top left, as a share of the board), or null: top center. */
@@ -192,6 +243,16 @@ export class Board {
   /** Aiming an attacker: the pointer (client coordinates) its arrow follows. */
   private aimPoint: { x: number; y: number } | null = null;
   private aimFrame = 0;
+  /** The player's settings (animations, card size, sounds, log). */
+  private prefs: BoardPrefs;
+  /** Watches the board for new animations while they play at another speed. */
+  private speedWatch: MutationObserver | null = null;
+  private speedFrame = 0;
+  private sounds = new Sounds();
+  /** What the game waits for when it isn't your move (see waiting.ts), for this update. */
+  private waiting: Waiting | null = null;
+  /** Backs for the hand of the player watched from, when it isn't shown (see renderHand). */
+  private spectateBacks: HTMLElement[] = [];
 
   constructor(private readonly controller: GameController, private readonly hooks: BoardHooks) {
     this.el = document.createElement("div");
@@ -236,7 +297,13 @@ export class Board {
         <g class="lines"></g>
       </svg>
       <div class="div-badges"></div>
+      <aside class="log" aria-label="Game log">
+        <div class="log-head"><b>Game log</b><button class="log-x" data-ui="log" title="Hide the log (L)">✕</button></div>
+        <div class="log-list"></div>
+        <div class="log-peek"></div>
+      </aside>
       <div class="corner">
+        <button class="ghost" data-ui="log" title="Game log (L)">Log</button>
         <button class="ghost" data-ui="debug" title="Debug panel (Alt+Shift+D)">Debug</button>
         <button class="ghost" data-ui="hide" title="Show Endstep's classic UI (Alt+Shift+A)">Classic UI</button>
       </div>
@@ -245,13 +312,18 @@ export class Board {
       <div class="reveals" aria-live="polite"></div>
       <div class="menu" role="menu"></div>
       <div class="confirm" role="dialog"></div>
+      <div class="settings" role="dialog" aria-label="Arena UI settings"></div>
       <div class="viewer"></div>
       <div class="banner"></div>
       <div class="endgame"></div>
       <div class="replay-bar" role="toolbar" aria-label="Replay controls"></div>
+      <div class="spectate-bar" role="status"></div>
       <div class="toast"></div>
       <div class="classic-chip"></div>`;
+    this.prefs = hooks.prefs();
+    this.applyPrefs();
     this.bindEvents();
+    this.bindLog();
     new ResizeObserver(() => {
       this.layout();
       // A moved replay bar stays whole on the board.
@@ -310,7 +382,7 @@ export class Board {
     this.passUntil = startPassUntil(target, state);
     this.passSeq = undefined;
     // The server learns where to stop before priority is passed.
-    this.hooks.setTemporaryStops(passUntilStops(this.passUntil, this.hooks.phaseStops().myTurn));
+    this.hooks.setTemporaryStops(passUntilStops(this.passUntil));
     this.autoPass(state);
     if (this.passUntil && target !== "endTurn") this.toast(`Passing until ${passLabel(target)}`);
   }
@@ -337,6 +409,155 @@ export class Board {
     if (on) this.awaitTimer = window.setTimeout(() => this.setAwaiting(false), 2500);
   }
 
+  // ---------------------------------------------------------------- settings
+
+  /** Puts the player's settings into effect: animations on or off and their speed, card size,
+      sound volume, the game log. */
+  private applyPrefs(): void {
+    const p = this.prefs;
+    motionOff = !p.animations;
+    this.el.classList.toggle("still", !p.animations);
+    this.el.style.setProperty("--cs", String(p.cardScale));
+    // At another speed, every animation that starts is set to it (CSS ones start as classes
+    // change or elements come in, so the board is watched for those).
+    const other = this.speed !== 1;
+    if (other && !this.speedWatch) {
+      this.speedWatch = new MutationObserver(() => {
+        if (this.speedFrame) return;
+        this.speedFrame = requestAnimationFrame(() => {
+          this.speedFrame = 0;
+          this.syncSpeed();
+        });
+      });
+      this.speedWatch.observe(this.el, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
+    } else if (!other && this.speedWatch) {
+      this.speedWatch.disconnect();
+      this.speedWatch = null;
+    }
+    this.syncSpeed();
+    this.sounds.setVolume(p.sound ? p.volume : 0);
+    this.el.classList.toggle("log-open", p.logOpen);
+    if (this.state) {
+      this.renderLog(this.state);
+      this.layout();
+    }
+  }
+
+  /** Until when (performance.now() ms) the animations started so far are playing. */
+  busyUntil(): number {
+    return this.busy;
+  }
+
+  /** How long a state worth seeing (a spell cast, attackers declared) stays on screen before the
+      next one (ms); 0 with animations off. */
+  dwellMs(): number {
+    return reducedMotion() ? 0 : 450 / this.speed;
+  }
+
+  /** An animation running `ms` (at normal speed) from now: the next state waits for it. */
+  private busyFor(ms: number): void {
+    this.busy = Math.max(this.busy, performance.now() + ms / this.speed);
+  }
+
+  /** A sound for what just happened (when sounds are on). */
+  private sfx(name: Sfx): void {
+    if (this.state && !document.hidden) this.sounds.play(name);
+  }
+
+  /** How fast animations play (1: as designed). */
+  private get speed(): number {
+    return this.prefs.animations ? this.prefs.animSpeed : 1;
+  }
+
+  private syncSpeed(): void {
+    const rate = this.speed;
+    for (const a of this.el.getAnimations({ subtree: true })) if (a.playbackRate !== rate) a.playbackRate = rate;
+  }
+
+  /** A step of an animation's choreography, `ms` later at the chosen speed. */
+  private later(fn: () => void, ms: number): number {
+    return window.setTimeout(() => {
+      fn();
+      if (this.speed !== 1) this.syncSpeed();
+    }, ms / this.speed);
+  }
+
+  private setPref(patch: Partial<BoardPrefs>): void {
+    this.prefs = { ...this.prefs, ...patch };
+    this.hooks.setPrefs(patch);
+    this.applyPrefs();
+    // Sounds turned on, or the volume set: one to hear it by.
+    if (patch.volume !== undefined || patch.sound) this.sounds.play("resolve");
+    if (this.q(".settings").classList.contains("open")) this.renderSettings();
+  }
+
+  /** The board's settings, from the table menu: animations, their speed, card size, sounds. */
+  private renderSettings(): void {
+    const p = this.prefs;
+    const seg = (key: keyof BoardPrefs, options: { value: number | boolean; label: string }[], disabled = false) =>
+      `<div class="seg${disabled ? " off" : ""}">${options.map((o) =>
+        `<button class="${p[key] === o.value ? "on" : ""}" data-pref="${key}:${String(o.value)}"${disabled ? " disabled" : ""}>${esc(o.label)}</button>`).join("")}</div>`;
+    const onOff = [{ value: true, label: "On" }, { value: false, label: "Off" }];
+    const box = this.q(".settings");
+    box.dataset.panel = "settings";
+    box.innerHTML = `<div class="phead"><h2>Arena UI settings</h2><p>Saved for every game.</p></div>
+      <div class="set-rows">
+        <div class="set-row"><span>Animations</span>${seg("animations", onOff)}</div>
+        <div class="set-row"><span>Animation speed</span>${seg("animSpeed", ANIM_SPEEDS, !p.animations)}</div>
+        <div class="set-row"><span>Card size</span>${seg("cardScale", CARD_SCALES)}</div>
+        <div class="set-row"><span>Sounds</span>${seg("sound", onOff)}</div>
+        <div class="set-row"><span>Volume</span><input type="range" class="vol" min="0" max="100" step="5" value="${Math.round(p.volume * 100)}" data-pref-range="volume"${p.sound ? "" : " disabled"}></div>
+      </div>
+      <div class="choices big"><button class="opt primary" data-ui="settings-close">Done</button></div>`;
+    box.classList.add("open");
+  }
+
+  /** This board's keyboard shortcuts (?, or the table menu), in the settings' panel. */
+  private renderShortcuts(): void {
+    const key = (k: string) => k.split(" ").map((part) => (/^([a-z]+|…)$/.test(part) ? esc(part) : `<kbd>${esc(part)}</kbd>`)).join(" ");
+    const groups: [string, [string, string][]][] = [
+      ["Any time", [
+        ["H", "Hold priority after what you cast or activate (again: let it pass)"],
+        ["L", "Game log, shown or hidden"],
+        ["?", "This list"],
+        ["Esc", "Close a menu or panel; stop aiming an attacker"],
+        ["Alt+Shift+A", "Arena board or Endstep's own UI"],
+        ["Alt+Shift+D", "Debug panel"],
+      ]],
+      ["Choosing a number (X…)", [
+        ["↑ ↓", "One more or one less (with Shift: 5)"],
+        ["1 … 9 0", "The quick picks, in order"],
+        ["Enter", "Choose it"],
+      ]],
+      ["Dividing damage", [
+        ["Space or Enter", "Done / Submit, once it's all assigned"],
+        ["R", "Start again"],
+      ]],
+      ["Watching a replay", [
+        ["Space", "Play or pause"],
+        ["← →", "Previous or next change"],
+        ["Shift+← Shift+→", "Previous or next turn"],
+      ]],
+      ["Mouse", [
+        ["Right-click a card", "See it big (and its options)"],
+        ["Right-click the table", "Game menu: log, settings, Endstep's items"],
+      ]],
+    ];
+    const box = this.q(".settings");
+    box.dataset.panel = "shortcuts";
+    box.innerHTML = `<div class="phead"><h2>Keyboard shortcuts</h2><p>Endstep's own shortcuts keep working too: table menu → Keyboard shortcuts.</p></div>
+      <div class="keys">${groups.map(([title, rows]) => `<section><h3>${esc(title)}</h3>${rows.map(([k, what]) =>
+        `<div class="key-row"><span class="kk">${key(k)}</span><span>${esc(what)}</span></div>`).join("")}</section>`).join("")}</div>
+      <div class="choices big"><button class="opt primary" data-ui="settings-close">Done</button></div>`;
+    box.classList.add("open");
+  }
+
+  private onPrefButton(btn: HTMLElement): void {
+    const [key, raw] = btn.dataset.pref!.split(":") as [keyof BoardPrefs, string];
+    const value = raw === "true" ? true : raw === "false" ? false : Number(raw);
+    this.setPref({ [key]: value } as Partial<BoardPrefs>);
+  }
+
   // ---------------------------------------------------------------- render
 
   private zones(state: GameState): Zones {
@@ -355,14 +576,23 @@ export class Board {
     const z = this.zones(state);
     const classic = this.mode.kind === "classic" && this.classicDismissedFor !== this.modeKey;
     this.el.classList.toggle("classic", classic);
+    this.el.classList.toggle("proliferating", !!state.pending && isProliferate(state.pending) && !state.replay && !state.spectating);
     this.renderClassicChip(classic);
 
     this.captureFallen(prev, state);
+    const casts = this.captureCasts();
+    const exiled = this.captureExiled(prev, state);
     // FLIP "first": where every card is before this update.
     const first = new Map<string, DOMRect>();
     if (!reducedMotion()) {
       for (const [id, el] of this.cardEls) if (el.isConnected && el.getClientRects().length) first.set(id, el.getBoundingClientRect());
     }
+    const spots = this.captureStackSpots(prev);
+    // What this update's animations will hit: until they land, the life and damage they change
+    // stay as they were, and what they kill stays where it stood.
+    const hits = this.planHits(prev, state);
+    this.planCombat(prev, state);
+    this.captureDeaths(prev, state);
 
     this.used.clear();
     this.cardData.clear();
@@ -398,8 +628,8 @@ export class Board {
     const note = (id: string, what: string) => this.situation.set(id, `${this.situation.get(id) ?? ""}${what};`);
     for (const c of onBattlefield.values()) for (const a of c.blockingIds) note(a, `blocked:${c.id}`);
     for (const s of state.stack) for (const t of s.targets) note(t, `target:${s.id}`);
-    this.renderBattlefield(this.q(".side.me"), z.me, attachedTo);
-    this.renderBattlefield(this.q(".side.opp"), z.opp, attachedTo);
+    this.renderBattlefield(this.q(".side.me"), this.withLingering(z.me), attachedTo);
+    this.renderBattlefield(this.q(".side.opp"), this.withLingering(z.opp), attachedTo);
     this.renderEmblems(this.q(".side.me .emblems"), z.me);
     this.renderEmblems(this.q(".side.opp .emblems"), z.opp);
     this.renderHand(z.me);
@@ -414,6 +644,7 @@ export class Board {
     for (const [id, el] of this.cardEls) if (!this.used.has(id)) { el.remove(); this.cardEls.delete(id); }
     for (const [id, el] of this.slotEls) if (!this.used.has(`slot:${id}`)) { el.remove(); this.slotEls.delete(id); }
 
+    this.waiting = waitingFor(state, z.me);
     this.renderPlate(this.q(".me-plate"), this.q(".me-life"), z.me, state);
     this.renderPlate(this.q(".opp-plate"), this.q(".opp-life"), z.opp, state);
     this.renderManaPool(this.q(".me-mana"), z.me);
@@ -424,15 +655,25 @@ export class Board {
     this.renderPrompt(state);
     this.renderDock(state);
     this.renderReveals(state);
+    this.renderLog(state);
     this.layout();
     this.renderManaWheel(state);
 
     // FLIP "last/invert/play" for cards that moved.
     if (first.size) {
       for (const [id, el] of this.cardEls) {
+        // A spell that left the stack for the battlefield, graveyard or exile flies there.
+        const cast = casts.get(id);
+        if (cast && !this.stackEls.has(id) && el.closest(".side, .pile-card") && el.getClientRects().length) {
+          this.flyFromStack(el, cast);
+          continue;
+        }
+        // A permanent exiled from the battlefield is drawn into the exile vortex (below).
+        if (exiled.has(id) && !el.closest(".side")) continue;
         const a = first.get(id);
         if (!a) {
-          if (prev) el.animate([{ opacity: 0, scale: "0.85" }, { opacity: 1, scale: "1" }], { duration: 220, easing: "ease-out" });
+          if (prev && el.classList.contains("token") && el.closest(".side")) this.tokenEntrance(el);
+          else if (prev) el.animate([{ opacity: 0, scale: "0.85" }, { opacity: 1, scale: "1" }], { duration: 220, easing: "ease-out" });
           continue;
         }
         if (!el.getClientRects().length) continue;
@@ -441,12 +682,25 @@ export class Board {
         const dy = a.top + a.height / 2 - (b.top + b.height / 2);
         if (Math.abs(dx) + Math.abs(dy) < 3) continue;
         el.animate([{ translate: `${dx}px ${dy}px` }, { translate: "0px 0px" }], { duration: 320, easing: "cubic-bezier(.2,.8,.2,1)" });
+        this.busyFor(320);
       }
+      // An exile a spell's bolt is on its way to waits for the bolt (see playHits).
+      const byBolt = new Set(hits.filter((h) => h.kind === "exile").map((h) => h.key));
+      for (const [id, gone] of exiled) {
+        const el = this.cardEls.get(id);
+        // Held under the permanent that exiled it (Banisher Priest): it just slides there.
+        if (!el?.closest(".side") && !byBolt.has(id)) this.banish(gone, el);
+      }
+      this.playHits(hits, spots, first, exiled);
+      this.statChanges(prev, state);
+      this.zoneSounds(prev, state);
     }
     this.scheduleArrows();
     if (this.q(".viewer").classList.contains("open")) this.refreshViewer();
     this.chargeAttackers(prev, state);
     this.combatStrike(prev, state);
+    // This update's animations play at the chosen speed from their first frame.
+    if (this.speed !== 1) this.syncSpeed();
   }
 
   /** Which combat damage this update reaches: "fs" (first strike), "cd" (regular), or null. */
@@ -473,26 +727,135 @@ export class Board {
    * away, as in Arena, instead of the card sliding straight to the graveyard.
    */
   private captureFallen(prev: GameState | null, state: GameState): void {
-    this.fallen = new Map();
+    this.fallen = new Set();
     if (reducedMotion() || !prev || !this.damageStep(prev, state)) return;
     const alive = new Set(state.players.flatMap((p) => p.battlefield.map((c) => c.id)));
     const fighters = new Set([...prev.combat.attacks.map((a) => a.fromId), ...prev.combat.blocks.map((b) => b.fromId)]);
-    const box = this.el.getBoundingClientRect();
     for (const id of fighters) {
       const el = this.cardEls.get(id);
       if (alive.has(id) || !el?.isConnected || !el.closest(".side")) continue;
+      this.linger(prev, id);
+      this.fallen.add(id);
+    }
+  }
+
+  /** Keeps a permanent `prev` had on the battlefield in its place, as it was, until let go. */
+  private linger(prev: GameState, id: string): void {
+    for (const p of prev.players) {
+      const index = p.battlefield.findIndex((c) => c.id === id);
+      if (index >= 0) this.lingering.set(id, { card: p.battlefield[index]!, playerId: p.id, index });
+    }
+  }
+
+  /** Lets a lingering permanent go: it leaves the table, and shows where it really is now. */
+  private unlinger(id: string): void {
+    if (!this.lingering.delete(id)) return;
+    // Made again where it went (no slide from the table: it crumbled or flew there).
+    this.cardEls.get(id)?.remove();
+    this.cardEls.delete(id);
+    if (this.state) this.render(this.state);
+  }
+
+  /** The player's permanents with the ones lingering put back where they stood. */
+  private withLingering(p: PlayerView | null): PlayerView | null {
+    if (!p || !this.lingering.size) return p;
+    const battlefield = [...p.battlefield];
+    for (const [id, l] of this.lingering) {
+      if (l.playerId !== p.id || battlefield.some((c) => c.id === id)) continue;
+      battlefield.splice(Math.min(l.index, battlefield.length), 0, l.card);
+    }
+    return { ...p, battlefield };
+  }
+
+  /**
+   * Before an update: where each spell on the stack is, and a copy of it as the stack shows it
+   * (full card), for the ones this update takes off the stack to fly from.
+   */
+  private captureCasts(): Map<string, { rect: DOMRect; ghost: HTMLElement }> {
+    const casts = new Map<string, { rect: DOMRect; ghost: HTMLElement }>();
+    if (reducedMotion()) return casts;
+    for (const id of this.stackEls.keys()) {
+      const el = this.cardEls.get(id);
+      if (id.startsWith("ab:") || !el?.isConnected || !el.closest(".stack") || el.closest(".stack-dock.collapsed") || !el.getClientRects().length) continue;
+      settle(el);
+      const ghost = el.cloneNode(true) as HTMLElement;
+      ghost.removeAttribute("data-id");
+      ghost.removeAttribute("style");
+      ghost.className = "card flying";
+      for (const k of ["has-img", "mine", "theirs"]) if (el.classList.contains(k)) ghost.classList.add(k);
+      const img = ghost.querySelector<HTMLImageElement>("img.img");
+      if (img && !ghost.classList.contains("has-img")) img.addEventListener("load", () => ghost.classList.add("has-img"), { once: true });
+      casts.set(id, { rect: el.getBoundingClientRect(), ghost });
+    }
+    return casts;
+  }
+
+  /**
+   * A spell leaving the stack, as in Arena: a full-size copy lifts off the stack in an arc and
+   * shrinks onto where the card went (its place on the battlefield, or the graveyard or exile
+   * pile), where the card itself takes over and settles in.
+   */
+  private flyFromStack(el: HTMLElement, from: { rect: DOMRect; ghost: HTMLElement }): void {
+    const box = this.el.getBoundingClientRect();
+    const a = from.rect;
+    const b = el.getBoundingClientRect();
+    const ghost = from.ghost;
+    const toPile = !el.closest(".side");
+    const DURATION = toPile ? 520 : 600;
+    const LAND = 0.82;
+    this.busyFor(DURATION);
+    this.later(() => this.sfx("resolve"), DURATION * LAND);
+    // A rect `t` of the way from the stack to the destination, raised by `lift` px.
+    const at = (t: number, lift = 0): Keyframe => ({
+      left: `${a.left + (b.left - a.left) * t - box.left}px`,
+      top: `${a.top + (b.top - a.top) * t - box.top - lift}px`,
+      width: `${a.width + (b.width - a.width) * t}px`,
+      height: `${a.height + (b.height - a.height) * t}px`,
+    });
+    // Into a pile it turns a little, as a card tossed onto it.
+    const turn = toPile ? (b.left < a.left ? -14 : 14) : 0;
+    ghost.style.setProperty("--cw", `${a.width}px`);
+    Object.assign(ghost.style, at(0));
+    this.el.appendChild(ghost);
+    const anim = ghost.animate([
+      { ...at(0), rotate: "0deg", opacity: 1, offset: 0 },
+      { ...at(0.08, 18), rotate: `${turn * 0.3}deg`, offset: 0.14, easing: "cubic-bezier(.4,0,.2,1)" },
+      { ...at(0.55, 46), rotate: `${turn}deg`, offset: 0.5, easing: "cubic-bezier(.3,0,.4,1)" },
+      { ...at(1), rotate: "0deg", opacity: 1, offset: LAND },
+      { ...at(1), rotate: "0deg", opacity: 0, offset: 1 },
+    ], { duration: DURATION, easing: "linear" });
+    void anim.finished.catch(() => {}).then(() => ghost.remove());
+    // The card itself shows as the copy lands, and settles into place.
+    el.animate([{ opacity: 0 }, { opacity: 0, offset: LAND }, { opacity: 1 }], { duration: DURATION });
+    el.animate([{ transform: "scale(1.12)" }, { transform: "scale(1)" }], { duration: 260, delay: DURATION * LAND, easing: "cubic-bezier(.2,.8,.3,1)", composite: "add" });
+  }
+
+  /**
+   * Before an update: the permanents it moves from the battlefield into exile, each with where it
+   * stands and a copy of it as it looks there, to banish.
+   */
+  private captureExiled(prev: GameState | null, state: GameState): Map<string, { rect: DOMRect; ghost: HTMLElement; playerId: string }> {
+    const out = new Map<string, { rect: DOMRect; ghost: HTMLElement; playerId: string }>();
+    if (!prev || reducedMotion() || prev.matchId !== state.matchId) return out;
+    const wasOut = new Set(prev.players.flatMap((p) => p.battlefield.map((c) => c.id)));
+    const box = this.el.getBoundingClientRect();
+    for (const p of state.players) for (const c of p.exile) {
+      const el = this.cardEls.get(c.id);
+      if (!wasOut.has(c.id) || this.fallen.has(c.id) || !el?.isConnected || !el.closest(".side") || !el.getClientRects().length) continue;
+      // Its size on screen, as the combat copies take it (the box around a tapped card is turned).
       const r = el.getBoundingClientRect();
-      // Its size on screen: its layout size, scaled as its row shows it (the box around it on
-      // screen also covers its tilt when tapped).
-      const rotate = getComputedStyle(el).rotate;
+      const rotate = getComputedStyle(el).rotate === "none" ? "0deg" : getComputedStyle(el).rotate;
       const turn = (parseFloat(rotate) || 0) * (Math.PI / 180);
       const scale = r.width / (el.offsetWidth * Math.abs(Math.cos(turn)) + el.offsetHeight * Math.abs(Math.sin(turn)) || 1);
       const w = el.offsetWidth * scale;
       const h = el.offsetHeight * scale;
       const ghost = el.cloneNode(true) as HTMLElement;
       ghost.removeAttribute("data-id");
-      ghost.classList.remove("selectable", "selected", "playable", "struck", "charge");
-      ghost.classList.add("fallen");
+      ghost.removeAttribute("style");
+      ghost.className = "card flying exiling";
+      const img = ghost.querySelector<HTMLImageElement>("img.img");
+      if (el.classList.contains("has-img") || (img?.complete && img.naturalWidth)) ghost.classList.add("has-img");
+      else img?.addEventListener("load", () => ghost.classList.add("has-img"), { once: true });
       Object.assign(ghost.style, {
         left: `${r.left + r.width / 2 - box.left - w / 2}px`,
         top: `${r.top + r.height / 2 - box.top - h / 2}px`,
@@ -501,17 +864,457 @@ export class Board {
         rotate,
       });
       ghost.style.setProperty("--cw", `${w}px`);
-      // Cropped to its top, as on the battlefield; its picture shows once loaded (a copy doesn't
-      // carry the card's own load listener).
-      const img = ghost.querySelector<HTMLImageElement>("img.img");
-      if (img) {
-        img.style.objectPosition = "50% 0";
-        if (img.complete && img.naturalWidth) ghost.classList.add("has-img");
-        else img.addEventListener("load", () => ghost.classList.add("has-img"), { once: true });
-      }
-      this.el.appendChild(ghost);
-      this.fallen.set(id, ghost);
+      out.set(c.id, { rect: r, ghost, playerId: p.id });
     }
+    return out;
+  }
+
+  /**
+   * A permanent exiled from the battlefield: where it stood it flares up in pale violet light,
+   * then spins away, shrinking, into its owner's exile vortex, which flares as it swallows it.
+   * The card itself shows on the pile once it's in.
+   */
+  private banish(gone: { rect: DOMRect; ghost: HTMLElement; playerId: string }, el: HTMLElement | undefined): void {
+    const pile = this.el.querySelector<HTMLElement>(`.pile[data-zone="exile"][data-player="${CSS.escape(gone.playerId)}"]`);
+    const hole = pile?.querySelector<HTMLElement>(".vortex") ?? pile;
+    if (!hole?.getClientRects().length) return;
+    const box = this.el.getBoundingClientRect();
+    const a = gone.rect;
+    const b = hole.getBoundingClientRect();
+    const dx = b.left + b.width / 2 - (a.left + a.width / 2);
+    const dy = b.top + b.height / 2 - (a.top + a.height / 2);
+    const small = Math.max(0.08, (b.width * 0.35) / Math.max(1, a.width));
+    const DURATION = 1000;
+    const FLARE = 0.3;
+    this.busyFor(DURATION + 150);
+    this.sfx("exile");
+    gone.ghost.style.removeProperty("visibility");
+    const ghost = gone.ghost;
+    const start = ghost.style.rotate || "0deg";
+    this.el.appendChild(ghost);
+    const anim = ghost.animate([
+      { translate: "0px 0px", scale: "1", rotate: start, filter: "none", opacity: 1, offset: 0 },
+      { translate: "0px -6px", scale: "1.08", rotate: start, filter: "brightness(2.2) saturate(0.3)", opacity: 1, offset: FLARE, easing: "cubic-bezier(.5,0,.7,.4)" },
+      { translate: `${dx}px ${dy}px`, scale: `${small}`, rotate: `calc(${start} + 540deg)`, filter: "brightness(1.6) saturate(0.2) blur(1px)", opacity: 0.2, offset: 1 },
+    ], { duration: DURATION });
+    void anim.finished.catch(() => {}).then(() => ghost.remove());
+    // The flare where it stood.
+    const burst = document.createElement("div");
+    burst.className = "exile-burst";
+    burst.style.left = `${a.left + a.width / 2 - box.left}px`;
+    burst.style.top = `${a.top + a.height / 2 - box.top}px`;
+    this.el.appendChild(burst);
+    this.later(() => burst.remove(), 800);
+    // The vortex flares as it takes the card in; the card shows on the pile then.
+    hole.animate([{ scale: "1", filter: "none" }, { scale: "1.22", filter: "brightness(1.8) drop-shadow(0 0 18px rgba(190, 160, 255, 0.9))" }, { scale: "1", filter: "none" }],
+      { duration: 420, delay: DURATION * 0.85, easing: "ease-out" });
+    if (el?.isConnected && el.closest(".pile-card")) el.animate([{ opacity: 0 }, { opacity: 0, offset: 0.9 }, { opacity: 1 }], { duration: DURATION + 150 });
+  }
+
+  /** Before an update: where each item on the stack is (the "◂ Stack" pill when it's folded away). */
+  private captureStackSpots(prev: GameState | null): Map<string, DOMRect> {
+    const spots = new Map<string, DOMRect>();
+    if (!prev || reducedMotion()) return spots;
+    for (const s of prev.stack) {
+      const el = this.cardEls.get(this.stackAlias.get(s.id) ?? "");
+      if (!el?.isConnected || !el.closest(".stack") || !el.getClientRects().length) continue;
+      settle(el);
+      spots.set(s.id, el.closest(".stack-dock.collapsed") ? this.q(".stack-toggle").getBoundingClientRect() : el.getBoundingClientRect());
+    }
+    return spots;
+  }
+
+  // ---------------------------------------------------------------- impacts
+
+  /**
+   * What this update's spells and abilities do to their targets as they resolve, read from the
+   * states (Endstep sends no event per hit): a target that lost life or took damage ("damage"),
+   * one that left the battlefield for a graveyard ("destroy", or "damage" when the text deals
+   * damage: it died of it) or for exile ("exile").
+   */
+  private planHits(prev: GameState | null, state: GameState): SpellHit[] {
+    if (!prev || reducedMotion() || prev.matchId !== state.matchId) return [];
+    const still = new Set(state.stack.map((s) => s.id));
+    const before = new Map(prev.players.flatMap((p) => p.battlefield.map((c) => [c.id, c] as const)));
+    const after = new Map(state.players.flatMap((p) => p.battlefield.map((c) => [c.id, c] as const)));
+    const exiled = new Set(state.players.flatMap((p) => p.exile.map((c) => c.id)));
+    const hits: SpellHit[] = [];
+    for (const s of prev.stack) {
+      if (still.has(s.id) || !s.targets.length) continue;
+      const text = s.isAbility ? s.name : s.card?.oracleText ?? "";
+      const deals = !text || /\bdamage\b/i.test(text);
+      for (const key of s.targets) {
+        if (key.startsWith("player:")) {
+          const seat = Number(key.slice(7));
+          const was = prev.players.find((p) => p.seat === seat);
+          const now = state.players.find((p) => p.seat === seat);
+          if (!deals || was?.life === undefined || now?.life === undefined || now.life >= was.life) continue;
+          hits.push({ item: s.id, key, kind: "damage", playerId: now.id, dmg: was.life - now.life, died: false });
+          continue;
+        }
+        const was = before.get(key);
+        if (!was) continue;
+        const now = after.get(key);
+        if (now) {
+          const dmg = s.divided?.[key] ?? (now.damage ?? 0) - (was.damage ?? 0);
+          if (dmg > 0) hits.push({ item: s.id, key, kind: "damage", dmg, died: false });
+        } else if (exiled.has(key)) {
+          hits.push({ item: s.id, key, kind: "exile", dmg: 0, died: false });
+        } else {
+          // It died: of the damage (what was left of its toughness), or destroyed outright.
+          const dmg = deals ? s.divided?.[key] ?? Math.max(0, (Number(was.toughness) || 0) - (was.damage ?? 0)) : 0;
+          hits.push({ item: s.id, key, kind: dmg > 0 ? "damage" : "destroy", dmg, died: true });
+        }
+      }
+    }
+    // Other life it changes (Swords to Plowshares' controller gaining life, a drain) shows as its
+    // last hit lands.
+    const last = hits.at(-1);
+    if (last) {
+      const hitPlayers = new Set(hits.map((h) => h.playerId));
+      for (const p of state.players) {
+        const was = prev.players.find((q) => q.id === p.id)?.life;
+        if (hitPlayers.has(p.id) || was === undefined || p.life === undefined || was === p.life) continue;
+        this.hold("life", p.id, was);
+        last.alsoRelease = [...(last.alsoRelease ?? []), p.id];
+      }
+    }
+    for (const h of hits) {
+      if (h.kind === "exile") this.linger(prev, h.key);
+      if (h.playerId) this.hold("life", h.playerId, prev.players.find((p) => p.id === h.playerId)?.life);
+      else if (!h.died && h.kind === "damage") this.hold("damage", h.key, before.get(h.key)?.damage ?? 0);
+    }
+    // A game won by a spell: the result waits for the hit.
+    if (hits.length) this.endHoldUntil = Math.max(this.endHoldUntil, Date.now() + (900 + 240 * new Set(hits.map((h) => h.item)).size) / this.speed);
+    return hits;
+  }
+
+  /** Combat damage about to be shown: each life total and each fighter's damage stays as it was
+      until the blow that changes it lands (see combatStrike). */
+  private planCombat(prev: GameState | null, state: GameState): void {
+    const step = prev && !reducedMotion() ? this.damageStep(prev, state) : null;
+    if (!prev || !step || this.struck === `${state.matchId}:${state.turnNumber}:${step}`) return;
+    for (const p of state.players) {
+      const was = prev.players.find((q) => q.id === p.id)?.life;
+      if (was !== undefined && p.life !== undefined && was !== p.life) this.hold("life", p.id, was);
+    }
+    const before = new Map(prev.players.flatMap((p) => p.battlefield.map((c) => [c.id, c] as const)));
+    const fighters = [...prev.combat.attacks.map((a) => a.fromId), ...prev.combat.blocks.map((b) => b.fromId)];
+    for (const p of state.players) for (const c of p.battlefield) {
+      const was = before.get(c.id);
+      if (was && fighters.includes(c.id) && (c.damage ?? 0) !== (was.damage ?? 0)) this.hold("damage", c.id, was.damage ?? 0);
+    }
+  }
+
+  /** Keeps a player's life (or a permanent's damage) showing `value` until released, or for a few
+      seconds at most. */
+  private hold(kind: "life" | "damage", key: string, value: number | undefined): void {
+    if (value === undefined) return;
+    const map = kind === "life" ? this.heldLife : this.heldDamage;
+    if (map.has(key)) return;
+    map.set(key, value);
+    this.later(() => this.release(key), 4000);
+  }
+
+  /** An animation landed on `key` (a player id or a card id): its real life or damage shows now. */
+  private release(key: string): void {
+    if (this.heldLife.delete(key)) {
+      const p = this.state?.players.find((pl) => pl.id === key);
+      const orb = this.el.querySelector<HTMLElement>(`.life-orb[data-player="${CSS.escape(key)}"]`);
+      if (p && orb) this.showLife(orb, p);
+    }
+    if (this.heldDamage.delete(key)) {
+      const c = this.cardData.get(key);
+      const el = this.cardEls.get(key);
+      if (c && el?.closest(".side")) updateCardEl(el, c, true);
+    }
+  }
+
+  /** A player's life total on their orb (as held while an animation is on its way), with the
+      gain or loss floating up when it changes. */
+  private showLife(orb: HTMLElement, p: PlayerView): void {
+    const shown = this.heldLife.get(p.id) ?? p.life;
+    const prev = this.prevLife.get(p.id);
+    if (shown !== undefined) this.prevLife.set(p.id, shown);
+    const life = String(shown ?? "–");
+    if (orb.dataset.life !== life) {
+      orb.dataset.life = life;
+      orb.querySelector(".lnum")?.remove();
+      orb.insertAdjacentHTML("beforeend", `<span class="lnum" title="${esc(p.name)}'s life">${life}</span>`);
+    }
+    if (prev !== undefined && shown !== undefined && prev !== shown) this.lifeFloat(orb, shown - prev);
+  }
+
+  /**
+   * Before an update: permanents it puts into a graveyard outside combat (destroyed, killed by a
+   * spell, sacrificed, a token gone). Each stays where it stood and crumbles into smoke there
+   * (when a spell's bolt lands on it, if one is on its way; else right away).
+   */
+  private captureDeaths(prev: GameState | null, state: GameState): void {
+    this.dying = new Set();
+    if (!prev || reducedMotion() || prev.matchId !== state.matchId) return;
+    const alive = new Set(state.players.flatMap((p) => p.battlefield.map((c) => c.id)));
+    const buried = new Set(state.players.flatMap((p) => p.graveyard.map((c) => c.id)));
+    const elsewhere = new Set(state.players.flatMap((p) => [...p.exile, ...(p.hand ?? []), ...p.commandZone].map((c) => c.id)));
+    for (const p of prev.players) for (const c of p.battlefield) {
+      if (alive.has(c.id) || this.fallen.has(c.id)) continue;
+      // Into a graveyard, or a token that ceased to exist (not bounced or exiled).
+      if (!buried.has(c.id) && !(c.isToken && !elsewhere.has(c.id))) continue;
+      const el = this.cardEls.get(c.id);
+      if (!el?.isConnected || !el.closest(".side") || !el.getClientRects().length) continue;
+      this.linger(prev, c.id);
+      this.dying.add(c.id);
+    }
+  }
+
+  /** A permanent that died crumbles into smoke where it stood, then leaves the table for its
+      graveyard (the cards beside it close the gap). */
+  private crumble(id: string, after = 0): void {
+    this.later(() => {
+      const el = this.cardEls.get(id);
+      if (!el?.closest(".side")) return this.unlinger(id);
+      const smoke = document.createElement("div");
+      smoke.className = "smoke";
+      el.appendChild(smoke);
+      el.classList.add("perishing");
+      this.later(() => {
+        el.classList.remove("perishing");
+        smoke.remove();
+        this.unlinger(id);
+      }, 900);
+    }, after);
+  }
+
+  /**
+   * After an update, the spells' hits: a bolt from each resolved item's place on the stack to each
+   * target, one after another; as it lands, the target takes it. Damage shows (the life or damage
+   * held until then appears), a creature it killed crumbles, one destroyed is struck by a dark
+   * bolt and crumbles, one exiled is drawn into the exile vortex. Deaths with no bolt on the way
+   * (a board wipe, a sacrifice) crumble right away.
+   */
+  private playHits(hits: SpellHit[], spots: Map<string, DOMRect>, first: Map<string, DOMRect>,
+    exiled: Map<string, { rect: DOMRect; ghost: HTMLElement; playerId: string }>): void {
+    const byBolt = new Set(hits.filter((h) => h.died).map((h) => h.key));
+    for (const id of this.dying) if (!byBolt.has(id)) {
+      this.crumble(id, 120);
+      this.busyFor(1100);
+    }
+    let delay = 0;
+    let last = "";
+    let k = 0;
+    for (const h of hits) {
+      if (h.item !== last) {
+        if (last) delay += 240;
+        last = h.item;
+        k = 0;
+      }
+      const from = spots.get(h.item);
+      const gone = exiled.get(h.key);
+      const el = this.cardEls.get(h.key);
+      const avatar = h.playerId ? this.el.querySelector<HTMLElement>(`.life-orb[data-player="${CSS.escape(h.playerId)}"] .avatar`) : null;
+      const target = avatar ?? (el?.closest(".side") ? el : undefined);
+      const to = target?.getClientRects().length ? target.getBoundingClientRect() : gone?.rect ?? first.get(h.key);
+      const land = () => {
+        this.release(h.playerId ?? h.key);
+        for (const id of h.alsoRelease ?? []) this.release(id);
+        if (h.kind === "exile") {
+          // It leaves the table for the vortex now (its copy, as it stood, flies in).
+          this.unlinger(h.key);
+          if (gone) this.banish(gone, this.cardEls.get(h.key));
+          return;
+        }
+        if (target) this.wound(target, h.dmg);
+        else if (to && h.dmg) this.damagePop(to, h.dmg);
+        if (h.died) this.crumble(h.key, h.kind === "destroy" ? 60 : 280);
+      };
+      // The bolt's flight, then what it does (a creature crumbling, an exile into the vortex).
+      this.busyFor(delay + k * 90 + 620 + (h.died ? 1200 : h.kind === "exile" ? 1200 : 300));
+      if (!from || !to) {
+        land();
+        continue;
+      }
+      this.shoot(from, to, delay + k++ * 90, land, h.kind);
+    }
+  }
+
+  /** A bolt from one place to another; `onHit` runs as it lands, with a flash there. Damage is a
+      bolt of light, a destroy a dark one, an exile a pale violet one. */
+  private shoot(from: DOMRect, to: DOMRect, delay: number, onHit: () => void, kind: SpellHit["kind"] = "damage"): void {
+    const box = this.el.getBoundingClientRect();
+    const ax = from.left + from.width / 2 - box.left;
+    const ay = from.top + from.height / 2 - box.top;
+    const bx = to.left + to.width / 2 - box.left;
+    const by = to.top + to.height / 2 - box.top;
+    const angle = Math.atan2(by - ay, bx - ax);
+    const duration = Math.min(520, 240 + Math.hypot(bx - ax, by - ay) * 0.3);
+    const shot = document.createElement("div");
+    shot.className = `shot ${kind}`;
+    Object.assign(shot.style, { left: `${ax}px`, top: `${ay}px`, rotate: `${angle}rad`, opacity: "0" });
+    this.el.appendChild(shot);
+    const anim = shot.animate([
+      { translate: "0px 0px", scale: "0.4 1", opacity: 0 },
+      { opacity: 1, scale: "1 1", offset: 0.15 },
+      { translate: `${bx - ax}px ${by - ay}px`, scale: "1.2 1", opacity: 1 },
+    ], { duration, delay, easing: "cubic-bezier(.5,0,.9,.6)" });
+    void anim.finished.catch(() => {}).then(() => {
+      shot.remove();
+      if (!this.el.isConnected) return;
+      this.impactAt(bx, by, angle, kind);
+      this.sfx(kind === "exile" ? "exile" : "zap");
+      onHit();
+    });
+  }
+
+  /** A token comes in with a flash: a burst of light where it appears as it grows in, bright. */
+  private tokenEntrance(el: HTMLElement): void {
+    this.sfx("token");
+    el.animate([{ transform: "scale(0.3)" }, { transform: "scale(1.12)", offset: 0.55 }, { transform: "scale(1)" }],
+      { duration: 560, easing: "cubic-bezier(.2,.8,.3,1)", composite: "add" });
+    el.animate([{ opacity: 0, filter: "brightness(3) saturate(0.3)" }, { opacity: 1, filter: "brightness(1.7)", offset: 0.45 }, { opacity: 1, filter: "none" }],
+      { duration: 560, easing: "ease-out" });
+    const box = this.el.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    const burst = document.createElement("div");
+    burst.className = "token-burst";
+    burst.style.left = `${r.left + r.width / 2 - box.left}px`;
+    burst.style.top = `${r.top + r.height / 2 - box.top}px`;
+    this.el.appendChild(burst);
+    this.later(() => burst.remove(), 700);
+  }
+
+  /**
+   * Power/toughness or counters that changed on a permanent: the badge jumps, and the change floats
+   * up from the card (+1/+1 green, -2/-2 red); a counter pin whose count changed jumps too.
+   */
+  private statChanges(prev: GameState | null, state: GameState): void {
+    if (!prev || reducedMotion() || prev.matchId !== state.matchId) return;
+    const before = new Map(prev.players.flatMap((p) => p.battlefield.map((c) => [c.id, c] as const)));
+    const jump = (el: Element | null) => el?.animate([{ transform: "scale(1.7)" }, { transform: "scale(1)" }],
+      { duration: 420, easing: "cubic-bezier(.3,1.5,.5,1)", composite: "add" });
+    const box = this.el.getBoundingClientRect();
+    for (const p of state.players) for (const c of p.battlefield) {
+      const was = before.get(c.id);
+      const el = this.cardEls.get(c.id);
+      if (!was || !el?.closest(".side") || !el.getClientRects().length) continue;
+      for (const kind of new Set([...Object.keys(c.counters), ...Object.keys(was.counters)])) {
+        if ((c.counters[kind] ?? 0) !== (was.counters[kind] ?? 0)) jump(el.querySelector(`.pin[data-kind="${CSS.escape(kind)}"]`));
+      }
+      const dp = Number(c.power) - Number(was.power);
+      const dt = Number(c.toughness) - Number(was.toughness);
+      if (!Number.isFinite(dp) || !Number.isFinite(dt) || (!dp && !dt)) continue;
+      jump(el.querySelector(".b.pt"));
+      if (dp + dt > 0) this.sfx("counter");
+      const r = el.getBoundingClientRect();
+      const pop = document.createElement("div");
+      pop.className = `stat-pop ${dp + dt >= 0 ? "gain" : "loss"}`;
+      pop.textContent = `${dp >= 0 ? "+" : ""}${dp}/${dt >= 0 ? "+" : ""}${dt}`;
+      pop.style.left = `${r.left + r.width / 2 - box.left}px`;
+      pop.style.top = `${r.top + r.height * 0.35 - box.top}px`;
+      this.el.appendChild(pop);
+      this.later(() => pop.remove(), 1300);
+    }
+  }
+
+  /** Sounds for what entered the game: a spell cast (new on the stack), a land played. */
+  private zoneSounds(prev: GameState | null, state: GameState): void {
+    if (!prev || prev.matchId !== state.matchId) return;
+    const was = new Set(prev.stack.map((s) => s.id));
+    if (state.stack.some((s) => !s.isAbility && !was.has(s.id))) this.sfx("cast");
+    const before = new Set(prev.players.flatMap((p) => p.battlefield.map((c) => c.id)));
+    const fromStack = new Set(prev.stack.flatMap((s) => [s.id, s.card?.id ?? ""]));
+    if (state.players.some((p) => p.battlefield.some((c) => !before.has(c.id) && !fromStack.has(c.id) && isLand(c)))) this.sfx("land");
+  }
+
+  // ---------------------------------------------------------------- game log
+
+  /** What the log panel shows: whose log, how many of its lines, and the first one's number. */
+  private logShown = { key: "", count: 0, first: -1 };
+  private logLit: HTMLElement[] = [];
+
+  /** The game log (L, or the Log button): what happened, a line per event, newest at the
+      bottom, with a line at each turn. Lines are added as they come; scrolled up, it stays put. */
+  private renderLog(state: GameState): void {
+    if (!this.prefs.logOpen) return;
+    const log = state.log ?? [];
+    const list = this.q(".log-list");
+    const s = this.logShown;
+    const key = state.replay ? "replay" : state.matchId;
+    // Another game, or a replay moved back: written again from the start.
+    const restart = s.key !== key || log.length < s.count || (log[0]?.seq ?? -1) !== s.first;
+    const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+    if (restart) {
+      list.innerHTML = "";
+      s.count = 0;
+    }
+    if (log.length > s.count) {
+      list.querySelector(".log-empty")?.remove();
+      list.insertAdjacentHTML("beforeend", log.slice(s.count).map((e) => this.logRow(e, state.viewerSeat)).join(""));
+    } else if (!log.length && !list.firstChild) {
+      list.innerHTML = '<p class="log-empty">Nothing has happened yet.</p>';
+    }
+    s.key = key;
+    s.count = log.length;
+    s.first = log[0]?.seq ?? -1;
+    if (restart || atBottom) list.scrollTop = list.scrollHeight;
+  }
+
+  private logRow(e: LogEntry, viewerSeat: number): string {
+    const who = e.seat === undefined ? "" : e.seat === viewerSeat ? " you" : " opp";
+    if (e.type === "TURN_BEGAN") {
+      const whose = e.seat === viewerSeat ? "Your turn" : `${e.playerName ?? "Opponent"}'s turn`;
+      return `<div class="log-turn${who}"><b>T${esc(e.turn ?? "?")}</b><span>${esc(whose)}</span></div>`;
+    }
+    const [glyph, kind] = LOG_KINDS[e.type] ?? ["•", "other"];
+    // Card names (marked [[Name]]) light up their card when pointed at.
+    const line = (l: string) => esc(l).replace(/\[\[([^[\]]+)\]\]/g, (_, name: string) => {
+      const card = e.cards.find((c) => esc(c.name) === name);
+      return `<b class="lc"${card ? ` data-card="${esc(card.id)}"` : ""}>${name}</b>`;
+    });
+    return `<div class="log-row ${kind}${who}" data-cards="${esc(e.cards.map((c) => c.id).join(","))}">`
+      + `<i class="g" aria-hidden="true">${glyph}</i><span>${e.lines.map(line).join("<br>")}</span></div>`;
+  }
+
+  /** Pointing at a log line lights up its cards on the table; at a card name, that card, and a
+      picture of it beside the log. */
+  private bindLog(): void {
+    const log = this.q(".log");
+    log.addEventListener("pointerover", (e) => {
+      const t = e.target as HTMLElement;
+      const name = t.closest<HTMLElement>(".lc");
+      const row = t.closest<HTMLElement>(".log-row");
+      const ids = name ? (name.dataset.card ? [name.dataset.card] : []) : row?.dataset.cards?.split(",").filter(Boolean) ?? [];
+      this.logHighlight(ids);
+      this.logPeek(name);
+    });
+    log.addEventListener("pointerleave", () => {
+      this.logHighlight([]);
+      this.logPeek(null);
+    });
+  }
+
+  private logHighlight(ids: string[]): void {
+    for (const el of this.logLit) el.classList.remove("log-hl");
+    this.logLit = ids.map((id) => this.cardEls.get(this.stackAlias.get(id) ?? id)).filter((el): el is HTMLElement => !!el?.isConnected);
+    for (const el of this.logLit) el.classList.add("log-hl");
+  }
+
+  private logPeek(name: HTMLElement | null): void {
+    const peek = this.q(".log-peek");
+    const id = name?.dataset.card ?? "";
+    const card = name ? this.cardData.get(id) ?? blankCard(id, name.textContent ?? "") : null;
+    const url = card ? imageUrl(card) : null;
+    if (!card || !url) {
+      peek.classList.remove("show");
+      return;
+    }
+    if (peek.dataset.url !== url) {
+      peek.dataset.url = url;
+      peek.innerHTML = `<img src="${esc(url)}" alt="${esc(card.name)}">`;
+    }
+    const box = this.q(".log").getBoundingClientRect();
+    const r = name!.getBoundingClientRect();
+    peek.style.top = `${Math.max(0, Math.min(r.top - box.top - 40, box.height - 230))}px`;
+    peek.classList.add("show");
   }
 
   /** A creature that was just declared as an attacker charges out, glowing. */
@@ -521,10 +1324,11 @@ export class Board {
     for (const a of state.combat.attacks) {
       const el = this.cardEls.get(a.fromId);
       if (was.has(a.fromId) || !el?.closest(".side")) continue;
+      this.sfx("attack");
       el.classList.remove("charge");
       void el.offsetWidth;
       el.classList.add("charge");
-      window.setTimeout(() => el.classList.remove("charge"), 700);
+      this.later(() => el.classList.remove("charge"), 700);
     }
   }
 
@@ -538,18 +1342,11 @@ export class Board {
    */
   private combatStrike(prev: GameState | null, state: GameState): void {
     const fallen = this.fallen;
-    // The dead crumble once the fight is over (right away when there's no fight to show).
+    // The dead crumble right after the blow that killed them (right away when there's no fight to
+    // show; at the end for one no blow reaches).
+    const killedAt = new Map<string, number>();
     const crumble = (after: number) => {
-      for (const id of fallen.keys()) this.cardEls.get(id)?.style.setProperty("visibility", "hidden");
-      window.setTimeout(() => {
-        for (const [id, ghost] of fallen) {
-          ghost.classList.add("dying");
-          window.setTimeout(() => {
-            ghost.remove();
-            this.cardEls.get(id)?.style.removeProperty("visibility");
-          }, 900);
-        }
-      }, after);
+      for (const id of fallen) this.crumble(id, killedAt.get(id) ?? after);
     };
     const step = this.damageStep(prev, state);
     if (!prev || !step || reducedMotion()) return crumble(0);
@@ -580,14 +1377,14 @@ export class Board {
       if (now) return Math.max(0, (now.damage ?? 0) - (was.damage ?? 0));
       return Math.max(0, (Number(was.toughness) || 0) - (was.damage ?? 0));
     };
-    // A fighter's element: the copy left where it died, else the card on the battlefield.
-    const fighter = (id: string) => fallen.get(id) ?? (this.cardEls.get(id)?.closest(".side") ? this.cardEls.get(id) : undefined);
+    // A fighter's element: the card on the battlefield (one that died there stays to fight).
+    const fighter = (id: string) => (this.cardEls.get(id)?.closest(".side") ? this.cardEls.get(id) : undefined);
     const blockersOf = new Map<string, string[]>();
     for (const b of prev.combat.blocks) blockersOf.set(b.toId, [...(blockersOf.get(b.toId) ?? []), b.fromId]);
 
     // Each run: a striker and what it slams into, one after another. Usually the attacker; a
     // blocker runs at the attacker only when it strikes and the attacker doesn't (first strike).
-    type Target = { el: HTMLElement; id: string | null };
+    type Target = { el: HTMLElement; id: string | null; key: string };
     const runs: { from: HTMLElement; id: string; targets: Target[]; hurtBy: number }[] = [];
     for (const a of prev.combat.attacks) {
       const el = fighter(a.fromId);
@@ -595,15 +1392,17 @@ export class Board {
       const blockers = (blockersOf.get(a.fromId) ?? []).filter((b) => fighter(b));
       const hitBack = blockers.filter(strikes);
       if (blockers.length) {
-        if (strikes(a.fromId)) runs.push({ from: el, id: a.fromId, targets: blockers.map((b) => ({ el: fighter(b)!, id: b })), hurtBy: hitBack.length });
-        else for (const b of hitBack) runs.push({ from: fighter(b)!, id: b, targets: [{ el, id: a.fromId }], hurtBy: 0 });
+        if (strikes(a.fromId)) runs.push({ from: el, id: a.fromId, targets: blockers.map((b) => ({ el: fighter(b)!, id: b, key: b })), hurtBy: hitBack.length });
+        else for (const b of hitBack) runs.push({ from: fighter(b)!, id: b, targets: [{ el, id: a.fromId, key: a.fromId }], hurtBy: 0 });
       } else if (strikes(a.fromId)) {
         // Unblocked: straight at the defending player (their picture) or planeswalker.
-        const card = fighter(a.toId);
-        const target = card
-          ?? this.el.querySelector<HTMLElement>(`.life-orb[data-player="${CSS.escape(a.toId)}"] .avatar`)
-          ?? this.el.querySelector<HTMLElement>(`.life-orb[data-player="${CSS.escape(a.toId)}"]`);
-        if (target) runs.push({ from: el, id: a.fromId, targets: [{ el: target, id: card ? a.toId : null }], hurtBy: 0 });
+        // A player is "player:<seat>" (never a card's id); a planeswalker or battle, its card id.
+        const seat = a.toId.startsWith("player:") ? Number(a.toId.slice(7)) : undefined;
+        const playerId = seat === undefined ? undefined : prev.players[seat]?.id ?? String(seat);
+        const card = playerId === undefined ? fighter(a.toId) : undefined;
+        const orb = playerId === undefined ? null : this.el.querySelector<HTMLElement>(`.life-orb[data-player="${CSS.escape(playerId)}"]`);
+        const target = card ?? orb?.querySelector<HTMLElement>(".avatar") ?? orb ?? undefined;
+        if (target) runs.push({ from: el, id: a.fromId, targets: [{ el: target, id: card ? a.toId : null, key: card ? a.toId : playerId! }], hurtBy: 0 });
       }
     }
 
@@ -622,11 +1421,23 @@ export class Board {
     // Started once this update's own moves (cards gliding to new places) have mostly played.
     const START = 330;
     const end = runs.reduce((m, r, i) => Math.max(m, starts[i]! + runTime(r.targets.length)), 0);
+    // When each blow lands: what it kills goes then, and what it changes shows then.
+    const blowAt = (i: number, k: number) => START + starts[i]! + LIFT + k * (SLAM + HOLD) + SLAM;
+    runs.forEach((run, i) => run.targets.forEach((tg, k) => {
+      if (tg.id && fallen.has(tg.id)) killedAt.set(tg.id, Math.max(killedAt.get(tg.id) ?? 0, blowAt(i, k) + 250));
+      if (run.hurtBy && fallen.has(run.id) && k === 0) killedAt.set(run.id, blowAt(i, 0) + 250);
+    }));
     crumble(START + end);
+    // The fight, then the dead burning away.
+    this.busyFor(START + end + (fallen.size ? 1150 : 200));
+    // Anything no blow reached shows once the fight is over.
+    this.later(() => {
+      for (const id of [...this.heldLife.keys(), ...this.heldDamage.keys()]) this.release(id);
+    }, START + end);
     // The result of a game won in combat waits for the fight (and the dead burning away).
-    if (runs.length) this.endHoldUntil = Math.max(this.endHoldUntil, Date.now() + START + end + 900);
+    if (runs.length) this.endHoldUntil = Math.max(this.endHoldUntil, Date.now() + (START + end + 900) / this.speed);
     this.renderEnd(state, state.players.find((p) => p.isViewer));
-    window.setTimeout(() => {
+    this.later(() => {
       const box = this.el.getBoundingClientRect();
       runs.forEach((run, i) => {
         if (!run.from.isConnected) return;
@@ -666,18 +1477,26 @@ export class Board {
         const slot = run.from.closest<HTMLElement>(".slot");
         const lift = slot ?? run.from;
         const z = lift.style.zIndex;
-        window.setTimeout(() => (lift.style.zIndex = "40"), starts[i]!);
+        this.later(() => (lift.style.zIndex = "40"), starts[i]!);
         const anim = run.from.animate(frames, { duration: total, delay: starts[i]!, composite: "add" });
         void anim.finished.catch(() => {}).then(() => (lift.style.zIndex = z));
         // Each slam lands: a flash where they meet, the table jolts, the target shows its wound.
         hits.forEach((h, k) => {
-          window.setTimeout(() => {
+          this.later(() => {
             this.impactAt(h.cx - box.left, h.cy - box.top, Math.atan2(h.uy, h.ux));
+            this.sfx("hit");
             this.jolt(h.ux, h.uy);
+            // The blow lands: the life lost or the damage dealt shows now.
+            this.release(h.tg.key);
             if (h.tg.id) this.wound(h.tg.el, taken(h.tg.id));
             else this.wound(h.tg.el, 0);
-            // The blockers hit back at the first clash.
-            if (k === 0 && run.hurtBy) this.wound(run.from, taken(run.id));
+            // A blocker that strikes back lunges at the attacker as they clash, and the attacker
+            // takes its damage then.
+            if (h.tg.id && strikes(h.tg.id)) this.lunge(h.tg.el, -h.ux, -h.uy);
+            if (k === 0 && run.hurtBy) {
+              this.release(run.id);
+              this.wound(run.from, taken(run.id));
+            }
           }, starts[i]! + LIFT + k * (SLAM + HOLD) + SLAM);
         });
       });
@@ -685,14 +1504,24 @@ export class Board {
   }
 
   /** A hit's flash: a white burst with streaks flying out along the swing (`angle`). */
-  private impactAt(x: number, y: number, angle: number): void {
+  private impactAt(x: number, y: number, angle: number, kind = ""): void {
     const burst = document.createElement("div");
-    burst.className = "impact";
+    burst.className = `impact ${kind}`;
     burst.style.left = `${x}px`;
     burst.style.top = `${y}px`;
     burst.style.setProperty("--a", `${angle}rad`);
     this.el.appendChild(burst);
-    window.setTimeout(() => burst.remove(), 700);
+    this.later(() => burst.remove(), 700);
+  }
+
+  /** A creature hitting back: a short, hard lunge along (`ux`, `uy`) and back, as they clash. */
+  private lunge(el: HTMLElement, ux: number, uy: number): void {
+    el.animate([
+      { transform: "translate(0px, 0px) scale(1)" },
+      { transform: `translate(${ux * 26}px, ${uy * 26}px) scale(1.1)`, offset: 0.35 },
+      { transform: `translate(${ux * 8}px, ${uy * 8}px) scale(1.04)`, offset: 0.6 },
+      { transform: "translate(0px, 0px) scale(1)" },
+    ], { duration: 320, easing: "cubic-bezier(.3,.7,.4,1)", composite: "add" });
   }
 
   /** The table jolts with a hit, pushed along the swing. */
@@ -711,23 +1540,26 @@ export class Board {
     el.classList.remove("struck");
     void el.offsetWidth;
     el.classList.add("struck");
-    window.setTimeout(() => el.classList.remove("struck"), 450);
+    this.later(() => el.classList.remove("struck"), 450);
     if (!el.classList.contains("card")) return;
     const claws = document.createElement("div");
     claws.className = "claws";
     claws.innerHTML = '<i></i><i></i><i></i>';
     el.appendChild(claws);
-    window.setTimeout(() => claws.remove(), 1300);
-    if (!dmg) return;
+    this.later(() => claws.remove(), 1300);
+    if (dmg) this.damagePop(el.getBoundingClientRect(), dmg);
+  }
+
+  /** The damage taken, popping up over where it landed (`r`, on screen). */
+  private damagePop(r: DOMRect, dmg: number): void {
     const box = this.el.getBoundingClientRect();
-    const r = el.getBoundingClientRect();
     const pop = document.createElement("div");
     pop.className = "dmg-pop";
     pop.textContent = `-${dmg}`;
     pop.style.left = `${r.left + r.width / 2 - box.left}px`;
     pop.style.top = `${r.top + r.height * 0.4 - box.top}px`;
     this.el.appendChild(pop);
-    window.setTimeout(() => pop.remove(), 1200);
+    this.later(() => pop.remove(), 1200);
   }
 
   private card(c: CardView, showStats: boolean): HTMLElement {
@@ -736,7 +1568,9 @@ export class Board {
       el = createCardEl(c.id);
       this.cardEls.set(c.id, el);
     }
-    updateCardEl(el, c, showStats);
+    // Damage an animation is still on its way with shows when it lands.
+    const held = showStats ? this.heldDamage.get(c.id) : undefined;
+    updateCardEl(el, held === undefined ? c : { ...c, damage: held }, showStats);
     this.used.add(c.id);
     return el;
   }
@@ -849,6 +1683,13 @@ export class Board {
   }
 
   private renderHand(me: PlayerView | null): void {
+    // Watching someone else's game whose hand isn't shown to you: its backs.
+    if (this.state?.spectating && me && !me.hand) {
+      const n = Math.min(me.handSize ?? 0, 30);
+      const backs = Array.from({ length: n }, (_, i) => (this.spectateBacks[i] ??= createBackEl(`spectate:${i}`)));
+      reconcile(this.q(".my-hand"), backs);
+      return;
+    }
     const hand = me?.hand ?? [];
     // The player's own order (cards dragged sideways within the hand); new cards join on the right.
     const byId = new Map(hand.map((c) => [c.id, c]));
@@ -1218,7 +2059,7 @@ export class Board {
       }
       const holder = el.querySelector<HTMLElement>(".pile-card")!;
       // A card shown elsewhere (side hand, or under the permanent holding it) gets a copy here.
-      if (top && (this.sideIds.has(top.id) || this.linked.has(top.id))) reconcile(holder, [this.pileCopy(`${player.id}:${zone}`, top)]);
+      if (top && (this.sideIds.has(top.id) || this.linked.has(top.id) || this.lingering.has(top.id))) reconcile(holder, [this.pileCopy(`${player.id}:${zone}`, top)]);
       else if (top) reconcile(holder, [this.card(top, false)]);
       else if (zone === "library") holder.innerHTML = count ? '<div class="card back"><div class="face"></div></div>' : "";
       else holder.replaceChildren();
@@ -1283,7 +2124,7 @@ export class Board {
       if (!id || plate.classList.contains("pile")) continue;
       const key = playerTargetKey(Number(id));
       plate.classList.toggle("selectable", this.isSelectable(key));
-      plate.classList.toggle("selected", (mode.kind === "targets" && mode.selected.includes(key)));
+      plate.classList.toggle("selected", ((mode.kind === "targets" || mode.kind === "cards") && mode.selected.includes(key)));
       const payLife = key === this.phyrexianLifeKey();
       if (payLife) plate.title = PAY_LIFE_TITLE;
       else if (plate.title === PAY_LIFE_TITLE) plate.removeAttribute("title");
@@ -1312,12 +2153,28 @@ export class Board {
   private choiceInFan(p: PendingActionView | null | undefined): boolean {
     const m = this.mode;
     if (!p || (m.kind !== "cards" && m.kind !== "targets")) return false;
+    // Proliferate is picked on the table.
+    if (isProliferate(p)) return false;
+    // A discard from your own hand is picked right on your hand (Learn has its own view).
+    if (this.state && !(m.kind === "cards" && m.learn) && discardInHand(this.state, p)) return false;
     if (m.kind === "cards" && m.offBoard) return true;
     const onTable = (id: string) => {
       const el = this.elFor(id);
       return !!el?.isConnected && !el.closest(".pile, .hand");
     };
     return p.optionCardIds.some((id) => !isPlayerId(id) && !onTable(id));
+  }
+
+  /** Proliferate's options that are yours: your permanents, and you. */
+  private proliferateYours(): string[] {
+    const m = this.mode;
+    const state = this.state;
+    const me = state?.players.find((pl) => pl.isViewer);
+    if (!state || !me || (m.kind !== "cards" && m.kind !== "targets")) return [];
+    const myKey = playerTargetKey(state.players.indexOf(me));
+    // Yours: on your side of the table (Endstep doesn't always say who controls a card).
+    const mine = new Set(me.battlefield.map((c) => c.id));
+    return [...m.valid].filter((k) => k === myKey || mine.has(k));
   }
 
   /** A card in a hand while a choice is made from a fan: it's picked there instead. */
@@ -1419,12 +2276,12 @@ export class Board {
       return;
     }
     el.dataset.player = p.id;
-    const prev = this.prevLife.get(p.id);
-    if (p.life !== undefined) this.prevLife.set(p.id, p.life);
     const hasPrio = state.priorityPlayerId === p.id;
     const active = state.activePlayerId === p.id;
     el.classList.toggle("priority", hasPrio);
     el.classList.toggle("active", active);
+    // The player the game is waiting on: their picture glows.
+    orb.classList.toggle("waited", this.waiting?.playerId === p.id);
     el.classList.toggle("out", p.hasLost || p.hasConceded);
     const extras = [
       p.poison ? `<span class="chip poison" title="Poison">☠ ${p.poison}</span>` : "",
@@ -1456,13 +2313,7 @@ export class Board {
       orb.querySelector(".avatar")?.remove();
       orb.insertAdjacentHTML("afterbegin", avatarHtml);
     }
-    const life = String(p.life ?? "–");
-    if (orb.dataset.life !== life) {
-      orb.dataset.life = life;
-      orb.querySelector(".lnum")?.remove();
-      orb.insertAdjacentHTML("beforeend", `<span class="lnum" title="${esc(p.name)}'s life">${life}</span>`);
-    }
-    if (prev !== undefined && p.life !== undefined && prev !== p.life) this.lifeFloat(orb, p.life - prev);
+    this.showLife(orb, p);
 
     // An opponent who lost connection: a small line under their picture, counting down to when
     // their seat concedes (or just waiting, when the server has no deadline for them).
@@ -1619,7 +2470,10 @@ export class Board {
     if (label.innerHTML !== labelHtml) label.innerHTML = labelHtml;
 
     if (prev && this.prevActive !== state.activePlayerId && state.activePlayerId !== undefined) {
-      this.banner(myTurn ? "Your turn" : `${active?.name ?? "Opponent"}'s turn`, myTurn ? "mine" : "theirs");
+      // Watching someone else's game, every turn is named.
+      const yours = myTurn && !state.spectating;
+      this.banner(yours ? "Your turn" : `${active?.name ?? "Opponent"}'s turn`, myTurn ? "mine" : "theirs");
+      if (yours) this.sfx("turn");
     }
     if (prev && this.prevPhase !== state.phase && state.phase === "DECLARE_ATTACKERS" && myTurn && state.pending?.type === "DECLARE_ATTACKERS") {
       this.banner("Declare attackers", "combat");
@@ -1629,6 +2483,16 @@ export class Board {
 
     this.renderEnd(state, me);
     this.renderReplayBar(state.replay);
+    this.renderSpectateBar(state);
+  }
+
+  /** Watching someone else's game: says so, top center, with the way out. */
+  private renderSpectateBar(state: GameState): void {
+    const bar = this.q(".spectate-bar");
+    bar.classList.toggle("show", !!state.spectating);
+    if (!state.spectating || bar.childElementCount) return;
+    bar.innerHTML = `<span class="eye" aria-hidden="true">👁</span><span>Spectating</span>
+      <button class="rb leave" data-ui="leave-spectate" title="Stop spectating and leave this game">Leave</button>`;
   }
 
   /** Watching a replay: its controls, top center (over the opponent's hand). ←/→ step a change,
@@ -1758,8 +2622,10 @@ export class Board {
     // A replay's last frame is a finished game, but the replay goes on being watched.
     const over = state.status === "COMPLETE" && !state.replay && wait <= 0;
     if (!over) this.endPeek = false;
-    const won = state.winnerId !== undefined && state.winnerId === me?.id;
-    const title = state.winnerId === undefined ? "Game over" : won ? "Victory" : "Defeat";
+    // A spectator sees who won, not a victory or defeat of their own.
+    const won = state.winnerId !== undefined && state.winnerId === me?.id && !state.spectating;
+    const winner = state.players.find((p) => p.id === state.winnerId);
+    const title = state.winnerId === undefined ? "Game over" : state.spectating ? `${winner?.name ?? "Someone"} wins` : won ? "Victory" : "Defeat";
     const html = !over ? "" : `<button class="end-peek" data-ui="end-peek"><span class="p-view">View battlefield</span><span class="p-back">Back to result</span></button>
       <div class="end-body">${me ? this.avatarHtml(me) : ""}<h2>${title}</h2>
         <button class="end-back" data-ui="hide">Back to Endstep</button></div>`;
@@ -1767,7 +2633,9 @@ export class Board {
       box.dataset.sig = html;
       box.innerHTML = html;
     }
-    box.className = `endgame${over ? " show" : ""}${won ? " won" : state.winnerId === undefined ? "" : " lost"}${this.endPeek ? " peek" : ""}`;
+    if (over && !box.classList.contains("show") && state.winnerId !== undefined && !state.spectating) this.sfx(won ? "win" : "lose");
+    const outcome = won ? " won" : state.winnerId === undefined || state.spectating ? "" : " lost";
+    box.className = `endgame${over ? " show" : ""}${outcome}${this.endPeek ? " peek" : ""}`;
   }
 
   private banner(text: string, kind: string, sticky = false): void {
@@ -1835,8 +2703,9 @@ export class Board {
         html = `<div class="phead"><h2>${esc(title)}</h2>${sub ? `<p>${esc(sub)}</p>` : ""}</div>${body}
           <button class="peek-btn" data-ui="peek"><span class="p-view">View battlefield</span><span class="p-back">Back to choice</span></button>`;
       }
-    } else if (!p && state.status !== "COMPLETE" && !state.replay) {
-      html = `<div class="msg dim">Waiting for opponent…</div>`;
+    } else if (!p && this.waiting) {
+      // Not your move: who the game waits on, and for what.
+      html = `<div class="msg dim wait ${this.waiting.kind}"><span class="wait-dot" aria-hidden="true"></span>${esc(this.waiting.text)}</div>`;
     }
     // Never rebuild the order box under a tile being dragged. Reordering the same box only
     // moves its tiles, so the list doesn't jump (or replay its entrance) on every move.
@@ -2511,16 +3380,16 @@ export class Board {
     const myTurn = !!me && state.activePlayerId === me.id;
     const buttons: { id: string; label: string; primary?: boolean; disabled?: boolean; on?: boolean }[] = [];
 
-    const live = state.status !== "COMPLETE" && m.kind !== "classic" && !state.replay;
+    const live = state.status !== "COMPLETE" && m.kind !== "classic" && !state.replay && !state.spectating;
     if (!live) {
-      // nothing (a replay is only watched)
+      // nothing (a replay, or someone else's game, is only watched)
     } else if (this.passUntil) {
       // Passing for you: what it's passing to, and a way to stop.
       const label = this.passUntil.target === "endTurn" ? "Ending turn…" : `Passing to ${passLabel(this.passUntil.target)}…`;
       buttons.push({ id: "passing", label, primary: true, disabled: true });
       buttons.unshift({ id: "stop-pass", label: "Stop passing" });
     } else if (!p) {
-      buttons.push({ id: "wait", label: myTurn ? "Waiting…" : "Opponent's turn", primary: true, disabled: true });
+      buttons.push({ id: "wait", label: this.waiting?.short ?? (myTurn ? "Waiting…" : "Opponent's turn"), primary: true, disabled: true });
       buttons.push({ id: "pass-until", label: "Pass until…" });
     } else if (p.type === "PRIORITY") {
       if (state.stack.length) {
@@ -2564,6 +3433,11 @@ export class Board {
       // Picking from a fan of cards: Cancel and Submit are under the fan instead.
       if (!this.q(".prompt .fan")) {
         if (!m.mandatory) buttons.push({ id: "decline", label: "Cancel" });
+        // Proliferate: everything of yours at once (or click them one by one, then Done).
+        if (p && isProliferate(p)) {
+          const yours = this.proliferateYours();
+          if (yours.length) buttons.push({ id: "prolif-mine", label: `All yours · ${yours.length}` });
+        }
         const count = `${m.selected.length}${m.max > 1 && m.max < 99 ? `/${m.max}` : ""}`;
         buttons.push({ id: "confirm", label: `Done · ${count}`, primary: true, disabled: !canConfirm(m) });
       }
@@ -2593,8 +3467,8 @@ export class Board {
 
   /** Fits rows and hands to the available width (smaller cards, then overlap or pages, when crowded). */
   private layout(): void {
-    // --bf-w: min(8vw, 12.6vh), the full size of a battlefield card.
-    const bfw = Math.min(window.innerWidth * 0.08, window.innerHeight * 0.126);
+    // --bf-w: min(8vw, 12.6vh) at the chosen card size, the full size of a battlefield card.
+    const bfw = Math.min(window.innerWidth * 0.08, window.innerHeight * 0.126) * this.prefs.cardScale;
     // A slot's width in card widths: a pile of identical permanents fans out, a tapped card
     // needs a little more. Computed rather than measured: slots animate their width.
     const unitsOf = (slot: Element) => {
@@ -2974,7 +3848,7 @@ export class Board {
     cancelAnimationFrame(this.arrowsTimer);
     this.arrowsTimer = requestAnimationFrame(() => this.drawArrows());
     // Again once moves have settled (combat steps take 0.42s).
-    window.setTimeout(() => this.drawArrows(), 480);
+    window.setTimeout(() => this.drawArrows(), 480 / this.speed);
   }
 
   private anchor(key: string): DOMRect | null {
@@ -3025,9 +3899,8 @@ export class Board {
       // A spell dividing its damage: each target's share by its arrow's head.
       if (s === top || elId === this.hoverStack) for (const t of s.targets) if (t !== elId) links.push({ from: elId, to: t, kind: "tgt", amount: s.divided?.[t] });
     }
-    const cardIds = new Set(this.cardData.keys());
-    const defenderKey = (id: string) => (cardIds.has(id) ? id : playerTargetKey(Number(id)));
-    for (const a of state.combat.attacks) links.push({ from: a.fromId, to: defenderKey(a.toId), kind: "atk" });
+    // A defender is a card id, or "player:<seat>" (the key the arrows find a player by).
+    for (const a of state.combat.attacks) links.push({ from: a.fromId, to: a.toId, kind: "atk" });
     for (const b of state.combat.blocks) links.push({ from: b.fromId, to: b.toId, kind: "blk" });
     const m = this.mode;
     if (m.kind === "blockers") m.assignments.forEach((att, blk) => links.push({ from: blk, to: att, kind: "blk", pending: true }));
@@ -3066,9 +3939,9 @@ export class Board {
       });
     }
     this.placeDivideBadges(origin);
-    // Choosing targets: the prompt text points at the targets picked so far.
+    // Choosing targets: the prompt text points at the targets picked so far (not a discard).
     const aim = this.aimSource();
-    if (m.kind === "targets" && !this.awaiting) {
+    if (m.kind === "targets" && !this.awaiting && !(state.pending && (discardInHand(state, state.pending) || isProliferate(state.pending)))) {
       for (const t of m.selected) {
         const a = this.point(PROMPT_KEY, origin);
         const b = this.point(t, origin);
@@ -3096,6 +3969,8 @@ export class Board {
     if (!state || this.awaiting) return null;
     if (m.kind === "attackers" && m.aiming) return { from: m.aiming, kind: "atk", accepts: (k) => defenderForKey(m, k, state) !== null };
     if (m.kind !== "targets" || m.selected.length >= m.max || this.el.querySelector(".prompt .fan")) return null;
+    // Discarding from your hand, or proliferating, isn't aiming at anything: the cards are just clicked.
+    if (state.pending && (discardInHand(state, state.pending) || isProliferate(state.pending))) return null;
     // The legend rule (which of your copies to keep) isn't a spell aiming at something: no arrow.
     const copies = [...m.valid].map((id) => this.cardData.get(id));
     const sameName = copies.length > 1 && copies.every((c) => !!c && c.name === copies[0]?.name && c.controllerId === copies[0]?.controllerId && /legendary/i.test(c.typeLine ?? ""));
@@ -3121,6 +3996,15 @@ export class Board {
       const t = e.target as HTMLElement;
       if (t.matches(".name-q")) this.fillNameResults(t as HTMLInputElement);
       if (t.matches(".rb-track")) this.hooks.replay({ kind: "seek", frame: Number((t as HTMLInputElement).value) });
+      if (t.dataset.prefRange === "volume") {
+        this.prefs = { ...this.prefs, volume: Number((t as HTMLInputElement).value) / 100 };
+        this.applyPrefs();
+      }
+    });
+    // The volume is saved (and a sound plays at it) once the slider is let go.
+    el.addEventListener("change", (e) => {
+      const t = e.target as HTMLElement;
+      if (t.dataset.prefRange === "volume") this.setPref({ volume: Number((t as HTMLInputElement).value) / 100 });
     });
     el.addEventListener("pointerdown", (e) => {
       if (!(e.target as HTMLElement).matches(".rb-track")) return;
@@ -3248,6 +4132,22 @@ export class Board {
           return;
         }
       }
+      // ?: the list of this board's keyboard shortcuts.
+      if (e.key === "?" && this.el.classList.contains("live") && !e.ctrlKey && !e.altKey && !e.metaKey && !(e.target as HTMLElement | null)?.closest?.("input, textarea, [contenteditable]")) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const box = this.q(".settings");
+        if (box.classList.contains("open") && box.dataset.panel === "shortcuts") box.classList.remove("open");
+        else this.renderShortcuts();
+        return;
+      }
+      // L: the game log, shown or hidden.
+      if ((e.key === "l" || e.key === "L") && this.el.classList.contains("live") && !e.ctrlKey && !e.altKey && !e.metaKey && !(e.target as HTMLElement | null)?.closest?.("input, textarea, [contenteditable]")) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        this.setPref({ logOpen: !this.prefs.logOpen });
+        return;
+      }
       // H: hold priority on or off (not while typing a card name).
       if ((e.key === "h" || e.key === "H") && this.el.classList.contains("live") && !e.ctrlKey && !e.altKey && !e.metaKey && !(e.target as HTMLElement | null)?.closest?.("input, textarea, [contenteditable]")) {
         e.preventDefault();
@@ -3261,6 +4161,7 @@ export class Board {
         if (m.kind === "attackers" && m.aiming) this.setMode({ ...m, aiming: null });
         this.hideMenu();
         this.hideConfirm();
+        this.q(".settings").classList.remove("open");
         this.closeViewer();
         this.hideZoom();
         this.zoomPinned = false;
@@ -3316,6 +4217,10 @@ export class Board {
       return;
     }
 
+    if (btn?.dataset.pref) {
+      this.onPrefButton(btn);
+      return;
+    }
     if (btn?.dataset.stop) {
       const [side, step] = btn.dataset.stop.split(":") as [StopSide, string];
       this.hooks.togglePhaseStop(side, step);
@@ -3335,6 +4240,9 @@ export class Board {
       if (btn.dataset.ui === "end-peek") { this.endPeek = !this.endPeek; this.render(state); }
       if (btn.dataset.ui === "peek") { this.peeking = !this.peeking; this.render(state); }
       if (btn.dataset.ui === "confirm-cancel") this.hideConfirm();
+      if (btn.dataset.ui === "settings-close") this.q(".settings").classList.remove("open");
+      if (btn.dataset.ui === "log") this.setPref({ logOpen: !this.prefs.logOpen });
+      if (btn.dataset.ui === "leave-spectate") this.hooks.leaveSpectate();
       if (btn.dataset.ui === "ability-cancel") { this.abilityPick = null; this.peeking = false; this.render(state); }
       return;
     }
@@ -3445,7 +4353,14 @@ export class Board {
     const c = this.controller;
     switch (act) {
       case "undo": c.undo(); break;
-      case "pass": c.passPriority(); break;
+      case "pass": c.passPriority(); this.sfx("pass"); break;
+      case "prolif-mine": {
+        // Every option of the proliferating player's own (their permanents, and themselves), sent.
+        const yours = this.proliferateYours();
+        if (this.state?.pending?.type === "CHOOSE_TARGETS") c.chooseTargets(yours);
+        else c.chooseCards(yours);
+        break;
+      }
       case "hold":
         this.holdPriority = !this.holdPriority;
         if (this.state) this.render(this.state);
@@ -4016,12 +4931,18 @@ export class Board {
   private async openTableMenu(x: number, y: number): Promise<void> {
     const labels = (await this.hooks.tableMenu()) ?? ["Reload", "Concede"];
     this.tableItems = labels;
-    const items = labels.map((label, i) => {
+    const items: { label: string; hint?: string; data: string; cls?: string }[] = labels.map((label, i) => {
       const concede = /^concede( game| match)?$/i.exec(label);
       return concede
         ? { label, data: `concede:${concede[1]?.trim().toLowerCase() ?? "single"}`, cls: "danger" }
         : { label, data: `table:${i}` };
     });
+    // This board's own items come first.
+    items.unshift(
+      { label: this.prefs.logOpen ? "Hide game log" : "Game log", hint: "L", data: "arena:log" },
+      { label: "Arena UI settings", data: "arena:settings" },
+      { label: "Arena UI shortcuts", hint: "?", data: "arena:shortcuts", cls: "sep-after" },
+    );
     // Conceding sits apart, at the bottom.
     const first = items.findIndex((i) => i.cls === "danger");
     if (first > 0) items[first] = { ...items[first]!, cls: "danger sep" };
@@ -4072,6 +4993,12 @@ export class Board {
       return;
     }
     if (cmd === "concede") return this.showConcede(id);
+    if (cmd === "arena") {
+      if (id === "settings") this.renderSettings();
+      if (id === "shortcuts") this.renderShortcuts();
+      if (id === "log") this.setPref({ logOpen: !this.prefs.logOpen });
+      return;
+    }
     if (cmd === "pass") {
       this.startPassing(id as PassTarget);
       if (this.state) this.render(this.state);
@@ -4227,6 +5154,22 @@ const divideKey = (id: string) => (isPlayerId(id) ? playerTargetKey(-Number(id) 
 
 /** Players appear among target options as -(seat + 1). */
 const isPlayerId = (id: string) => /^-\d+$/.test(id);
+
+/** The game log's mark and kind (its color) for each event, as Endstep's own log shows them. */
+const LOG_KINDS: Record<string, [string, string]> = {
+  SPELL_CAST: ["✦", "spell"], SPELL_RESOLVED: ["✓", "spell"],
+  TRIGGER_FIRED: ["✶", "trigger"], ABILITY_ACTIVATED: ["◈", "ability"], MODE_CHOSEN: ["◇", "ability"],
+  LAND_PLAYED: ["▲", "land"],
+  CARD_DAMAGED: ["◆", "damage"], PLAYER_DAMAGED: ["◆", "damage"], PLAYER_POISONED: ["✚", "damage"],
+  PLAYER_LIFE_CHANGED: ["♥", "life"],
+  ATTACKERS_DECLARED: ["⚔", "combat"], BLOCKERS_DECLARED: ["⛨", "combat"], COMBAT_ENDED: ["◦", "combat"],
+  CARD_COUNTERS: ["▣", "counter"], PLAYER_COUNTERS: ["▣", "counter"],
+  TOKEN_CREATED: ["✧", "ability"],
+  SCRY: ["✧", "scry"], SURVEIL: ["⊻", "scry"],
+  MULLIGAN: ["↻", "ritual"], HAND_KEPT: ["↻", "ritual"], SHUFFLE: ["⤮", "ritual"], LIBRARY_REARRANGED: ["⇅", "ritual"],
+  COIN_FLIP: ["◉", "ritual"], DISCARD_LOG: ["↘", "other"], EFFECT_REPLACED: ["⇄", "other"],
+  GAME_STARTED: ["❖", "outcome"], GAME_FINISHED: ["✦", "outcome"], GAME_OUTCOME: ["✦", "outcome"],
+};
 
 function blankCard(id: string, name: string): CardView {
   return {
