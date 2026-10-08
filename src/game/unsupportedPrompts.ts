@@ -49,7 +49,7 @@ export class UnsupportedLog {
    */
   record(state: GameState | null, reason: string | null, promptId: string, rawPending: unknown, now = Date.now()): UnsupportedPrompt | null {
     const p = state?.pending;
-    if (!p || reason === null || state.replay) return null;
+    if (!p || reason === null || state.replay || state.spectating) return null;
     if (promptId === this.lastPrompt) return null;
     this.lastPrompt = promptId;
     const key = [p.type, p.contextType ?? "", p.sourceCardName ?? ""].join("|");

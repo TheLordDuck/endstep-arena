@@ -42,7 +42,7 @@ export class PhaseStopSync {
   }
 
   onState(state: GameState | null): void {
-    if (!state || state.status === "COMPLETE" || state.replay || state.matchId === this.sentFor) return;
+    if (!state || state.status === "COMPLETE" || state.replay || state.spectating || state.matchId === this.sentFor) return;
     this.sentFor = state.matchId;
     this.extra = {};
     this.controller.setPhaseStops(this.stops);

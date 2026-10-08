@@ -11,6 +11,7 @@ import type {
   DivideView,
   GameState,
   IdleView,
+  LogEntry,
   PendingActionView,
   PileView,
   SideboardView,
@@ -110,7 +111,7 @@ export function toCard(v: unknown): CardView | null {
     attachmentIds: arr(v.attachedCards ?? v.attachments).map(idOf).filter((x): x is string => !!x),
     attachedToId: idOf(v.attachedTo),
     isAttacking: v.isAttacking === true,
-    attackingDefenderId: str(v.attackingDefenderId),
+    attackingDefenderId: defenderId(v.attackingDefenderId),
     isBlocking: v.isBlocking === true || arr(v.blockingIds).length > 0,
     blockingIds: arr(v.blockingIds).map(str).filter((x): x is string => !!x),
     // The chosen printing, as Endstep's client renders it.
@@ -367,6 +368,14 @@ function divideKind(v: Raw, raw: Raw): DivideView["kind"] {
   return fighting || damageStep ? "combat" : "spell";
 }
 
+/** Who an attacker attacks: a planeswalker or battle by its card id, or a player, whom Endstep
+    numbers -(seat + 1) here as in targets (its client compares it with that). A player is made
+    "player:<seat>", as in targets: their seat alone ("0", "1") could be a card's id too. */
+function defenderId(v: unknown): string | undefined {
+  const n = typeof v === "number" ? v : typeof v === "string" && /^-\d+$/.test(v) ? Number(v) : undefined;
+  return n !== undefined && n < 0 ? `player:${-n - 1}` : str(v);
+}
+
 function combatOf(players: PlayerView[]) {
   const attacks: CombatLink[] = [];
   const blocks: CombatLink[] = [];
@@ -405,6 +414,47 @@ export function toReveal(v: unknown, at = Date.now()): RevealView | null {
     })),
     cardIds: names.map((_, i) => ids[i] ?? (i === 0 ? str(v.cardId) : undefined)),
     at,
+  };
+}
+
+/** Events that make no line of their own in the game log. */
+const UNLOGGED = new Set(["TURN_PHASE", "CARD_REVEALED", "CARD_REVEALED_TO_HAND"]);
+/** A `{key=[…], …}` block Endstep's messages may carry (its engine's details). */
+const DETAILS = String.raw`\{[^{}[\]=]*=\[[^\]]*\](?:\s*,\s*[^{}[\]=]*=\[[^\]]*\])*\}`;
+
+/**
+ * A game event as a line of the game log, as Endstep's own log shows it: its `message` a line
+ * per row, cleaned of engine details (`{…=[…]}` blocks, trailing `[…]`, ` (id)`), card names kept
+ * as [[Name]]; with the player (`playerIndex`, `playerName`), the turn and the cards it names
+ * (`cardId`/`cardName`, `cardIds`/`cardNames`). TURN_BEGAN makes a turn line with no text.
+ */
+export function toLogEntry(v: unknown, fallbackSeq = 0): LogEntry | null {
+  if (!isObj(v) || typeof v.type !== "string" || UNLOGGED.has(v.type)) return null;
+  const detailsLine = new RegExp(String.raw`:\s*` + DETAILS);
+  const details = new RegExp(String.raw`\s*` + DETAILS, "g");
+  const lines = (str(v.message) ?? "").split(/\r\n|\r|\n/).map((line) => {
+    const clean = line.replace(details, "").replace(/\s*\(\[[^\]]*\]\)\s*$/, "").replace(/\s*\[[^\]]*\]\s*$/, "").replace(/ \(\d+\)/g, "").trim();
+    // A line that only introduced the details ("Targets:") goes with them.
+    return detailsLine.test(line) && clean.endsWith(":") ? "" : clean;
+  }).filter((line) => line.length > 0);
+  if (!lines.length && v.type !== "TURN_BEGAN") return null;
+  const names = arr(v.cardNames).map(str);
+  const ids = arr(v.cardIds).map(str);
+  const cards: { id: string; name: string }[] = [];
+  if (str(v.cardId) && str(v.cardName)) cards.push({ id: str(v.cardId)!, name: str(v.cardName)! });
+  names.forEach((name, i) => {
+    const id = ids[i];
+    if (name && id && !cards.some((c) => c.id === id)) cards.push({ id, name });
+  });
+  const seat = num(Number(v.playerIndex));
+  return {
+    seq: num(v.sequenceNumber) ?? fallbackSeq,
+    type: v.type,
+    lines,
+    ...(v.playerIndex != null && v.playerIndex !== "" && seat !== undefined ? { seat } : {}),
+    ...(str(v.playerName) ? { playerName: str(v.playerName) } : {}),
+    ...(num(v.turnNumber) !== undefined ? { turn: num(v.turnNumber) } : {}),
+    cards,
   };
 }
 

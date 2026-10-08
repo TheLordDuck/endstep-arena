@@ -26,8 +26,8 @@ export class GameController {
 
   private send(action: WireAction): void {
     const state = this.getState();
-    // A replay is only watched: nothing goes to the server.
-    if (!state || state.status === "COMPLETE" || state.replay) return;
+    // A replay, or someone else's game, is only watched: nothing goes to the server.
+    if (!state || state.status === "COMPLETE" || state.replay || state.spectating) return;
     const version = state.pending?.promptVersion;
     const stamped = action.promptVersion == null && !UNVERSIONED.has(action.type) && version != null
       ? { ...action, promptVersion: version }
@@ -139,7 +139,8 @@ export class GameController {
   }
 
   chooseCards(ids: string[]): void {
-    this.send({ type: "CHOOSE_CARDS", orderedCards: ids.map(wireId) });
+    // A player picked (proliferate) goes as -(seat + 1), as in a target choice.
+    this.send({ type: "CHOOSE_CARDS", orderedCards: ids.map(wireTarget) });
   }
 
   /** ASSIGN_DAMAGE / DIVIDE_SHIELD: the amount for each option, in the prompt's order, as

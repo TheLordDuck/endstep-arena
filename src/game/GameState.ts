@@ -323,6 +323,26 @@ export interface GameState {
   updatedAt: number;
   /** Set when this is a replay frame: where the replay is, for its controls. */
   replay?: ReplayStatus;
+  /** Watching someone else's game (/spectate/:id): nothing can be answered. */
+  spectating?: boolean;
+  /** The game log so far, oldest first (kept by the adapter; a replay's up to its frame). */
+  log?: LogEntry[];
+}
+
+/** One line of the game log, from one of Endstep's game events. */
+export interface LogEntry {
+  /** Endstep's sequence number for it (they only grow). */
+  seq: number;
+  /** The event's type (SPELL_CAST, CARD_DAMAGED, TURN_BEGAN…). */
+  type: string;
+  /** Its text, a line each; card names stay marked as [[Name]]. */
+  lines: string[];
+  /** The seat of the player it's about, when it names one. */
+  seat?: number;
+  playerName?: string;
+  turn?: number;
+  /** The cards it names. */
+  cards: { id: string; name: string }[];
 }
 
 export interface GameEventEntry {

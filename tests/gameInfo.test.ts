@@ -88,13 +88,6 @@ test("passing until the end step stops there, or at the next turn", () => {
   assert.equal(passUntilStep(pu, game({ phase: "UPKEEP", turnNumber: 5, activePlayerId: "1" })), "stop");
 });
 
-test("passing until my next turn goes through the opponent's turn", () => {
-  const pu = startPassUntil("myTurn", game());
-  assert.equal(passUntilStep(pu, game({ phase: "END_STEP" })), "pass");
-  assert.equal(passUntilStep(pu, game({ phase: "MAIN1", turnNumber: 5, activePlayerId: "1" })), "pass");
-  assert.equal(passUntilStep(pu, game({ phase: "UPKEEP", turnNumber: 6, activePlayerId: "0" })), "stop");
-});
-
 test("passing until the opponent's end step stops at it", () => {
   const pu = startPassUntil("oppEndStep", game());
   assert.equal(passUntilStep(pu, game({ phase: "END_STEP" })), "pass");
@@ -115,7 +108,7 @@ test("passing attacks with nothing on the way, but stops for a combat it was ask
 });
 
 test("an opponent's new spell, any other question, or the game's end stops passing", () => {
-  const pu = startPassUntil("myTurn", game());
+  const pu = startPassUntil("oppEndStep", game());
   const spell = { stackTargetId: 9, sourceCard: { id: 9, name: "Lightning Bolt", controllerId: "1" } };
   assert.equal(passUntilStep(pu, game({ stack: [spell] })), "stop");
   assert.equal(passUntilStep(pu, game({ pendingAction: { type: "CHOOSE_TARGETS", promptVersion: 3 } })), "stop");
@@ -132,11 +125,9 @@ test("a spell of yours already on the stack doesn't stop passing", () => {
 
 test("passing adds the stop it has to arrive at", () => {
   const mine = game();
-  assert.deepEqual(passUntilStops(startPassUntil("combat", mine), new Set()), { myTurn: ["BEGIN_COMBAT"] });
-  assert.deepEqual(passUntilStops(startPassUntil("endStep", game({ activePlayerId: "1" })), new Set()), { oppTurn: ["END_STEP"] });
-  assert.deepEqual(passUntilStops(startPassUntil("oppEndStep", mine), new Set(["MAIN1"])), { oppTurn: ["END_STEP"] });
-  assert.deepEqual(passUntilStops(startPassUntil("myTurn", mine), new Set(["UPKEEP"])), {});
-  assert.deepEqual(passUntilStops(startPassUntil("myTurn", mine), new Set()), { myTurn: ["MAIN1"] });
+  assert.deepEqual(passUntilStops(startPassUntil("combat", mine)), { myTurn: ["BEGIN_COMBAT"] });
+  assert.deepEqual(passUntilStops(startPassUntil("endStep", game({ activePlayerId: "1" }))), { oppTurn: ["END_STEP"] });
+  assert.deepEqual(passUntilStops(startPassUntil("oppEndStep", mine)), { oppTurn: ["END_STEP"] });
 });
 
 // ---------------------------------------------------------------- keyword glossary

@@ -26,7 +26,10 @@ adapter.setRoute(location.pathname);
 const replays = new ReplayPlayer(() => {
   const r = replays.current;
   const status = replays.status();
-  adapter.showReplay(r && status ? { raw: r.frames[status.frame]!.raw, seat: r.seat, status } : null);
+  adapter.showReplay(r && status ? {
+    raw: r.frames[status.frame]!.raw, seat: r.seat, status,
+    events: r.events.filter((e) => e.frame <= status.frame).map((e) => e.event),
+  } : null);
 });
 let replayId: string | null = null;
 

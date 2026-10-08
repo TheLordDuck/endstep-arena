@@ -2,13 +2,15 @@
 // deltas exactly the way Endstep's client does, and exposes a normalized
 // GameState. This folder is the only Endstep-specific code.
 
-import type { GameEventEntry, GameState, RevealView } from "../GameState";
+import type { GameEventEntry, GameState, LogEntry, RevealView } from "../GameState";
 import type { ReplayStatus } from "../ReplayPlayer";
 import { RingBuffer } from "../../shared/RingBuffer";
-import { normalize, toReveal, type Raw } from "./normalize";
+import { normalize, toLogEntry, toReveal, type Raw } from "./normalize";
 
 /** How many recent reveals are kept (for the popups and for cards known in a hand). */
 const MAX_REVEALS = 20;
+/** How many lines the game log keeps (the oldest go first). */
+const MAX_LOG = 800;
 
 interface Frame {
   type: string;
@@ -27,9 +29,15 @@ export function isReplayPath(path: string): boolean {
   return /^\/replay\/|^\/admin\/.*\/replay(\/|$)/.test(path);
 }
 
+/** The match a page is about: /game/:id, or watched at /spectate/:id (or /admin/spectate/:id). */
 export function matchIdFromPath(path: string): string | null {
-  const m = /^\/game\/([^/?#]+)/.exec(path);
+  const m = /^\/(?:game|spectate|admin\/spectate)\/([^/?#]+)/.exec(path);
   return m?.[1] ? decodeURIComponent(m[1]) : null;
+}
+
+/** Watching someone else's game: /spectate/:id, or an admin's /admin/spectate/:id. */
+export function isSpectatePath(path: string): boolean {
+  return /^\/(?:admin\/)?spectate\//.test(path);
 }
 
 export class EndstepAdapter {
@@ -42,7 +50,10 @@ export class EndstepAdapter {
   private routeMatchId: string | null = null;
   /** On a replay page the board shows the replay, and live frames are ignored. */
   private replayRoute = false;
-  private replayView: { raw: Raw; seat: number; status: ReplayStatus } | null = null;
+  private replayView: { raw: Raw; seat: number; status: ReplayStatus; events?: Raw[] } | null = null;
+  private spectating = false;
+  /** The game log of the match being shown. */
+  private log: LogEntry[] = [];
   private listeners = new Set<Listener>();
   readonly events = new RingBuffer<GameEventEntry>(200);
   private reveals: RevealView[] = [];
@@ -70,6 +81,11 @@ export class EndstepAdapter {
 
   /** Called on SPA navigation. Leaving a match route drops its state. */
   setRoute(path: string): void {
+    const spectating = isSpectatePath(path);
+    if (spectating !== this.spectating) {
+      this.spectating = spectating;
+      this.publish();
+    }
     const replay = isReplayPath(path);
     if (replay !== this.replayRoute) {
       this.replayRoute = replay;
@@ -99,6 +115,7 @@ export class EndstepAdapter {
       case "GAME_EVENT":
         if (this.accepts(f.matchId) && isObj(f.payload)) {
           this.events.push({ t: Date.now(), type: String(f.payload.type ?? "?"), payload: f.payload });
+          this.addToLog(f.matchId as string, f.payload);
           // Revealed cards stay listed (the last few) so the board can show them.
           const reveal = toReveal(f.payload);
           if (reveal && !this.reveals.some((r) => r.id === reveal.id)) {
@@ -115,8 +132,19 @@ export class EndstepAdapter {
     }
   }
 
-  /** The replay frame to show (null: none loaded). Shown only on a replay page. */
-  showReplay(view: { raw: Raw; seat: number; status: ReplayStatus } | null): void {
+  /** A game event as a line of the log (each once: it may come again on a reconnect). */
+  private addToLog(matchId: string, payload: Raw): void {
+    // The log follows the match being shown; one before its first state starts it.
+    if (this.matchId && matchId !== this.matchId) return;
+    const entry = toLogEntry(payload, (this.log.at(-1)?.seq ?? 0) + 1);
+    if (!entry || (typeof payload.sequenceNumber === "number" && this.log.some((e) => e.seq === entry.seq))) return;
+    this.log = [...this.log, entry].slice(-MAX_LOG);
+    this.publish();
+  }
+
+  /** The replay frame to show (null: none loaded), with the game events recorded up to it.
+      Shown only on a replay page. */
+  showReplay(view: { raw: Raw; seat: number; status: ReplayStatus; events?: Raw[] } | null): void {
     this.replayView = view;
     if (!this.replayRoute) return;
     if (view) this.publish();
@@ -151,7 +179,10 @@ export class EndstepAdapter {
     const seq = typeof f.seq === "number" ? f.seq : undefined;
     const sameMatch = f.matchId === this.matchId;
     if (sameMatch && seq !== undefined && this.seq !== undefined && seq < this.seq) return;
-    if (!sameMatch && this.matchId) this.connectivity.clear();
+    if (!sameMatch && this.matchId) {
+      this.connectivity.clear();
+      this.log = [];
+    }
     this.matchId = f.matchId as string;
     this.viewerSeat = typeof f.viewerSeat === "number" ? f.viewerSeat : this.viewerSeat;
     this.seq = seq;
@@ -183,6 +214,7 @@ export class EndstepAdapter {
     this.desynced = false;
     this.state = null;
     this.reveals = [];
+    this.log = [];
     this.connectivity.clear();
     this.serverSkew = undefined;
     this.seenServerNow.clear();
@@ -205,7 +237,7 @@ export class EndstepAdapter {
       const conn = this.connectivity.get(i);
       return conn && !conn.connected && !p.hasLost && !p.hasConceded ? { ...p, disconnected: { deadline: conn.deadline } } : p;
     });
-    this.state = { ...state, players, reveals: this.reveals };
+    this.state = { ...state, players, reveals: this.reveals, log: this.log, ...(this.spectating ? { spectating: true } : {}) };
     for (const cb of this.listeners) cb(this.state);
   }
 
@@ -229,7 +261,8 @@ export class EndstepAdapter {
     if (!v) return;
     this.raw = v.raw;
     const state = normalize({ ...v.raw, pendingAction: null }, { matchId: "replay", viewerSeat: v.seat, desynced: false, frozen: true });
-    this.state = { ...state, reveals: [], replay: v.status };
+    const log = (v.events ?? []).map((e, i) => toLogEntry(e, i + 1)).filter((e): e is LogEntry => !!e);
+    this.state = { ...state, reveals: [], replay: v.status, log };
     for (const cb of this.listeners) cb(this.state);
   }
 }

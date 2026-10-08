@@ -1,7 +1,7 @@
 // Endstep replays (.esreplay): a gzipped file of JSON lines. The first line is a header
 // ({ format: "endstep-replay", seat, players… }); each further line is a record `{ t, k, … }`:
 // "key" carries a whole state, "diff" a patch to the last one, and the rest (events, actions,
-// chapters, gaps) don't change the table. Endstep's replay player turns every key or diff that
+// chapters, gaps) don't change the table; the events are kept for the game log. Endstep's replay player turns every key or diff that
 // leaves a state with two players or more into one frame of its timeline; so does this, so a
 // frame index here is the same frame there.
 
@@ -21,6 +21,8 @@ export interface Replay {
   seat: number;
   players: { seat: number; name: string }[];
   frames: ReplayFrame[];
+  /** The game events recorded (for the game log), each with the frame it came with. */
+  events: { frame: number; event: Raw }[];
 }
 
 const isObj = (v: unknown): v is Raw => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -72,6 +74,7 @@ export function parseReplay(text: string): Replay {
     .map((p) => ({ seat: Number(p.seat) || 0, name: String(p.name ?? "") }));
 
   const frames: ReplayFrame[] = [];
+  const events: { frame: number; event: Raw }[] = [];
   let raw: unknown;
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i]!;
@@ -80,6 +83,10 @@ export function parseReplay(text: string): Replay {
     try {
       rec = JSON.parse(line);
     } catch {
+      continue;
+    }
+    if (isObj(rec) && rec.k === "event" && isObj(rec.event)) {
+      events.push({ frame: Math.max(0, frames.length - 1), event: rec.event });
       continue;
     }
     if (!isObj(rec) || (rec.k !== "key" && rec.k !== "diff")) continue;
@@ -96,7 +103,7 @@ export function parseReplay(text: string): Replay {
     }
   }
   if (!frames.length) throw new Error("no playable frame");
-  return { seat, players, frames };
+  return { seat, players, frames, events };
 }
 
 /** Un-gzips and parses a replay file. Throws on anything that isn't one. */

@@ -7,14 +7,13 @@ import type { GameState } from "./GameState";
 import type { StopSide } from "./endstep/phaseStops";
 import { currentStep } from "../ui/board/phases";
 
-export type PassTarget = "endTurn" | "combat" | "endStep" | "myTurn" | "oppEndStep";
+export type PassTarget = "endTurn" | "combat" | "endStep" | "oppEndStep";
 
 /** The menu's choices, in turn order ("endTurn" is the dock's own End turn button). */
 export const PASS_TARGETS: { target: PassTarget; label: string; hint: string }[] = [
   { target: "combat", label: "Combat", hint: "The next combat" },
   { target: "endStep", label: "End step", hint: "This turn's end step" },
   { target: "oppEndStep", label: "End of opponent's turn", hint: "The end step before your turn" },
-  { target: "myTurn", label: "My next turn", hint: "Your next turn" },
 ];
 
 export interface PassUntil {
@@ -61,8 +60,6 @@ function arrived(pu: PassUntil, state: GameState): boolean {
       return newTurn && (step === "MAIN2" || ENDING.has(step));
     case "endStep":
       return newTurn || (ENDING.has(step) && !ENDING.has(pu.step ?? ""));
-    case "myTurn":
-      return newTurn && myTurn;
     case "oppEndStep":
       if (myTurn) return newTurn;
       return ENDING.has(step) && (newTurn || !ENDING.has(pu.step ?? "") || pu.myTurn);
@@ -70,7 +67,7 @@ function arrived(pu: PassUntil, state: GameState): boolean {
 }
 
 export function passUntilStep(pu: PassUntil, state: GameState): PassStep {
-  if (state.status === "COMPLETE" || state.replay) return "stop";
+  if (state.status === "COMPLETE" || state.replay || state.spectating) return "stop";
   // An opponent's new spell or ability: the player gets the chance to answer it.
   const me = viewerId(state);
   if (state.stack.some((s) => s.controllerId !== me && !pu.stackIds.includes(s.id))) return "stop";
@@ -85,14 +82,12 @@ export function passUntilStep(pu: PassUntil, state: GameState): PassStep {
 
 /** Stops the server must make (on top of the player's) so the point can be reached: it only gives
     priority at a stop. */
-export function passUntilStops(pu: PassUntil, mine: ReadonlySet<string>): Partial<Record<StopSide, string[]>> {
+export function passUntilStops(pu: PassUntil): Partial<Record<StopSide, string[]>> {
   const side: StopSide = pu.myTurn ? "myTurn" : "oppTurn";
   switch (pu.target) {
     case "combat": return { [side]: ["BEGIN_COMBAT"] };
     case "endStep": return { [side]: ["END_STEP"] };
     case "oppEndStep": return { oppTurn: ["END_STEP"] };
-    // Your next turn stops at your first stop in it; with none, at its first main phase.
-    case "myTurn": return mine.size ? {} : { myTurn: ["MAIN1"] };
     case "endTurn": return {};
   }
 }

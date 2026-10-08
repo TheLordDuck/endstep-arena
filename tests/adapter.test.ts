@@ -218,3 +218,14 @@ test("a disconnect with the seat as a string, or no match id, still counts", () 
   a.handleFrame({ type: "SEAT_CONNECTIVITY", playerIndex: 1, connected: true });
   assert.equal(a.getGameState()!.players[1]!.disconnected, undefined);
 });
+
+test("an attack on a player names them as Endstep does, -(seat + 1); the board gets the player's key", async () => {
+  const { normalize } = await import("../src/game/endstep/normalize");
+  const p = (name: string, battlefield: Record<string, unknown>[]) => ({ displayName: name, life: 20, battlefield, graveyard: [], exile: [], commandZone: [] });
+  const s = normalize({ players: [
+    p("A", [{ id: 7, name: "Bears", isAttacking: true, attackingDefenderId: -2 }, { id: 8, name: "Elf", isAttacking: true, attackingDefenderId: 99 }]),
+    p("B", [{ id: 99, name: "Jace", typeLine: "Planeswalker" }, { id: 9, name: "Hawk", isAttacking: true, attackingDefenderId: "-1" }]),
+  ] }, { matchId: "m", viewerSeat: 0, desynced: false });
+  // A player is "player:<seat>": their seat alone could be a card's id (Endstep's ids start at 0).
+  assert.deepEqual(s.combat.attacks.map((a) => a.toId), ["player:1", "99", "player:0"]);
+});
