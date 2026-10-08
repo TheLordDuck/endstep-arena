@@ -2,7 +2,7 @@
 
 No decision in a game should force you off the Arena board.
 
-**Phase status: In progress** (7/8 done)
+**Phase status: In progress** (9/10 done)
 
 ## Progress
 
@@ -14,6 +14,8 @@ No decision in a game should force you off the Arena board.
 - [ ] t1-6 · [Check dividing shield counters](t1-6-check-divide-shield.md) — To do
 - [x] t1-7 · [Separating cards into two piles](t1-7-separate-piles.md) — Done
 - [x] t1-8 · [Choosing cards from your own hand in a fan](t1-8-own-hand-in-a-fan.md) — Done
+- [x] t1-9 · [Discarding from your hand, without a fan](t1-9-discard-in-hand.md) — Done
+- [x] t1-10 · [Proliferate on the table](t1-10-proliferate.md) — Done
 
 ## Features
 
@@ -27,3 +29,5 @@ No decision in a game should force you off the Arena board.
 | t1-6 | [Check dividing shield counters](t1-6-check-divide-shield.md) | Fix | **To do** |
 | t1-7 | [Separating cards into two piles](t1-7-separate-piles.md) | Feature | **Done** |
 | t1-8 | [Choosing cards from your own hand in a fan](t1-8-own-hand-in-a-fan.md) | Feature | **Done** |
+| t1-9 | [Discarding from your hand, without a fan](t1-9-discard-in-hand.md) | Feature | **Done** |
+| t1-10 | [Proliferate on the table](t1-10-proliferate.md) | Feature | **Done** |

@@ -2,26 +2,42 @@
 
 | | |
 | --- | --- |
-| Status | **Awaiting approval** |
+| Status | **Done** |
 | Phase | [Phase 4 · Comfort and settings](README.md) |
 | Type | Feature |
 | Needs approval | Yes |
+| Approved on | 2026-10-08 |
+| Done on | 2026-10-08 |
 
-Sounds for casting, passing, hitting and winning, with a switch. Needs sounds of our own (not Arena's).
+Sounds for casting, passing, hitting and winning, with a switch. Arena's own sounds may be used (personal use: the extension isn't published in the stores).
 
-## What exists now
+## What existed before
 
-The board has no sound.
+The board had no sound.
 
-## What it involves
+## What was done
 
-- Sounds when casting, passing, hitting and winning, with an on/off switch (and volume) in the settings.
-- Needs our own or freely licensed sounds: Arena's can't be used.
+- Thirteen sounds: `cast`, `resolve`, `land`, `pass`, `attack`, `hit`, `zap` (a spell's damage),
+  `exile`, `token`, `counter`, `turn` (yours starts), `win`, `lose`. A burst of changes makes one
+  sound, not one per card.
+- Each plays a file from `public/sounds/` named after it (`cast.ogg`, `hit.wav`…) when there is
+  one, so Arena's own sounds can be dropped in. Without a file, a short sound is synthesized on
+  the spot with Web Audio, so the board isn't silent out of the box.
+- The build lists the files present in `dist/sounds/index.json`. The folder is git-ignored
+  (except its README), and `pnpm run package` leaves the audio out of the release zip. Arena's
+  files are Wizards of the Coast's and stay on your machine. How to get them:
+  [public/sounds/README.md](../../../public/sounds/README.md).
+- On/off and volume in the settings ([t4-2](t4-2-extension-settings.md)). Turning them on or moving
+  the volume plays one to hear it by.
+- Code: `src/ui/board/sounds.ts`; `sfx()` calls in `src/ui/board/Board.ts`; `build.mjs`,
+  `tools/package.mjs`; `web_accessible_resources` in `public/manifest.json`.
 
 ## Done when
 
-- Sounds play at the key moments and can be turned off.
+- Sounds play at the key moments and can be turned off. Not heard in a real match yet (headless
+  Chrome has no audio).
 
 ## History
 
 - 2026-10-07: added to the roadmap.
+- 2026-10-08: approved (with Arena's sounds allowed) and done.

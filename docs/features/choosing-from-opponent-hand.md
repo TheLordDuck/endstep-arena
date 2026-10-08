@@ -18,9 +18,13 @@ were your own.
 - A "Choose a Card" / "Choose Target" screen with the cards to pick from in a fan, as when picking
   from a graveyard or library, with the card that asks on the right, and *Submit*.
 - While picking, the opponent's hand on the table neither lights up nor takes clicks.
-- The same for a choice from your own hand (Surgical Extraction on your own graveyard, Thoughtseize
-  on yourself, a discard): the cards in a fan, not picked on your hand with an aiming arrow (since
-  2026-10-07, night).
+- The same for a choice from your own hand (Surgical Extraction on your own graveyard): the cards in
+  a fan, not picked on your hand with an aiming arrow (since 2026-10-07, night).
+- Except a **discard** from your own hand (an activated ability's "Discard a card" cost,
+  Thoughtseize on yourself): since 2026-10-08 it's picked by clicking the cards right in your hand,
+  as in Arena, with no fan and no arrow following the pointer; *Done* (and *Cancel* when it can be
+  backed out of) in the action buttons. Endstep marks these prompts `contextType: "discard"`; a
+  message saying "discard" counts too, and every option must be in your hand (`discardInHand()`).
 - When the options come from different zones (Surgical Extraction's copies in a hand, a graveyard
   and a library), each card in the fan is labelled with its zone (`optionZoneLabel()`).
 - When you control the opponent's turn (Emrakul, the Promised End), you still play straight from
@@ -32,6 +36,8 @@ were your own.
 
 ## Implementation
 
+- `src/ui/board/modes.ts` → `discardInHand()`: a discard from your own hand, picked on the hand
+  (`choiceInFan()` says no fan, `aimSource()` draws no arrow).
 - `src/ui/board/modes.ts` → `battlefieldIds()`: no hand counts as the table. A `CHOOSE_CARDS` option
   in any hand makes the mode `offBoard`, which is what brings up the fan.
 - `src/ui/board/Board.ts`:
@@ -46,7 +52,8 @@ were your own.
   picked in the fan and `CHOOSE_CARDS [2000]` is sent.
 - `#tks`: Thought-Knot Seer as `CHOOSE_TARGETS`, the opponent's hand face up, options with ids only.
   `CHOOSE_TARGETS [<id>]` is sent.
-- `#self-discard`: Thoughtseize on yourself, your own hand in the fan; `CHOOSE_CARDS [<id>]` is sent.
+- `#self-discard`: Thoughtseize on yourself, picked on your own hand; `CHOOSE_CARDS [<id>]` is sent.
+- `#discard-cost`: "{T}, Discard a card" (`contextType: "discard"`): a hand card clicked, *Done · 1*, no arrow.
 - `#surgical`: Surgical Extraction on your own Lightning Bolt, the copies in hand, graveyard and
   library in one choice (labelled).
 - `#surgical-target`, `#surgical-grave`, `#surgical-hand`, `#surgical-hand-t`, `#surgical-library`:

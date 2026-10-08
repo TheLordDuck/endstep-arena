@@ -55,6 +55,9 @@ lobby/draft/tournament/social types.
   `isCommander`, `power`, `toughness`, `loyalty`, `damage`, `counters`, `attachments`,
   `setCode`, `collectorNumber`, `manaCost`, `typeLine`, `oracleText`, `colors`.
 * **Combat** (per permanent): `isAttacking` + `attackingDefenderId`, `isBlocking` + `blockingIds[]`.
+  `attackingDefenderId` is a planeswalker's or battle's card id, or a player as `-(seat + 1)` (the
+  client compares it with `-(myPlayerIndex + 1)`), as in targets. Card ids start at 0, so a seat
+  number alone can't tell a player from a card.
 * **Stack item**: `id`, `name`, `isAbility`, `controllerId`, `sourceCardId`, `targets`.
 * **pendingAction** (the viewer's current prompt): `type` ∈ `PRIORITY`, `DECLARE_ATTACKERS`,
   `DECLARE_BLOCKERS`, `CHOOSE_TARGETS`, `CHOOSE_MODE`, `CHOOSE_ABILITY`, `CHOOSE_COLOR`,
@@ -105,7 +108,7 @@ Class hints in the bundle: `frame-attacker`, `frame-blocker`. The layout has mod
 | Stack order (is the top of the stack `stack[0]` or `stack[last]`?) | Cast a spell, respond to it, then compare Debug → State with the original UI. |
 | Shape of `counters`, `commanderDamage`, `manaPool`, `targets` | Debug → **Copy raw state** while those exist, then inspect the JSON. |
 | Is the opponent's `hand` omitted, `null`, or an array of face-down cards? | Debug → Raw tab. |
-| Does spectating use the same `/game/:id` route and frames? | Spectate a match with the debug panel open. |
+| What `viewerSeat`, hands and `pendingAction` look like for a spectator (the route and frames are known: see section 10) | Spectate a match with the debug panel open. |
 | Stable DOM hooks for hiding the original board | Inspect `#root` during a match (Phase 3). |
 | Top-level keys not yet known | Debug → State lists "unrecognized keys" automatically. |
 
@@ -196,3 +199,32 @@ The client has no division UI other than the damage bar for `ASSIGN_DAMAGE` / `D
 shield counters". A spell that divides its damage shows it on the stack: each target is
 `{ id, zone, dividedAmount }`, logged as "3 to Grizzly Bears". Which prompt asks a spell's division
 is still to be seen in a real match.
+
+## 10. Spectating and the game log (from `main-Bqz4EUhN.js` / `GameView-CWl0Jtuj.js`, 2026-10-08)
+
+### Spectating
+
+* Routes: `/spectate/:id` and `/admin/spectate/:id` (the router mounts the same game component
+  as `/game/:id`, with `spectate: true`). Links add `?as=<username>` to watch from that player's
+  side ("Watch from X's side"); players can share their view with watchers.
+* Joining and leaving are HTTP calls: `POST /api/matches/:id/spectate`, `POST
+  /api/matches/:id/spectate/leave` (admins: `/admin/matches/:id/spectate…`). Live games to watch:
+  `GET /api/matches/live`.
+* Frames: the same socket and the same `GAME_STATE` / `GAME_DELTA` / `GAME_EVENT` frames, with
+  `matchId` and `viewerSeat`. The client marks the view `isSpectator` and never gives it priority.
+* The way out is a button labelled `aria-label="Stop spectating and leave this game"`.
+
+### Game log
+
+* The log is built from `GAME_EVENT` payloads `{ type, message, sequenceNumber, playerIndex
+  (seat, as a string), playerName, turnNumber, cardId, cardName, cardIds[], cardNames[] }`.
+  `GAME_STARTED` starts a fresh list; the client keeps it in `sessionStorage` per match.
+* `message` holds one or more lines. Card names come as `[[Name]]`; lines may carry engine
+  details: `{key=[…], …}` blocks, a trailing `[…]` or `([…])`, and ` (id)` after names. The log
+  strips those and drops a line that only introduced a details block (`Targets:{…}`).
+* Each type has a mark and a color: `SPELL_CAST` ✦, `SPELL_RESOLVED` ✓, `TRIGGER_FIRED` ✶,
+  `ABILITY_ACTIVATED` ◈, `LAND_PLAYED` ▲, `CARD_DAMAGED`/`PLAYER_DAMAGED` ◆,
+  `PLAYER_LIFE_CHANGED` ♥, `ATTACKERS_DECLARED` ⚔, `BLOCKERS_DECLARED` ⛨, `CARD_COUNTERS` ▣,
+  `TOKEN_CREATED` ✧, `TURN_BEGAN` (a turn separator)…
+* Replays record the same events as `{ t, k: "event", event }` lines, played into the log as
+  the replay moves.

@@ -6,7 +6,7 @@
 | Verified | In the harness (`#priority`, actions logged) and unit tests; not yet in a real match |
 
 A **Pass until…** button in the action dock opens a menu: **Combat**, **End step**,
-**End of opponent's turn** or **My next turn**. Priority is then passed for you until that point.
+or **End of opponent's turn** (*My next turn* was removed on 2026-10-09: Endstep's own UI doesn't offer it). Priority is then passed for you until that point.
 
 ## How it works
 

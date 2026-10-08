@@ -87,19 +87,27 @@ In a timed match each player's clock sits by their picture (gold while running, 
 player taking too long to act gets a countdown to when they forfeit.
 | **H** or *Hold priority* | Keep priority after what you cast or activate, until switched off |
 | *End turn* (under the action buttons) | Pass priority for the rest of your turn |
-| *Pass until…* (by the action buttons) | Pass priority until combat, the end step, the opponent's end step or your next turn; it stops early if the opponent casts something or you're asked anything. *Stop passing* ends it |
+| *Pass until…* (by the action buttons) | Pass priority until combat, the end step or the opponent's end step; it stops early if the opponent casts something or you're asked anything. *Stop passing* ends it |
 | Hover or right-click a card with keywords | Boxes beside it explain each keyword (flying, trample, ward…) |
 | **Alt+Shift+A** or *Classic UI* | Switch between the Arena board and Endstep's UI |
 | **Alt+Shift+D** or *Debug* | Debug panel (game state, events, network, raw, and the prompts that stepped aside to Endstep's UI) |
 | Replays: drag the **⠿** grip of the control bar | Move the bar anywhere on the board (remembered); double-click the grip to put it back |
+| **L**, *Log* (top right) or the table menu | The game log: what happened, a line per event and one per turn; point at a line to light up its cards, at a card name to see it |
+| **?** or table menu → *Arena UI shortcuts* | The list of this board's keyboard shortcuts |
+| Waiting (not your move) | Who the game waits on and for what ("Opponent can respond to Lightning Bolt", "is declaring blockers"…); their picture glows |
+| Right-click the table → *Arena UI settings* | Animations on/off and their speed, card size, sounds on/off and volume (kept for every game) |
+| Spectating (`/spectate/…`) | The game on the Arena board, with nothing to answer; *Leave* (top center) stops watching |
 
 ## Development
 
 * `pnpm build:dev` + `pnpm dev-server`: the dev build reports frames and state
   to `.devlog/` so they can be inspected offline.
 * `node build.mjs --harness` builds `dist-harness/harness.html#<scenario>`
-  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`, `strike`, `damage`, `damage-split`, `win`, `discard`, `tks`, `clock`, `clock-opp`, `keywords`, `piles`, `split`, `sideboard`, `copies`, `phyrexian`, `fireball`, `divided`, `self-discard`, `surgical`, `surgical-target`, `surgical-grave`, `surgical-hand`, `surgical-hand-t`, `surgical-library`, `replay`): the board
+  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`, `strike`, `damage`, `damage-split`, `win`, `discard`, `tks`, `clock`, `clock-opp`, `keywords`, `piles`, `split`, `sideboard`, `copies`, `phyrexian`, `fireball`, `divided`, `self-discard`, `discard-cost`, `proliferate`, `bot-cast`, `murder`, `wrath`, `surgical`, `surgical-target`, `surgical-grave`, `surgical-hand`, `surgical-hand-t`, `surgical-library`, `resolve`, `resolve-bolt`, `spell-damage`, `tokens`, `pump`, `exile-creature`, `log`, `spectate`, `wait-respond`, `wait-blockers`, `wait-deciding`, `replay`): the board
   rendered from fixture states, with no live match needed. See [docs/testing.md](docs/testing.md).
+* Sounds: drop audio files named after each sound into `public/sounds/` (Arena's own, say) and
+  rebuild; see [public/sounds/README.md](public/sounds/README.md). Without them the board makes its
+  own. They're git-ignored and left out of the release zip.
 * [docs/](docs/README.md): how Endstep works, feature notes, the changelog and the roadmap.
 
 ## Publishing
