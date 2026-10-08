@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GameController } from "../src/game/GameController";
 import { normalize, type Raw } from "../src/game/endstep/normalize";
-import { clickInMode, defenderForKey, deriveMode, divideLeft, divideLocked, divideSet, divideStep, keyForDefender, learnStep } from "../src/ui/board/modes";
+import { clickInMode, defenderForKey, deriveMode, discardInHand, isProliferate, divideLeft, divideLocked, divideSet, divideStep, keyForDefender, learnStep } from "../src/ui/board/modes";
 import type { WireAction } from "../src/shared/protocol";
 import { coversStops } from "../src/game/endstep/phaseStops";
 import { isFrontRow, isLand, ptCounterDelta } from "../src/ui/board/cards";
@@ -294,4 +294,32 @@ test("a card chosen from a hand is picked from a fan: an opponent's, your own (T
   // Cards on the battlefield are still picked on the table.
   const table = deriveMode(setup({ type: "CHOOSE_CARDS", cardOptions: [{ id: 11 }] }).state);
   assert.ok(table.kind === "cards" && !table.offBoard);
+});
+
+test("a discard from your own hand (an ability's cost) is picked on your hand, not in a fan", () => {
+  const hands = { players: [
+    { name: "Me", life: 20, battlefield: [], hand: [{ id: 31, name: "Opt" }, { id: 32, name: "Island" }] },
+    { name: "Opp", life: 20, battlefield: [], hand: [{ id: 41, name: "Griselbrand" }] },
+  ] };
+  const pick = (pending: Raw) => {
+    const { state } = setup({ type: "CHOOSE_CARDS", min: 1, max: 1, ...pending }, hands);
+    return discardInHand(state, state.pending!);
+  };
+  // Endstep marks it with contextType "discard"; the message saying so counts too.
+  assert.equal(pick({ contextType: "discard", message: "Choose a card", cardOptions: [{ id: 31 }, { id: 32 }] }), true);
+  assert.equal(pick({ message: "Discard a card", cardOptions: [{ id: 31 }, { id: 32 }] }), true);
+  // Not a discard (Surgical Extraction exiling from your hand), or not your hand: a fan as before.
+  assert.equal(pick({ message: "Choose cards to exile", cardOptions: [{ id: 31 }] }), false);
+  assert.equal(pick({ contextType: "discard", message: "Discard a card", cardOptions: [{ id: 41 }] }), false);
+});
+
+test("proliferate is picked on the table: players by their picture, sent as Endstep numbers them", () => {
+  const { state, controller, sent } = setup({ type: "CHOOSE_CARDS", promptVersion: 4, min: 0, max: 99,
+    message: "Proliferate: choose any number of permanents and/or players", cardOptions: [{ id: 11 }, { id: -2 }] });
+  assert.ok(isProliferate(state.pending!));
+  const mode = deriveMode(state);
+  assert.ok(mode.kind === "cards" && !mode.offBoard && mode.valid.has("11") && mode.valid.has("player:1"));
+  controller.chooseCards(["11", "player:1"]);
+  assert.deepEqual(sent.at(-1), { type: "CHOOSE_CARDS", orderedCards: [11, -2], promptVersion: 4 });
+  assert.equal(isProliferate(setup({ type: "CHOOSE_CARDS", message: "Choose a card", cardOptions: [{ id: 11 }] }).state.pending!), false);
 });

@@ -60,6 +60,28 @@ function battlefieldIds(state: GameState): Set<string> {
   return ids;
 }
 
+/**
+ * Proliferate: any number of the permanents and players that have counters, picked on the table
+ * (no fan, no arrows). Endstep asks it as a plain choice; its message names it.
+ */
+export function isProliferate(p: PendingActionView): boolean {
+  return (p.type === "CHOOSE_CARDS" || p.type === "CHOOSE_TARGETS") && /\bproliferat/i.test(p.message ?? "");
+}
+
+/**
+ * A discard from your own hand (an activated ability's cost, Thoughtseize on yourself…): picked by
+ * clicking the cards in your hand, as in Arena, instead of in a fan. Endstep marks it with
+ * `contextType: "discard"` (its own UI colors the selection that way); the message saying
+ * "discard" counts too. Every option must be in your hand.
+ */
+export function discardInHand(state: GameState, p: PendingActionView): boolean {
+  if (p.type !== "CHOOSE_CARDS" && p.type !== "CHOOSE_TARGETS") return false;
+  if (p.contextType !== "discard" && !/\bdiscard/i.test(p.message ?? "")) return false;
+  const hand = new Set((state.players.find((pl) => pl.isViewer)?.hand ?? []).map((c) => c.id));
+  const ids = p.optionCardIds.filter((id) => !/^-\d+$/.test(id));
+  return ids.length > 0 && ids.every((id) => hand.has(id));
+}
+
 export function deriveMode(state: GameState | null): Mode {
   const p = state?.pending;
   if (!state || !p) return { kind: "idle" };
@@ -97,6 +119,11 @@ export function deriveMode(state: GameState | null): Mode {
       if (isBottomFromHand(state, p)) {
         const pick = { min: Math.min(p.min, p.optionCardIds.length), max: Math.max(p.min, p.max) };
         return { kind: "arrange", top: [...p.optionCardIds], tray: [], hasTray: true, context: "mulligan", pick };
+      }
+      // Proliferate: players come as -(seat + 1), picked by their picture like targets.
+      if (isProliferate(p)) {
+        const valid = new Set(p.optionCardIds.map((id) => (/^-\d+$/.test(id) ? playerTargetKey(-Number(id) - 1) : id)));
+        return { kind: "cards", valid, selected: [], min: Math.min(p.min, valid.size), max: p.max > 0 ? p.max : valid.size, mandatory: p.mandatory, mana: false, offBoard: false };
       }
       const valid = new Set(p.optionCardIds);
       const onBoard = battlefieldIds(state);
