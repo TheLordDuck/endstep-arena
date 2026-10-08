@@ -7,3 +7,5 @@ dist-harness/
 *.pem
 *.crx
 releases/
+# Sound files are your own (Arena's, say): never committed. See public/sounds/README.md.
+!public/sounds/README.md

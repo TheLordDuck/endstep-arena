@@ -10,6 +10,9 @@
     "128": "icons/icon-128.png"
   },
   "permissions": ["storage"],
+  "web_accessible_resources": [
+    { "resources": ["sounds/*"], "matches": ["https://endstep.cc/*"] }
+  ],
   "content_scripts": [
     {
       "matches": ["https://endstep.cc/*"],

@@ -12,21 +12,26 @@ if (manifest.name.includes("(dev)") || manifest.background || manifest.host_perm
   process.exit(1);
 }
 
+// Sound files you added for yourself (Arena's, say) stay out of the zip: it only carries the
+// folder's README and an empty list, so the board makes its own sounds.
+const isSound = (path) => /^sounds[\\/]/.test(relative("dist", path)) && !/README\.md$/.test(path);
 const files = [];
 (function walk(dir) {
   for (const name of readdirSync(dir).sort()) {
     const path = join(dir, name);
     if (statSync(path).isDirectory()) walk(path);
-    else files.push(path);
+    else if (!isSound(path)) files.push(path);
   }
 })("dist");
+const EMPTY_SOUNDS = join("dist", "sounds", "index.json");
+files.push(EMPTY_SOUNDS);
 
 const locals = [];
 const centrals = [];
 let offset = 0;
 for (const path of files) {
   const name = Buffer.from(relative("dist", path).split("\\").join("/"));
-  const data = readFileSync(path);
+  const data = path === EMPTY_SOUNDS ? Buffer.from("{}") : readFileSync(path);
   const packed = deflateRawSync(data, { level: 9 });
   const crc = crc32(data);
   const header = Buffer.alloc(30);

@@ -14,6 +14,8 @@ import { saveSettings, type DebugTab, type Settings } from "../content/settings"
 import { esc, renderEvents, renderNetwork, renderRaw, renderState, renderUnsupported } from "./DebugViews";
 import { saveUnsupported, type UnsupportedLog } from "../game/unsupportedPrompts";
 import { Board } from "./board/Board";
+import { StatePacer } from "./StatePacer";
+import type { GameState } from "../game/GameState";
 import { endstepWindowOpen, readBoardMenu, runBoardMenuItem } from "../game/endstep/boardMenu";
 
 export type SocketStatus = "none" | "open" | "closed";
@@ -55,6 +57,10 @@ export class Overlay {
   private frame = 0;
   private lastRawRendered: unknown = null;
   private openZones = new Map<string, boolean>();
+  /** Gives the board the game's states one by one, at a pace its animations can be seen at. */
+  private pacer!: StatePacer;
+  /** What the board was last given (undefined: nothing yet). */
+  private boardState: GameState | null | undefined = undefined;
 
   constructor(
     private readonly adapter: EndstepAdapter,
@@ -106,6 +112,16 @@ export class Overlay {
         if (leave) leave.click();
         else history.back();
       },
+      leaveSpectate: () => {
+        const leave = document.querySelector<HTMLElement>('[aria-label="Stop spectating and leave this game"]');
+        if (leave) leave.click();
+        else history.back();
+      },
+      prefs: () => this.settings.prefs,
+      setPrefs: (patch) => {
+        this.settings.prefs = { ...this.settings.prefs, ...patch };
+        saveSettings(this.settings);
+      },
     });
     this.layer.prepend(this.board.el);
     document.documentElement.appendChild(this.host);
@@ -124,6 +140,17 @@ export class Overlay {
       e.preventDefault();
       e.stopPropagation();
     }, true);
+    this.pacer = new StatePacer({
+      show: () => {
+        // Each state is drawn as it's handed over (not merged with the next one in a frame).
+        this.syncBoard();
+        this.invalidate();
+      },
+      busyUntil: () => this.board.busyUntil(),
+      dwellMs: () => this.board.dwellMs(),
+    });
+    this.adapter.subscribe((state) => this.pacer.push(state));
+    this.pacer.push(this.adapter.getGameState());
     this.adapter.subscribe(() => this.invalidate());
     this.render();
   }
@@ -141,7 +168,17 @@ export class Overlay {
     }
   }
 
-  /** Coalesces any number of updates into one render per animation frame. */
+  /** Gives the board the state the pacer is at, when it changed (or the board was turned on/off). */
+  private syncBoard(): void {
+    const target = this.settings.enabled ? this.pacer.current : null;
+    if (target === this.boardState) return;
+    this.boardState = target;
+    this.layer.classList.toggle("board-on", !!target);
+    this.board.update(target);
+  }
+
+  /** Coalesces any number of updates into one render per animation frame (the board itself is
+      updated state by state, see syncBoard). */
   invalidate(): void {
     if (this.frame || !this.root) return;
     this.frame = requestAnimationFrame(() => {
@@ -249,12 +286,13 @@ export class Overlay {
   private render(): void {
     const { enabled, debug, tab } = this.settings;
     const state = this.adapter.getGameState();
-    const boardVisible = enabled && !!state;
+    // The board shows the state the pacer is at (the debug panel, the latest).
+    const boardVisible = enabled && !!this.pacer.current;
     this.layer.classList.toggle("is-on", enabled);
     this.layer.classList.toggle("has-match", !!state);
     this.layer.classList.toggle("board-on", boardVisible);
     this.layer.classList.toggle("debug-on", enabled && debug);
-    this.board.update(boardVisible ? state : null);
+    this.syncBoard();
 
     this.root.querySelector(".pill-state")!.textContent = enabled ? "ON" : "OFF";
     this.root.querySelector(".dot")!.setAttribute("title", state ? "Match detected" : `No match (socket: ${this.socket})`);

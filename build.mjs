@@ -46,6 +46,14 @@ if (tests) {
 rmSync("dist", { recursive: true, force: true });
 mkdirSync("dist", { recursive: true });
 cpSync("public", "dist", { recursive: true });
+// The sound files present (see public/sounds/README.md), by sound name, for the board to load.
+mkdirSync("dist/sounds", { recursive: true });
+const sounds = {};
+for (const file of readdirSync("dist/sounds")) {
+  const m = /^([a-z]+)\.(ogg|mp3|wav|m4a|webm)$/i.exec(file);
+  if (m) sounds[m[1].toLowerCase()] = file;
+}
+writeFileSync("dist/sounds/index.json", JSON.stringify(sounds, null, 2));
 
 const manifest = JSON.parse(readFileSync("public/manifest.json", "utf8"));
 const entryPoints = { inject: "src/inject/wsTap.ts", content: "src/content/index.ts" };
