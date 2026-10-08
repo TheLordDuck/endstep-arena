@@ -103,11 +103,11 @@ player taking too long to act gets a countdown to when they forfeit.
 * `pnpm build:dev` + `pnpm dev-server`: the dev build reports frames and state
   to `.devlog/` so they can be inspected offline.
 * `node build.mjs --harness` builds `dist-harness/harness.html#<scenario>`
-  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`, `strike`, `damage`, `damage-split`, `win`, `discard`, `tks`, `clock`, `clock-opp`, `keywords`, `piles`, `split`, `sideboard`, `copies`, `phyrexian`, `fireball`, `divided`, `self-discard`, `discard-cost`, `proliferate`, `bot-cast`, `murder`, `wrath`, `surgical`, `surgical-target`, `surgical-grave`, `surgical-hand`, `surgical-hand-t`, `surgical-library`, `resolve`, `resolve-bolt`, `spell-damage`, `tokens`, `pump`, `exile-creature`, `log`, `spectate`, `wait-respond`, `wait-blockers`, `wait-deciding`, `replay`): the board
+  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`, `strike`, `damage`, `damage-split`, `win`, `discard`, `tks`, `clock`, `clock-opp`, `keywords`, `piles`, `split`, `sideboard`, `copies`, `phyrexian`, `fireball`, `divided`, `self-discard`, `discard-cost`, `looting`, `proliferate`, `bot-cast`, `murder`, `wrath`, `strike-next-turn`, `strike-many`, `strike-unseen`, `surgical`, `surgical-target`, `surgical-grave`, `surgical-hand`, `surgical-hand-t`, `surgical-library`, `resolve`, `resolve-bolt`, `spell-damage`, `tokens`, `pump`, `exile-creature`, `log`, `spectate`, `wait-respond`, `wait-blockers`, `wait-deciding`, `replay`): the board
   rendered from fixture states, with no live match needed. See [docs/testing.md](docs/testing.md).
 * Sounds: drop audio files named after each sound into `public/sounds/` (Arena's own, say) and
-  rebuild; see [public/sounds/README.md](public/sounds/README.md). Without them the board makes its
-  own. They're git-ignored and left out of the release zip.
+  rebuild; see [public/sounds/README.md](public/sounds/README.md). Without them you hear only
+  Endstep's own sounds. They're left out of the release zip.
 * [docs/](docs/README.md): how Endstep works, feature notes, the changelog and the roadmap.
 
 ## Publishing

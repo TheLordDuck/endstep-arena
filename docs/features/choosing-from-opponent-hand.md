@@ -23,8 +23,10 @@ were your own.
 - Except a **discard** from your own hand (an activated ability's "Discard a card" cost,
   Thoughtseize on yourself): since 2026-10-08 it's picked by clicking the cards right in your hand,
   as in Arena, with no fan and no arrow following the pointer; *Done* (and *Cancel* when it can be
-  backed out of) in the action buttons. Endstep marks these prompts `contextType: "discard"`; a
-  message saying "discard" counts too, and every option must be in your hand (`discardInHand()`).
+  backed out of) in the action buttons. Endstep doesn't always mark these prompts
+  `contextType: "discard"` or say "discard" (Faithless Looting came up in a fan), so any choice
+  whose options are all in your hand is picked there, unless it's a search of your hand
+  (Surgical Extraction, which keeps its fan) (`discardInHand()`).
 - When the options come from different zones (Surgical Extraction's copies in a hand, a graveyard
   and a library), each card in the fan is labelled with its zone (`optionZoneLabel()`).
 - When you control the opponent's turn (Emrakul, the Promised End), you still play straight from

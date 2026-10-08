@@ -50,3 +50,4 @@ the bolt was still on its way, so the animation played over a result already sho
 ## History
 
 - 2026-10-08: added to the roadmap as done.
+- 2026-10-08: fixed: the combat strike sometimes didn't play when Endstep went past the damage step in one update (see the combat strike note).

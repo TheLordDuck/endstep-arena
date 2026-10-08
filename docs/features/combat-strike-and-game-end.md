@@ -33,6 +33,21 @@ nothing animates.
 - `renderEnd()` holds the result until then and sets a timer to show it. A strike started by an
   earlier update holds it too.
 
+## Change of 2026-10-08: when Endstep skips the damage step
+
+The strike sometimes didn't play: Endstep may go past combat in one update (against a bot, even
+into the next turn), or never show the attackers. Now:
+
+- `fightBefore()`: when the state before has no attackers, the last ones shown this turn; failing
+  that, those the log names (`ATTACKERS_DECLARED`), as unblocked, when no `BLOCKERS_DECLARED`
+  names cards.
+- `damageStep()`: an update that ends the fight (next turn, game over, or the combat cleared)
+  without a damage step counts as combat damage when it brings the fight's damage (`foughtIn()`:
+  life lost, a fighter dead or damaged, and no spell or ability resolved).
+- Harness `#strike-next-turn` and `#strike-unseen`.
+- Several attackers at one player: the life goes down a blow at a time (each its attacker's
+  power, the last blow what's left), not all at the first (`lifeStep()`). Harness `#strike-many`.
+
 ## Tests
 
 Harness `#win`: an unblocked Tarmogoyf at an opponent on 4 life, and Vampire Nighthawk blocking

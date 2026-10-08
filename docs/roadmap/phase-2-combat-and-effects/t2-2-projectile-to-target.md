@@ -44,3 +44,6 @@ A spell or ability dealing damage showed nothing between source and target; only
 - 2026-10-07: added to the roadmap.
 - 2026-10-07: approved.
 - 2026-10-08: done.
+- 2026-10-08: fixed: a creature the spell killed showed the toughness it had left (a Bolt on a
+  2-toughness creature: 2), now what the spell dealt (`src/game/spellDamage.ts`). Endstep's damage
+  sound now plays as the bolt lands (`src/inject/damageSound.ts`).

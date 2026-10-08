@@ -67,6 +67,10 @@ Added on 2026-10-08:
 | `wrath` | A board wipe: every creature crumbles in place, with no bolt |
 | `proliferate` | Proliferate: Tarmogoyf, Jace, The Eldest Reborn and the opponent light up; *All yours · 3* |
 | `discard-cost` | An activated ability's cost ("{T}, Discard a card"): click a card in your hand, no fan and no arrow |
+| `strike-next-turn` | An unblocked attacker, and the next update already the next turn: the strike plays |
+| `strike-many` | Five unblocked attackers (three a pile of tokens); the life drops a blow at a time |
+| `strike-unseen` | No state showed the attack; the log names it: the strike plays |
+| `looting` | Faithless Looting's discard, asked without saying "discard": pick 2 cards right in your hand, no fan |
 | `wait-respond`, `wait-blockers`, `wait-deciding` | Not your move: the opponent can respond to your Lightning Bolt / is declaring blockers / is making a choice |
 
 Settings: `?prefs={"cardScale":1.3,"animSpeed":2.5}` (URL-encoded) starts the harness with other

@@ -57,6 +57,33 @@ seen in a real match yet.
 18. **Roadmap**: t2-1, t2-2, t2-4, t2-5, t3-1, t3-4, t4-1, t4-2, t4-3 and t5-1 done in the tracker
     (phases 3 and 4 complete), t2-8 and t2-9
     added as done, t5-5 (publishing to the stores) rejected; [roadmap/](roadmap/README.md) updated to match.
+19. **Faithless Looting's discard on the hand** (fix, t1-9): it came up in a fan, since Endstep
+    doesn't always call a discard one. Any choice whose options are all in your hand is now picked
+    on the hand; only a search of your hand (Surgical Extraction) keeps the fan. Harness: `#looting`.
+20. **Only Endstep's sounds for now** (t4-3): the board's synthesized sounds are gone; they played
+    on top of Endstep's own, which keep playing under the board. A file in `public/sounds/` named
+    after a sound still plays (for your own sounds later).
+21. **Endstep's damage sound as the hit lands** (t2-2, t2-10): it played as Endstep's event came in,
+    before the board's bolt or blow. While the board is shown with its animations, the page-side
+    script (`src/inject/damageSound.ts`) pauses Endstep's damage sound (Howler) the moment it starts
+    and resumes it as each hit lands; one with no hit plays after 3 s. Endstep's file, volume and
+    choice of sound are kept.
+22. **A Bolt killing a 2-toughness creature showed 2** (fix, t2-2): a creature a spell killed
+    showed what was left of its toughness. It now shows what the spell dealt: from Endstep's
+    `CARD_DAMAGED` event, else the amount in the card's text (X as chosen), else the toughness left
+    (`src/game/spellDamage.ts`, `tests/spellDamage.test.ts`).
+23. **The combat strike sometimes didn't play** (fix, t2-10): it needed a state with the attackers
+    and then one in a damage step, in the same turn. Endstep doesn't always send those (against a
+    bot it can go past combat, even into the next turn, in one update). Now the attackers are the
+    last ones shown this turn, or those the log names (when nothing was blocked), and an update
+    that ends the fight without a damage step plays the strike when it brings the fight's damage
+    (`fightBefore()`, `damageStep()`, `foughtIn()` in `Board.ts`). Harness: `#strike-next-turn`,
+    `#strike-unseen`.
+24. **Several attackers at a player: the life a blow at a time** (fix, t2-10): every attacker
+    struck in turn, but the whole life loss showed at the first blow, so the others seemed to do
+    nothing. Each blow now takes its attacker's power off, and the last one what's left
+    (`lifeStep()` in `Board.ts`). Harness: `#strike-many` (five attackers, three of them a pile of
+    tokens, and Endstep moving on to end of combat at once).
 
 ### Files changed
 
@@ -67,7 +94,7 @@ seen in a real match yet.
 | `src/styles/board.css` | `.card.flying` (the copy in flight), `.shot`, `.token-burst`, `.stat-pop`, `.b.pt i.hurt`, `.card.flying.exiling`, `.exile-burst` |
 | `src/dev/harness.ts` | Scenarios `resolve`, `resolve-bolt`, `spell-damage`, `tokens`, `pump`, `exile-creature`, `log`, `spectate`; `?prefs=`, `window.__board` |
 | `src/ui/board/prefs.ts` | New: the board's settings, their defaults and checks |
-| `src/ui/board/sounds.ts` | New: the sounds (files, or synthesized) |
+| `src/ui/board/sounds.ts` | New: the sounds (files from `public/sounds/`; nothing without one) |
 | `src/content/settings.ts`, `src/ui/Overlay.ts` | Settings carry `prefs`; `prefs`, `setPrefs` and `leaveSpectate` hooks |
 | `src/game/GameState.ts` | `LogEntry`, `GameState.log`, `GameState.spectating` |
 | `src/game/endstep/normalize.ts` | `toLogEntry()`; `defenderId()`: an attacked player as `player:<seat>` |
