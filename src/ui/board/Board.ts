@@ -4,7 +4,7 @@
 // All game actions go through GameController; this file never talks to
 // Endstep directly.
 
-import type { AbilityOption, CardView, DivideView, GameState, LogEntry, PendingActionView, PileView, PlayerView, SideboardView, StackItemView } from "../../game/GameState";
+import type { AbilityOption, CardView, CombatLink, DivideView, GameState, LogEntry, PendingActionView, PileView, PlayerView, SideboardView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
 import { CARD_BACK_URL, chosenLabels, createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
 import { arrangeMove, canConfirm, clickInMode, deckColumns, defenderForKey, deriveMode, discardInHand, isProliferate, divideLeft, divideLocked, divideReady, divideShort, divideStart, divideStep, humanize, keyForDefender, learnStep, promptKey, sideboardChanged, sideboardCheck, sideboardMove, sideboardStacks, stepNumber, type Mode, type SideboardStack } from "./modes";
@@ -18,6 +18,7 @@ import { HandKnowledge } from "../../game/handKnowledge";
 import { keywordNotes } from "./keywords";
 import { ANIM_SPEEDS, CARD_SCALES, type BoardPrefs } from "./prefs";
 import { Sounds, type Sfx } from "./sounds";
+import { damageDealt } from "../../game/spellDamage";
 import { waitingFor, type Waiting } from "../../game/waiting";
 import { PASS_TARGETS, passLabel, passUntilStep, passUntilStops, startPassUntil, type PassTarget, type PassUntil } from "../../game/passUntil";
 
@@ -104,6 +105,9 @@ export interface BoardHooks {
   /** The player's board settings, and saving a change to them. */
   prefs(): BoardPrefs;
   setPrefs(patch: Partial<BoardPrefs>): void;
+  /** A damaging hit landed on the board (a spell's bolt, a combat blow): Endstep's damage sound
+      plays now. */
+  damageLanded(): void;
 }
 
 export class Board {
@@ -180,6 +184,8 @@ export class Board {
   private zoomPinned = false;
   /** The last combat damage shown (match, turn and step), so it plays once. */
   private struck = "";
+  /** The last attackers and blockers shown this turn (see fightBefore). */
+  private lastFight: { matchId: string; turn?: number; combat: GameState["combat"] } | null = null;
   /** Fighters that died in this update's combat damage (they stay to fight, then crumble). */
   private fallen = new Set<string>();
   /** Permanents that died in this update outside combat (they stay until they crumble). */
@@ -579,7 +585,8 @@ export class Board {
     this.el.classList.toggle("proliferating", !!state.pending && isProliferate(state.pending) && !state.replay && !state.spectating);
     this.renderClassicChip(classic);
 
-    this.captureFallen(prev, state);
+    const fight = this.fightBefore(prev, state);
+    this.captureFallen(fight, state);
     const casts = this.captureCasts();
     const exiled = this.captureExiled(prev, state);
     // FLIP "first": where every card is before this update.
@@ -591,7 +598,7 @@ export class Board {
     // What this update's animations will hit: until they land, the life and damage they change
     // stay as they were, and what they kill stays where it stood.
     const hits = this.planHits(prev, state);
-    this.planCombat(prev, state);
+    this.planCombat(fight, state);
     this.captureDeaths(prev, state);
 
     this.used.clear();
@@ -698,27 +705,65 @@ export class Board {
     this.scheduleArrows();
     if (this.q(".viewer").classList.contains("open")) this.refreshViewer();
     this.chargeAttackers(prev, state);
-    this.combatStrike(prev, state);
+    this.combatStrike(fight, state);
+    if (state.combat.attacks.length) this.lastFight = { matchId: state.matchId, turn: state.turnNumber, combat: state.combat };
     // This update's animations play at the chosen speed from their first frame.
     if (this.speed !== 1) this.syncSpeed();
   }
 
+  /**
+   * The state the fight is read from: the one before, with its attackers and blockers. When it
+   * shows none (Endstep went past the declarations in one update, as against a bot), the last ones
+   * shown this turn; failing that, the attackers named in this turn's log ("attacks with
+   * [[Serra Angel]]"), taken as unblocked when nothing was blocked.
+   */
+  private fightBefore(prev: GameState | null, state: GameState): GameState | null {
+    if (!prev || prev.combat.attacks.length) return prev;
+    const known = this.lastFight;
+    if (known && known.matchId === prev.matchId && known.turn === prev.turnNumber) return { ...prev, combat: known.combat };
+    // The log of prev's turn, as this update has it.
+    const log = state.log ?? [];
+    const began = (prev.log ?? []).filter((e) => e.type === "TURN_BEGAN").at(-1)?.seq ?? -1;
+    const next = log.find((e) => e.type === "TURN_BEGAN" && e.seq > began)?.seq ?? Infinity;
+    const turn = log.filter((e) => e.seq > began && e.seq < next);
+    if (prev.players.length !== 2 || turn.some((e) => e.type === "BLOCKERS_DECLARED" && e.cards.length)) return prev;
+    const attacks: CombatLink[] = [];
+    for (const e of turn) {
+      if (e.type !== "ATTACKERS_DECLARED") continue;
+      for (const c of e.cards) {
+        const side = prev.players.findIndex((pl) => pl.battlefield.some((x) => x.id === c.id));
+        if (side >= 0 && !attacks.some((a) => a.fromId === c.id)) attacks.push({ fromId: c.id, toId: playerTargetKey(1 - side) });
+      }
+    }
+    return attacks.length ? { ...prev, combat: { attacks, blocks: [] } } : prev;
+  }
+
   /** Which combat damage this update reaches: "fs" (first strike), "cd" (regular), or null. */
   private damageStep(prev: GameState | null, state: GameState): "fs" | "cd" | null {
-    if (!prev || prev.turnNumber !== state.turnNumber || !prev.combat.attacks.length) return null;
+    if (!prev || !prev.combat.attacks.length) return null;
     const from = stepIndex(currentStep(prev.phase, prev.step) ?? "");
     const to = stepIndex(currentStep(state.phase, state.step) ?? "");
     if (from < 0 || from >= stepIndex("COMBAT_DAMAGE")) return null;
-    // The game ended in combat damage: Endstep may finish it where it was, without moving on
-    // to the damage step. Someone lost life, or a creature in the fight died.
-    if (state.status === "COMPLETE" && prev.status !== "COMPLETE" && from >= stepIndex("DECLARE_ATTACKERS") && (to < 0 || to <= from)) {
-      const alive = new Set(state.players.flatMap((p) => p.battlefield.map((c) => c.id)));
-      const hurt = state.players.some((p) => (p.life ?? 0) < (prev.players.find((q) => q.id === p.id)?.life ?? 0))
-        || [...prev.combat.attacks, ...prev.combat.blocks].some((l) => !alive.has(l.fromId));
-      return hurt ? "cd" : null;
-    }
-    if (to < stepIndex("FIRST_STRIKE_DAMAGE")) return null;
-    return to === stepIndex("FIRST_STRIKE_DAMAGE") ? "fs" : "cd";
+    const sameTurn = prev.turnNumber === state.turnNumber;
+    if (sameTurn && to >= stepIndex("FIRST_STRIKE_DAMAGE")) return to === stepIndex("FIRST_STRIKE_DAMAGE") ? "fs" : "cd";
+    // Endstep doesn't always show the damage step: it may deal the damage and stay where it was
+    // (ending the game there, or clearing the combat), or go on into the next turn in one update.
+    // The fight being over and the damage dealt say so.
+    const over = !sameTurn || (state.status === "COMPLETE" && prev.status !== "COMPLETE") || !state.combat.attacks.length;
+    return over && this.foughtIn(prev, state) ? "cd" : null;
+  }
+
+  /** Damage from the fight shows in this update: someone lost life, or a creature in the fight
+      died or took damage; and no spell or ability resolved (that would be its doing). */
+  private foughtIn(prev: GameState, state: GameState): boolean {
+    const still = new Set(state.stack.map((s) => s.id));
+    if (prev.stack.some((s) => !still.has(s.id))) return false;
+    const after = new Map(state.players.flatMap((p) => p.battlefield.map((c) => [c.id, c] as const)));
+    const before = new Map(prev.players.flatMap((p) => p.battlefield.map((c) => [c.id, c] as const)));
+    const fighters = [...prev.combat.attacks, ...prev.combat.blocks].map((l) => l.fromId);
+    return state.players.some((p) => (p.life ?? 0) < (prev.players.find((q) => q.id === p.id)?.life ?? 0))
+      || fighters.some((id) => !after.has(id))
+      || (prev.turnNumber === state.turnNumber && fighters.some((id) => (after.get(id)?.damage ?? 0) > (before.get(id)?.damage ?? 0)));
   }
 
   /**
@@ -961,8 +1006,8 @@ export class Board {
         } else if (exiled.has(key)) {
           hits.push({ item: s.id, key, kind: "exile", dmg: 0, died: false });
         } else {
-          // It died: of the damage (what was left of its toughness), or destroyed outright.
-          const dmg = deals ? s.divided?.[key] ?? Math.max(0, (Number(was.toughness) || 0) - (was.damage ?? 0)) : 0;
+          // It died: of the damage (as much as the spell dealt), or destroyed outright.
+          const dmg = deals ? damageDealt(prev, state, s, was) : 0;
           hits.push({ item: s.id, key, kind: dmg > 0 ? "damage" : "destroy", dmg, died: true });
         }
       }
@@ -1123,6 +1168,7 @@ export class Board {
           if (gone) this.banish(gone, this.cardEls.get(h.key));
           return;
         }
+        if (h.dmg > 0) this.hooks.damageLanded();
         if (target) this.wound(target, h.dmg);
         else if (to && h.dmg) this.damagePop(to, h.dmg);
         if (h.died) this.crumble(h.key, h.kind === "destroy" ? 60 : 280);
@@ -1423,6 +1469,23 @@ export class Board {
     const end = runs.reduce((m, r, i) => Math.max(m, starts[i]! + runTime(r.targets.length)), 0);
     // When each blow lands: what it kills goes then, and what it changes shows then.
     const blowAt = (i: number, k: number) => START + starts[i]! + LIFT + k * (SLAM + HOLD) + SLAM;
+    // A player hit by several attackers loses the life a blow at a time (each its attacker's
+    // power; the last blow what's left), not all of it at the first.
+    const lifeLeft = new Map<string, number>();
+    for (const p of state.players) {
+      const was = prev.players.find((q) => q.id === p.id)?.life;
+      if (was !== undefined && p.life !== undefined && was > p.life) lifeLeft.set(p.id, was - p.life);
+    }
+    const lifeShare = new Map<Target, number>();
+    const lastBlow = new Map<string, Target>();
+    for (const run of runs) for (const tg of run.targets) {
+      const left = lifeLeft.get(tg.key);
+      if (tg.id || left === undefined) continue;
+      const share = Math.min(left, Math.max(0, Number(before.get(run.id)?.power) || 0));
+      lifeLeft.set(tg.key, left - share);
+      lifeShare.set(tg, share);
+      lastBlow.set(tg.key, tg);
+    }
     runs.forEach((run, i) => run.targets.forEach((tg, k) => {
       if (tg.id && fallen.has(tg.id)) killedAt.set(tg.id, Math.max(killedAt.get(tg.id) ?? 0, blowAt(i, k) + 250));
       if (run.hurtBy && fallen.has(run.id) && k === 0) killedAt.set(run.id, blowAt(i, 0) + 250);
@@ -1485,9 +1548,13 @@ export class Board {
           this.later(() => {
             this.impactAt(h.cx - box.left, h.cy - box.top, Math.atan2(h.uy, h.ux));
             this.sfx("hit");
+            this.hooks.damageLanded();
             this.jolt(h.ux, h.uy);
-            // The blow lands: the life lost or the damage dealt shows now.
-            this.release(h.tg.key);
+            // The blow lands: the life lost or the damage dealt shows now (a player's life, this
+            // blow's part of it).
+            const lastOne = lastBlow.get(h.tg.key);
+            if (lastOne && lastOne !== h.tg) this.lifeStep(h.tg.key, lifeShare.get(h.tg) ?? 0);
+            else this.release(h.tg.key);
             if (h.tg.id) this.wound(h.tg.el, taken(h.tg.id));
             else this.wound(h.tg.el, 0);
             // A blocker that strikes back lunges at the attacker as they clash, and the attacker
@@ -1501,6 +1568,16 @@ export class Board {
         });
       });
     }, START);
+  }
+
+  /** A player's held life goes down by `by` (one blow of several), floating the loss up. */
+  private lifeStep(playerId: string, by: number): void {
+    const held = this.heldLife.get(playerId);
+    if (held === undefined || by <= 0) return;
+    this.heldLife.set(playerId, held - by);
+    const p = this.state?.players.find((pl) => pl.id === playerId);
+    const orb = this.el.querySelector<HTMLElement>(`.life-orb[data-player="${CSS.escape(playerId)}"]`);
+    if (p && orb) this.showLife(orb, p);
   }
 
   /** A hit's flash: a white burst with streaks flying out along the swing (`angle`). */
@@ -2148,14 +2225,14 @@ export class Board {
   /**
    * The prompt's cards are picked from a fan: some aren't on the table (a library, graveyard or
    * exile; a pile's top card is drawn, but it's still in its pile), or they're in a hand
-   * (Thoughtseize, Thought-Knot Seer, a discard: chosen from a hand, yours or an opponent's).
+   * (Thoughtseize, Thought-Knot Seer: chosen from an opponent's hand; searching your own).
    */
   private choiceInFan(p: PendingActionView | null | undefined): boolean {
     const m = this.mode;
     if (!p || (m.kind !== "cards" && m.kind !== "targets")) return false;
     // Proliferate is picked on the table.
     if (isProliferate(p)) return false;
-    // A discard from your own hand is picked right on your hand (Learn has its own view).
+    // A choice from your own hand alone is picked right on your hand (Learn has its own view).
     if (this.state && !(m.kind === "cards" && m.learn) && discardInHand(this.state, p)) return false;
     if (m.kind === "cards" && m.offBoard) return true;
     const onTable = (id: string) => {

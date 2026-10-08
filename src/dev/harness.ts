@@ -464,6 +464,63 @@ const scenarios: Record<string, Scenario> = {
       die(opp2!, "Vampire Nighthawk");
     };
   },
+  // The opponent's Serra Angel attacks unblocked, and the next update is already our turn: Endstep
+  // went past the damage step (as against a bot). The strike plays all the same.
+  "strike-next-turn": (s) => {
+    const [, opp] = players(s);
+    s.phase = "DECLARE_BLOCKERS";
+    s.activePlayerId = "1";
+    s.pendingAction = null;
+    const angel = byName(opp!, "Serra Angel");
+    angel.isAttacking = true; angel.attackingDefenderId = -1;
+    return (n) => {
+      const [me2, opp2] = players(n);
+      me2!.life = (me2!.life as number) - 4;
+      byName(opp2!, "Serra Angel").isAttacking = false;
+      n.turnNumber = 7; n.phase = "MAIN1"; n.activePlayerId = "0";
+    };
+  },
+  // No state showed the attack at all: the opponent's turn, then ours with 4 life less. The
+  // attacker comes from the log ("attacks with [[Serra Angel]]"), nothing blocked.
+  "strike-unseen": (s) => {
+    const [, opp] = players(s);
+    s.activePlayerId = "1";
+    s.pendingAction = null;
+    const angel = byName(opp!, "Serra Angel");
+    return (n) => {
+      const [me2] = players(n);
+      me2!.life = (me2!.life as number) - 4;
+      n.turnNumber = 7; n.activePlayerId = "0";
+      n.__events = [
+        { type: "ATTACKERS_DECLARED", message: "Opponent attacks with [[Serra Angel]].", sequenceNumber: 60, turnNumber: 6, playerIndex: "1", cardIds: [angel.id], cardNames: ["Serra Angel"] },
+        { type: "PLAYER_DAMAGED", message: "[[Serra Angel]] deals 4 damage to Flavio.", sequenceNumber: 61, turnNumber: 6, playerIndex: "0", cardId: angel.id, cardName: "Serra Angel" },
+        { type: "TURN_BEGAN", message: "Turn 7: Flavio", sequenceNumber: 62, turnNumber: 7, playerIndex: "0" },
+      ];
+    };
+  },
+  // Several attackers at once, all unblocked: Tarmogoyf, Grizzly Bears and three Soldier tokens
+  // (a pile of identical cards). Each strikes the opponent in turn.
+  "strike-many": (s) => {
+    const [me] = players(s);
+    s.phase = "DECLARE_BLOCKERS";
+    s.pendingAction = null;
+    const soldier = () => creature("Soldier", 1, 1, { isToken: true, tokenSetCode: "tdom", tokenCollectorNumber: "2", color: "W", basePower: 1, baseToughness: 1 });
+    bf(me!).push(soldier(), soldier(), soldier());
+    for (const c of bf(me!)) if (c.name === "Tarmogoyf" || c.name === "Grizzly Bears" || c.name === "Soldier") {
+      c.isAttacking = true; c.attackingDefenderId = -2; c.tapped = true;
+    }
+    return (n) => {
+      const [, opp2] = players(n);
+      opp2!.life = (opp2!.life as number) - 8;
+      n.phase = "COMBAT_DAMAGE";
+      // Endstep moves on at once (end of combat), with priority ours: the fight still plays out.
+      n.pendingAction = { type: "PRIORITY", promptVersion: 5, cardOptions: [] };
+      return (e: Raw) => {
+        e.phase = "END_COMBAT";
+        for (const c of bf(players(e)[0]!)) { c.isAttacking = false; c.attackingDefenderId = null; }
+      };
+    };
+  },
   // The same fight before damage: attackers stepped out, the blocker in front of its attacker.
   blocked: (s) => void scenarios.strike!(s),
   target: (s) => {
@@ -640,6 +697,16 @@ const scenarios: Record<string, Scenario> = {
     const hand = me!.hand as Raw[];
     s.pendingAction = { type: "CHOOSE_CARDS", contextType: "discard", promptVersion: 26, sourceCardName: "Rummaging Goblin", min: 1, max: 1, mandatory: false,
       message: "Discard a card", cardOptions: hand.map((c) => ({ id: c.id, zone: "HAND" })) };
+  },
+  // Faithless Looting: two cards drawn, then two discarded, asked without saying "discard".
+  // Picked on our hand all the same.
+  looting: (s) => {
+    const [me] = players(s);
+    const hand = me!.hand as Raw[];
+    hand.push(card("Mountain", { typeLine: "Basic Land — Mountain" }), card("Lightning Bolt", { typeLine: "Instant" }));
+    me!.handSize = hand.length;
+    s.pendingAction = { type: "CHOOSE_CARDS", promptVersion: 27, sourceCardName: "Faithless Looting", min: 2, max: 2, mandatory: true,
+      message: "Choose 2 cards", cardOptions: hand.map((c) => ({ id: c.id, zone: "HAND" })) };
   },
   // Surgical Extraction on our own graveyard's Lightning Bolt: the copies to exile, from our hand
   // (asked first on its own, then with the graveyard and library ones), in a fan.
@@ -917,6 +984,7 @@ const board = new Board(controller, {
   replay: (cmd) => console.log("REPLAY", JSON.stringify(cmd)),
   leaveReplay: () => console.log("LEAVE REPLAY"),
   leaveSpectate: () => console.log("LEAVE SPECTATE"),
+  damageLanded: () => console.log("DAMAGE LANDED"),
   // `?prefs={"cardScale":1.3}` starts with other settings.
   prefs: () => prefs,
   setPrefs: (patch) => { prefs = { ...prefs, ...patch }; console.log("PREFS", JSON.stringify(prefs)); },

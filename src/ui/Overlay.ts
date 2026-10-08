@@ -17,6 +17,7 @@ import { Board } from "./board/Board";
 import { StatePacer } from "./StatePacer";
 import type { GameState } from "../game/GameState";
 import { endstepWindowOpen, readBoardMenu, runBoardMenuItem } from "../game/endstep/boardMenu";
+import { COMMAND_TAG, type DamageSoundCommand } from "../shared/protocol";
 
 export type SocketStatus = "none" | "open" | "closed";
 
@@ -61,6 +62,8 @@ export class Overlay {
   private pacer!: StatePacer;
   /** What the board was last given (undefined: nothing yet). */
   private boardState: GameState | null | undefined = undefined;
+  /** Whether Endstep's damage sound is being held back for the board's hits (as last told). */
+  private damageHold = false;
 
   constructor(
     private readonly adapter: EndstepAdapter,
@@ -121,7 +124,9 @@ export class Overlay {
       setPrefs: (patch) => {
         this.settings.prefs = { ...this.settings.prefs, ...patch };
         saveSettings(this.settings);
+        this.syncDamageHold();
       },
+      damageLanded: () => this.damageSound({ hit: true }),
     });
     this.layer.prepend(this.board.el);
     document.documentElement.appendChild(this.host);
@@ -185,6 +190,20 @@ export class Overlay {
       this.frame = 0;
       this.render();
     });
+  }
+
+  /** While the board is shown with its animations, Endstep's damage sound waits for the board's
+      hits to land (each lets one go) instead of playing as the event comes in. */
+  private syncDamageHold(): void {
+    const hold = this.settings.enabled && !!this.pacer?.current && !!this.board && this.board.dwellMs() > 0;
+    if (hold === this.damageHold) return;
+    this.damageHold = hold;
+    this.damageSound({ hold });
+  }
+
+  private damageSound(cmd: Pick<DamageSoundCommand, "hold" | "hit">): void {
+    const command: DamageSoundCommand = { tag: COMMAND_TAG, kind: "damage-sound", ...cmd };
+    window.postMessage(command, location.origin);
   }
 
   private setEnabled(enabled: boolean): void {
@@ -293,6 +312,7 @@ export class Overlay {
     this.layer.classList.toggle("board-on", boardVisible);
     this.layer.classList.toggle("debug-on", enabled && debug);
     this.syncBoard();
+    this.syncDamageHold();
 
     this.root.querySelector(".pill-state")!.textContent = enabled ? "ON" : "OFF";
     this.root.querySelector(".dot")!.setAttribute("title", state ? "Match detected" : `No match (socket: ${this.socket})`);

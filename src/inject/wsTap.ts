@@ -3,6 +3,7 @@
 // isolated content script; it never alters, drops or delays a frame.
 // Its one write path sends whitelisted GAME_ACTION frames in the exact
 // envelope Endstep's client uses, so the server sees an ordinary action.
+// It also times Endstep's damage sound to the board's hits (see damageSound.ts).
 
 import {
   ALLOWED_ACTIONS,
@@ -10,6 +11,7 @@ import {
   isSendActionCommand,
   type TapMessage,
 } from "../shared/protocol";
+import { installDamageSound } from "./damageSound";
 
 declare global {
   interface Window {
@@ -20,6 +22,7 @@ declare global {
 (() => {
   if (window.__endstepArenaTap) return;
   window.__endstepArenaTap = true;
+  installDamageSound();
 
   const post = (msg: TapMessage) => {
     try {

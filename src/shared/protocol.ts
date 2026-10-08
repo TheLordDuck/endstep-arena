@@ -42,6 +42,20 @@ export function isSendActionCommand(v: unknown): v is SendActionCommand {
     typeof c.action === "object" && c.action !== null && typeof c.action.type === "string";
 }
 
+/** Endstep's damage sound, timed to the board's hits: held back while `hold` is on (the board is
+    shown with its animations), and let go as a `hit` lands there. See src/inject/damageSound.ts. */
+export interface DamageSoundCommand {
+  tag: typeof COMMAND_TAG;
+  kind: "damage-sound";
+  hold?: boolean;
+  hit?: boolean;
+}
+
+export function isDamageSoundCommand(v: unknown): v is DamageSoundCommand {
+  return typeof v === "object" && v !== null && (v as Partial<DamageSoundCommand>).tag === COMMAND_TAG &&
+    (v as Partial<DamageSoundCommand>).kind === "damage-sound";
+}
+
 /**
  * The only action types the Arena UI may send: exactly the in-game choices
  * Endstep's own UI offers, plus its phase-stop setting. No CHEAT. Conceding is only sent after
