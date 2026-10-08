@@ -2,8 +2,10 @@
 
 The board plays a sound at key moments. Put an audio file here named after the sound (`.ogg`,
 `.mp3`, `.wav`, `.m4a` or `.webm`), rebuild (`pnpm build`) and reload the extension: the board plays
-that file. A sound without a file is made on the spot (a short synthesized one), so the board
-works with this folder empty.
+that file. A sound without a file plays nothing from the board. Endstep's own page keeps running
+under the board and plays its sounds (casting, lands, combat, damage, draws, winning and losing,
+set in Endstep's audio settings), so with this folder empty those are what you hear. With a file
+here, both play.
 
 | File name | When it plays |
 | --- | --- |
