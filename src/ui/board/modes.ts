@@ -69,14 +69,15 @@ export function isProliferate(p: PendingActionView): boolean {
 }
 
 /**
- * A discard from your own hand (an activated ability's cost, Thoughtseize on yourself…): picked by
- * clicking the cards in your hand, as in Arena, instead of in a fan. Endstep marks it with
- * `contextType: "discard"` (its own UI colors the selection that way); the message saying
- * "discard" counts too. Every option must be in your hand.
+ * A choice made only from your own hand (a discard, an ability's cost, Faithless Looting,
+ * Thoughtseize on yourself…): picked by clicking the cards in your hand, as in Arena, instead of
+ * in a fan. Endstep doesn't always say it's a discard (`contextType: "discard"`, or the message),
+ * so every option being in your hand is what counts. Searching your hand (Surgical Extraction)
+ * keeps its fan, like the other zones searched.
  */
 export function discardInHand(state: GameState, p: PendingActionView): boolean {
   if (p.type !== "CHOOSE_CARDS" && p.type !== "CHOOSE_TARGETS") return false;
-  if (p.contextType !== "discard" && !/\bdiscard/i.test(p.message ?? "")) return false;
+  if (p.contextType !== "discard" && /\bsearch/i.test(p.message ?? "")) return false;
   const hand = new Set((state.players.find((pl) => pl.isViewer)?.hand ?? []).map((c) => c.id));
   const ids = p.optionCardIds.filter((id) => !/^-\d+$/.test(id));
   return ids.length > 0 && ids.every((id) => hand.has(id));

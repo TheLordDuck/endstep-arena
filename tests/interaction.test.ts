@@ -308,8 +308,10 @@ test("a discard from your own hand (an ability's cost) is picked on your hand, n
   // Endstep marks it with contextType "discard"; the message saying so counts too.
   assert.equal(pick({ contextType: "discard", message: "Choose a card", cardOptions: [{ id: 31 }, { id: 32 }] }), true);
   assert.equal(pick({ message: "Discard a card", cardOptions: [{ id: 31 }, { id: 32 }] }), true);
-  // Not a discard (Surgical Extraction exiling from your hand), or not your hand: a fan as before.
-  assert.equal(pick({ message: "Choose cards to exile", cardOptions: [{ id: 31 }] }), false);
+  // Faithless Looting: Endstep doesn't always call it a discard; only your hand is offered.
+  assert.equal(pick({ sourceCardName: "Faithless Looting", min: 2, max: 2, message: "Choose 2 cards", cardOptions: [{ id: 31 }, { id: 32 }] }), true);
+  // Searching your hand (Surgical Extraction), or not your hand: a fan as before.
+  assert.equal(pick({ message: "Search the hand for cards named Opt.", cardOptions: [{ id: 31 }] }), false);
   assert.equal(pick({ contextType: "discard", message: "Discard a card", cardOptions: [{ id: 41 }] }), false);
 });
 
