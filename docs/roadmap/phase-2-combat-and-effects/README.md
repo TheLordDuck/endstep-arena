@@ -2,7 +2,7 @@
 
 Everything that happens on the table looks as it does in Arena: spells, tokens, counters, deaths.
 
-**Phase status: In progress** (10/11 done)
+**Phase status: In progress** (10/12 done)
 
 ## Progress
 
@@ -17,6 +17,7 @@ Everything that happens on the table looks as it does in Arena: spells, tokens, 
 - [x] t2-9 · [Exiling a permanent](t2-9-exile-animation.md) — Done
 - [x] t2-10 · [Damage and deaths as the blow lands](t2-10-impacts-in-sync.md) — Done
 - [x] t2-11 · [Animation pace (against bots)](t2-11-animation-pace.md) — Done
+- [ ] t2-12 · [Combat driven by Endstep's events](t2-12-combat-from-events.md) — To do
 
 ## Features
 
@@ -33,3 +34,4 @@ Everything that happens on the table looks as it does in Arena: spells, tokens, 
 | t2-9 | [Exiling a permanent](t2-9-exile-animation.md) | Feature | **Done** |
 | t2-10 | [Damage and deaths as the blow lands](t2-10-impacts-in-sync.md) | Feature | **Done** |
 | t2-11 | [Animation pace (against bots)](t2-11-animation-pace.md) | Feature | **Done** |
+| t2-12 | [Combat driven by Endstep's events](t2-12-combat-from-events.md) | Technical | **To do** |
