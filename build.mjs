@@ -6,7 +6,8 @@
 //   --dev    include the dev bridge (reports frames/state to tools/dev-server.mjs)
 //   --tests  bundle tests/ for node --test
 import * as esbuild from "esbuild";
-import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { brotliDecompressSync } from "node:zlib";
 
 const watch = process.argv.includes("--watch");
 const dev = process.argv.includes("--dev");
@@ -14,10 +15,16 @@ const tests = process.argv.includes("--tests");
 const harness = process.argv.includes("--harness");
 
 if (harness) {
+  // The recorded matches in tests/fixtures (tools/save-match.mjs), for #match:<name>.
+  const matches = {};
+  for (const file of existsSync("tests/fixtures") ? readdirSync("tests/fixtures") : []) {
+    const m = /^([\w-]+)\.ndjson\.br$/.exec(file);
+    if (m) matches[m[1]] = brotliDecompressSync(readFileSync(`tests/fixtures/${file}`)).toString("utf8");
+  }
   // Single self-contained page; <base> makes the card image URLs hit endstep.cc.
   const out = await esbuild.build({
     entryPoints: ["src/dev/harness.ts"], bundle: true, format: "iife", write: false,
-    loader: { ".css": "text" }, define: { __DEV_BRIDGE__: "false" },
+    loader: { ".css": "text" }, define: { __DEV_BRIDGE__: "false", __MATCHES__: JSON.stringify(matches) },
   });
   mkdirSync("dist-harness", { recursive: true });
   const js = out.outputFiles[0].text.replaceAll("</script", "<\\/script");

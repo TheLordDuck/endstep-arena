@@ -7,11 +7,15 @@ import boardCss from "../styles/board.css";
 import { Board } from "../ui/board/Board";
 import { GameController } from "../game/GameController";
 import { normalize, toLogEntry, toReveal, type Raw } from "../game/endstep/normalize";
-import type { LogEntry, RevealView } from "../game/GameState";
+import type { GameState, LogEntry, RevealView } from "../game/GameState";
 import type { ReplayStatus } from "../game/ReplayPlayer";
 import { loadStops, saveStops } from "../game/endstep/phaseStops";
 import { cleanPrefs } from "../ui/board/prefs";
 import { StatePacer } from "../ui/StatePacer";
+import { EndstepAdapter } from "../game/endstep/EndstepAdapter";
+
+/** The matches in tests/fixtures, by name: their frames as ndjson (see build.mjs). */
+declare const __MATCHES__: Record<string, string>;
 
 // Timers the page starts, so `?freeze` can cancel the ones still pending; and when each
 // scripted animation started (headless runs don't always advance them on their own).
@@ -492,9 +496,11 @@ const scenarios: Record<string, Scenario> = {
       me2!.life = (me2!.life as number) - 4;
       n.turnNumber = 7; n.activePlayerId = "0";
       n.__events = [
-        { type: "ATTACKERS_DECLARED", message: "Opponent attacks with [[Serra Angel]].", sequenceNumber: 60, turnNumber: 6, playerIndex: "1", cardIds: [angel.id], cardNames: ["Serra Angel"] },
-        { type: "PLAYER_DAMAGED", message: "[[Serra Angel]] deals 4 damage to Flavio.", sequenceNumber: 61, turnNumber: 6, playerIndex: "0", cardId: angel.id, cardName: "Serra Angel" },
-        { type: "TURN_BEGAN", message: "Turn 7: Flavio", sequenceNumber: 62, turnNumber: 7, playerIndex: "0" },
+        // As Endstep sends them: the attackers by id only, and each blow with its amount.
+        { type: "ATTACKERS_DECLARED", message: "Opponent declared 1 attacker", sequenceNumber: 60, playerIndex: "1", amount: 1, attackerIds: [angel.id] },
+        { type: "BLOCKERS_DECLARED", message: "Flavio declared 0 blockers", sequenceNumber: 61, playerIndex: "0", amount: 0 },
+        { type: "PLAYER_DAMAGED", message: "Serra Angel deals 4 combat damage to Flavio.", sequenceNumber: 62, playerIndex: "0", cardId: angel.id, cardName: "Serra Angel", amount: 4 },
+        { type: "TURN_BEGAN", message: "Turn 7 (Flavio)", sequenceNumber: 63, turnNumber: 7, playerIndex: "0" },
       ];
     };
   },
@@ -936,8 +942,11 @@ const scenarios: Record<string, Scenario> = {
 };
 
 const name = location.hash.slice(1) || "priority";
+// #match:<name>: a match recorded with the dev bridge and kept in tests/fixtures (see
+// tools/save-match.mjs), its frames played through the adapter as they came.
+const playing = /^match(?::([\w-]+))?$/.exec(name);
 const raw = baseState();
-const nextStep = scenarios[name]?.(raw);
+const nextStep = playing ? undefined : scenarios[name]?.(raw);
 let seq = 1;
 // The adapter adds reveals from game events; scenarios list those events in raw.__events.
 // Scenarios mark what the adapter would add: a replay's position (raw.__replay), a player who
@@ -954,7 +963,7 @@ const build = (meta: { viewerSeat?: number; seq: number }) => {
     ...(raw.__replay ? { replay: raw.__replay as ReplayStatus } : {}),
   };
 };
-let state = build({ seq: 1 });
+let state: GameState = build({ seq: 1 });
 
 const host = document.createElement("div");
 const root = host.attachShadow({ mode: "open" });
@@ -984,20 +993,62 @@ const board = new Board(controller, {
   replay: (cmd) => console.log("REPLAY", JSON.stringify(cmd)),
   leaveReplay: () => console.log("LEAVE REPLAY"),
   leaveSpectate: () => console.log("LEAVE SPECTATE"),
-  damageLanded: () => console.log("DAMAGE LANDED"),
+  damageLanded: () => console.log("DAMAGE LANDED", pacer.current?.turnNumber ?? ""),
   // `?prefs={"cardScale":1.3}` starts with other settings.
   prefs: () => prefs,
   setPrefs: (patch) => { prefs = { ...prefs, ...patch }; console.log("PREFS", JSON.stringify(prefs)); },
 });
 root.querySelector(".layer")!.appendChild(board.el);
 // States reach the board through the pacer, as in the extension.
-const pacer = new StatePacer({ show: (s) => board.update(s), busyUntil: () => board.busyUntil(), dwellMs: () => board.dwellMs() });
-pacer.push(state);
-for (let step = nextStep; step;) {
-  const after = step(raw);
-  state = build({ seq: ++seq });
+let fastForward = false;
+const pacer = new StatePacer({ show: (s) => board.update(s), busyUntil: () => board.busyUntil(), dwellMs: () => (fastForward ? 0 : board.dwellMs()) });
+if (playing) playMatch(playing[1]);
+else {
   pacer.push(state);
-  step = after || undefined;
+  for (let step = nextStep; step;) {
+    const after = step(raw);
+    state = build({ seq: ++seq });
+    pacer.push(state);
+    step = after || undefined;
+  }
+}
+
+/** Plays a recorded match at the pace its frames came (`?speed=2`: twice as fast), from the start
+    of turn `?turn=N` (what comes before goes at once). Logs MATCH OVER at the end. */
+function playMatch(id?: string): void {
+  const text = (id ? __MATCHES__[id] : undefined) ?? Object.values(__MATCHES__)[0];
+  if (!text) return console.log("NO MATCH", id ?? "");
+  const frames = text.split("\n").filter(Boolean).map((line) => JSON.parse(line) as { t: number; data: Raw });
+  const params = new URLSearchParams(location.search);
+  const speed = Number(params.get("speed")) || 1;
+  const from = Number(params.get("turn")) || 0;
+  const adapter = new EndstepAdapter();
+  const matchId = frames.map((f) => f.data.matchId).filter(Boolean).at(-1);
+  if (matchId) adapter.setRoute(`/game/${matchId}`);
+  adapter.subscribe((s) => {
+    if (!s) return;
+    state = s;
+    pacer.push(s);
+  });
+  const begins = (f: { data: Raw }) => {
+    const p = f.data.payload as Raw | undefined;
+    return p?.type === "TURN_BEGAN" && Number(p.turnNumber) >= from;
+  };
+  const start = from ? Math.max(0, frames.findIndex(begins)) : 0;
+  fastForward = true;
+  for (const f of frames.slice(0, start)) adapter.handleFrame(f.data);
+  fastForward = false;
+  const t0 = performance.now();
+  const base = frames[start]?.t ?? 0;
+  const next = (i: number) => {
+    const f = frames[i];
+    if (!f) return console.log("MATCH OVER");
+    window.setTimeout(() => {
+      adapter.handleFrame(f.data);
+      next(i + 1);
+    }, Math.max(0, (f.t - base) / speed - (performance.now() - t0)));
+  };
+  next(start);
 }
 
 // Dev hook: `?freeze=ms` stops every animation that long after the board is up (for screenshots
