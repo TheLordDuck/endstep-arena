@@ -343,6 +343,18 @@ export interface LogEntry {
   turn?: number;
   /** The cards it names. */
   cards: { id: string; name: string }[];
+  /** What a combat or damage event says in its fields (see combatEvents). */
+  fight?: LogFight;
+}
+
+/** ATTACKERS_DECLARED: the attackers (`attackerIds`). BLOCKERS_DECLARED: blocker → attacker
+    (`blockerAssignments`; none when nobody blocks). CARD_DAMAGED / PLAYER_DAMAGED: one blow, from
+    `cardId` to `targetCardId` or the player at `playerIndex` ("player:<seat>"), of `amount`, in
+    the step the last TURN_PHASE event named ("fs": first strike damage, "cd": regular). */
+export interface LogFight {
+  attackers?: string[];
+  blocks?: CombatLink[];
+  blow?: { fromId: string; toId: string; amount: number; step?: "fs" | "cd" };
 }
 
 export interface GameEventEntry {

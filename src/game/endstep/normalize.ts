@@ -12,6 +12,7 @@ import type {
   GameState,
   IdleView,
   LogEntry,
+  LogFight,
   PendingActionView,
   PileView,
   SideboardView,
@@ -26,6 +27,8 @@ const isObj = (v: unknown): v is Raw => typeof v === "object" && v !== null && !
 const str = (v: unknown): string | undefined => (v == null || v === "" ? undefined : String(v));
 const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+// A whole number Endstep may send as a string (turnNumber: "3").
+const int = (v: unknown): number | undefined => num(v) ?? (typeof v === "string" && /^-?\d+$/.test(v) ? Number(v) : undefined);
 const statValue = (v: unknown): number | string | undefined =>
   typeof v === "number" || typeof v === "string" ? v : undefined;
 
@@ -427,8 +430,9 @@ const DETAILS = String.raw`\{[^{}[\]=]*=\[[^\]]*\](?:\s*,\s*[^{}[\]=]*=\[[^\]]*\
  * per row, cleaned of engine details (`{…=[…]}` blocks, trailing `[…]`, ` (id)`), card names kept
  * as [[Name]]; with the player (`playerIndex`, `playerName`), the turn and the cards it names
  * (`cardId`/`cardName`, `cardIds`/`cardNames`). TURN_BEGAN makes a turn line with no text.
+ * `phase`: the step the last TURN_PHASE event named, for a blow's damage step.
  */
-export function toLogEntry(v: unknown, fallbackSeq = 0): LogEntry | null {
+export function toLogEntry(v: unknown, fallbackSeq = 0, phase?: string): LogEntry | null {
   if (!isObj(v) || typeof v.type !== "string" || UNLOGGED.has(v.type)) return null;
   const detailsLine = new RegExp(String.raw`:\s*` + DETAILS);
   const details = new RegExp(String.raw`\s*` + DETAILS, "g");
@@ -442,20 +446,45 @@ export function toLogEntry(v: unknown, fallbackSeq = 0): LogEntry | null {
   const ids = arr(v.cardIds).map(str);
   const cards: { id: string; name: string }[] = [];
   if (str(v.cardId) && str(v.cardName)) cards.push({ id: str(v.cardId)!, name: str(v.cardName)! });
+  // CARD_DAMAGED names the card hit apart.
+  if (str(v.targetCardId) && str(v.targetCardName) && str(v.targetCardId) !== str(v.cardId)) cards.push({ id: str(v.targetCardId)!, name: str(v.targetCardName)! });
   names.forEach((name, i) => {
     const id = ids[i];
     if (name && id && !cards.some((c) => c.id === id)) cards.push({ id, name });
   });
   const seat = num(Number(v.playerIndex));
+  const fight = toLogFight(v, seat, phase);
   return {
     seq: num(v.sequenceNumber) ?? fallbackSeq,
     type: v.type,
     lines,
     ...(v.playerIndex != null && v.playerIndex !== "" && seat !== undefined ? { seat } : {}),
     ...(str(v.playerName) ? { playerName: str(v.playerName) } : {}),
-    ...(num(v.turnNumber) !== undefined ? { turn: num(v.turnNumber) } : {}),
+    ...(int(v.turnNumber) !== undefined ? { turn: int(v.turnNumber) } : {}),
     cards,
+    ...(fight ? { fight } : {}),
   };
+}
+
+/** The combat facts in an event's fields, as Endstep sends them (see LogFight). */
+function toLogFight(v: Raw, seat: number | undefined, phase = ""): LogFight | undefined {
+  switch (v.type) {
+    case "ATTACKERS_DECLARED":
+      return { attackers: arr(v.attackerIds ?? v.cardIds).map(str).filter((x): x is string => !!x) };
+    case "BLOCKERS_DECLARED": {
+      const assigned = isObj(v.blockerAssignments) ? Object.entries(v.blockerAssignments) : [];
+      return { blocks: assigned.map(([blocker, attacker]) => ({ fromId: blocker, toId: str(attacker) ?? "" })).filter((b) => b.toId) };
+    }
+    case "CARD_DAMAGED":
+    case "PLAYER_DAMAGED": {
+      const fromId = str(v.cardId);
+      const toId = v.type === "CARD_DAMAGED" ? str(v.targetCardId) : seat !== undefined ? `player:${seat}` : undefined;
+      const amount = num(v.amount);
+      const step = /FIRST_STRIKE_DAMAGE/.test(phase) ? "fs" : /DAMAGE/.test(phase) ? "cd" : undefined;
+      return fromId && toId && amount !== undefined ? { blow: { fromId, toId, amount, ...(step ? { step } : {}) } } : undefined;
+    }
+  }
+  return undefined;
 }
 
 export interface FrameMeta {
@@ -518,7 +547,7 @@ export function normalize(raw: Raw, meta: FrameMeta): GameState {
     viewerSeat: meta.viewerSeat,
     seq: meta.seq,
     status: str(raw.status),
-    turnNumber: num(raw.turnNumber),
+    turnNumber: int(raw.turnNumber),
     winnerId: str(raw.winnerId),
     phase: str(raw.phase),
     step: str(raw.step),

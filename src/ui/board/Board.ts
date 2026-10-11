@@ -19,6 +19,7 @@ import { keywordNotes } from "./keywords";
 import { ANIM_SPEEDS, CARD_SCALES, type BoardPrefs } from "./prefs";
 import { Sounds, type Sfx } from "./sounds";
 import { damageDealt } from "../../game/spellDamage";
+import { blowsOf, toldFight, turnLog, type ToldFight } from "../../game/combatEvents";
 import { waitingFor, type Waiting } from "../../game/waiting";
 import { PASS_TARGETS, passLabel, passUntilStep, passUntilStops, startPassUntil, type PassTarget, type PassUntil } from "../../game/passUntil";
 
@@ -186,6 +187,8 @@ export class Board {
   private struck = "";
   /** The last attackers and blockers shown this turn (see fightBefore). */
   private lastFight: { matchId: string; turn?: number; combat: GameState["combat"] } | null = null;
+  /** This update's fight as Endstep's events tell it (see fightBefore). */
+  private told: ToldFight | null = null;
   /** Fighters that died in this update's combat damage (they stay to fight, then crumble). */
   private fallen = new Set<string>();
   /** Permanents that died in this update outside combat (they stay until they crumble). */
@@ -712,30 +715,30 @@ export class Board {
   }
 
   /**
-   * The state the fight is read from: the one before, with its attackers and blockers. When it
-   * shows none (Endstep went past the declarations in one update, as against a bot), the last ones
-   * shown this turn; failing that, the attackers named in this turn's log ("attacks with
-   * [[Serra Angel]]"), taken as unblocked when nothing was blocked.
+   * The state the fight is read from: the one before, with the fight of its turn as Endstep's
+   * events tell it (who attacks, who blocks whom; see combatEvents), which no state may have shown
+   * (Endstep went past the declarations in one update, as against a bot) or shows only in part (a
+   * dead blocker loses its flags). Without those events, prev's own attackers and blockers, or the
+   * last ones shown this turn.
    */
   private fightBefore(prev: GameState | null, state: GameState): GameState | null {
-    if (!prev || prev.combat.attacks.length) return prev;
-    const known = this.lastFight;
-    if (known && known.matchId === prev.matchId && known.turn === prev.turnNumber) return { ...prev, combat: known.combat };
+    this.told = null;
+    if (!prev) return prev;
+    const last = this.lastFight;
+    const known = prev.combat.attacks.length ? prev.combat
+      : last && last.matchId === prev.matchId && last.turn === prev.turnNumber ? last.combat : null;
     // The log of prev's turn, as this update has it.
-    const log = state.log ?? [];
     const began = (prev.log ?? []).filter((e) => e.type === "TURN_BEGAN").at(-1)?.seq ?? -1;
-    const next = log.find((e) => e.type === "TURN_BEGAN" && e.seq > began)?.seq ?? Infinity;
-    const turn = log.filter((e) => e.seq > began && e.seq < next);
-    if (prev.players.length !== 2 || turn.some((e) => e.type === "BLOCKERS_DECLARED" && e.cards.length)) return prev;
-    const attacks: CombatLink[] = [];
-    for (const e of turn) {
-      if (e.type !== "ATTACKERS_DECLARED") continue;
-      for (const c of e.cards) {
-        const side = prev.players.findIndex((pl) => pl.battlefield.some((x) => x.id === c.id));
-        if (side >= 0 && !attacks.some((a) => a.fromId === c.id)) attacks.push({ fromId: c.id, toId: playerTargetKey(1 - side) });
-      }
-    }
-    return attacks.length ? { ...prev, combat: { attacks, blocks: [] } } : prev;
+    const seatOf = (id: string) => {
+      const seat = prev.players.findIndex((pl) => pl.battlefield.some((c) => c.id === id));
+      return seat >= 0 ? seat : undefined;
+    };
+    const told = toldFight(turnLog(state.log ?? [], began), seatOf, prev.players.length, known?.attacks);
+    // A fight over before prev is no fight of this update's.
+    const over = told?.endedAt !== undefined && told.endedAt <= (prev.log?.at(-1)?.seq ?? -1);
+    if (!told?.attacks.length || over) return known ? { ...prev, combat: known } : prev;
+    this.told = told;
+    return { ...prev, combat: { attacks: told.attacks, blocks: told.blocks ?? known?.blocks ?? [] } };
   }
 
   /** Which combat damage this update reaches: "fs" (first strike), "cd" (regular), or null. */
@@ -1404,7 +1407,16 @@ export class Board {
     const from = stepIndex(currentStep(prev.phase, prev.step) ?? "");
     const before = new Map(prev.players.flatMap((p) => p.battlefield.map((c) => [c.id, c] as const)));
     const after = new Map(state.players.flatMap((p) => p.battlefield.map((c) => [c.id, c] as const)));
+    // This step's blows as the events tell them (both steps' when they passed at once). Those not
+    // here yet (they may come just after the state) are worked out from the states.
+    const blows = this.told ? blowsOf(state.log ?? [], this.told.since, prev.combat, step === "cd" && from < fs ? undefined : step) : [];
+    // The damage the events say `key` (a card id, or a player's id) took from `fromId` (any).
+    const told = (key: string, fromId?: string) => blows.reduce((n, b) => {
+      const to = b.toId.startsWith("player:") ? prev.players[Number(b.toId.slice(7))]?.id : b.toId;
+      return to === key && (!fromId || b.fromId === fromId) ? n + b.amount : n;
+    }, 0);
     const strikes = (id: string) => {
+      if (blows.some((b) => b.fromId === id)) return true;
       const c = before.get(id);
       const text = [c?.oracleText ?? "", ...(c?.keywordsGranted ?? [])].join("\n");
       // A keyword line ("Flying, first strike"), or a keyword an effect gave it.
@@ -1414,9 +1426,11 @@ export class Board {
       // Regular damage: the creatures that didn't already strike first (unless both steps passed at once).
       return from < fs || !first;
     };
-    // The damage a creature took in this step: what was added to it, or (when it died) what
-    // was left of its toughness.
+    // The damage a creature took in this step: what the events say; else what was added to it, or
+    // (when it died) what was left of its toughness.
     const taken = (id: string) => {
+      const dealt = told(id);
+      if (dealt) return dealt;
       const was = before.get(id);
       if (!was) return 0;
       const now = after.get(id);
@@ -1469,8 +1483,8 @@ export class Board {
     const end = runs.reduce((m, r, i) => Math.max(m, starts[i]! + runTime(r.targets.length)), 0);
     // When each blow lands: what it kills goes then, and what it changes shows then.
     const blowAt = (i: number, k: number) => START + starts[i]! + LIFT + k * (SLAM + HOLD) + SLAM;
-    // A player hit by several attackers loses the life a blow at a time (each its attacker's
-    // power; the last blow what's left), not all of it at the first.
+    // A player hit by several attackers loses the life a blow at a time (each what the events say
+    // it dealt, else its attacker's power; the last blow what's left), not all of it at the first.
     const lifeLeft = new Map<string, number>();
     for (const p of state.players) {
       const was = prev.players.find((q) => q.id === p.id)?.life;
@@ -1481,7 +1495,7 @@ export class Board {
     for (const run of runs) for (const tg of run.targets) {
       const left = lifeLeft.get(tg.key);
       if (tg.id || left === undefined) continue;
-      const share = Math.min(left, Math.max(0, Number(before.get(run.id)?.power) || 0));
+      const share = Math.min(left, told(tg.key, run.id) || Math.max(0, Number(before.get(run.id)?.power) || 0));
       lifeLeft.set(tg.key, left - share);
       lifeShare.set(tg, share);
       lastBlow.set(tg.key, tg);

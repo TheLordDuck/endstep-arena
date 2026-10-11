@@ -54,6 +54,8 @@ export class EndstepAdapter {
   private spectating = false;
   /** The game log of the match being shown. */
   private log: LogEntry[] = [];
+  /** The step the last TURN_PHASE event named (the damage step of the blows that follow it). */
+  private phase = "";
   private listeners = new Set<Listener>();
   readonly events = new RingBuffer<GameEventEntry>(200);
   private reveals: RevealView[] = [];
@@ -136,7 +138,8 @@ export class EndstepAdapter {
   private addToLog(matchId: string, payload: Raw): void {
     // The log follows the match being shown; one before its first state starts it.
     if (this.matchId && matchId !== this.matchId) return;
-    const entry = toLogEntry(payload, (this.log.at(-1)?.seq ?? 0) + 1);
+    if (payload.type === "TURN_PHASE" && typeof payload.phase === "string") this.phase = payload.phase;
+    const entry = toLogEntry(payload, (this.log.at(-1)?.seq ?? 0) + 1, this.phase);
     if (!entry || (typeof payload.sequenceNumber === "number" && this.log.some((e) => e.seq === entry.seq))) return;
     this.log = [...this.log, entry].slice(-MAX_LOG);
     this.publish();
@@ -261,7 +264,11 @@ export class EndstepAdapter {
     if (!v) return;
     this.raw = v.raw;
     const state = normalize({ ...v.raw, pendingAction: null }, { matchId: "replay", viewerSeat: v.seat, desynced: false, frozen: true });
-    const log = (v.events ?? []).map((e, i) => toLogEntry(e, i + 1)).filter((e): e is LogEntry => !!e);
+    let phase = "";
+    const log = (v.events ?? []).map((e, i) => {
+      if (e.type === "TURN_PHASE" && typeof e.phase === "string") phase = e.phase;
+      return toLogEntry(e, i + 1, phase);
+    }).filter((e): e is LogEntry => !!e);
     this.state = { ...state, reveals: [], replay: v.status, log };
     for (const cb of this.listeners) cb(this.state);
   }
