@@ -1,5 +1,33 @@
 # Changelog
 
+## Session of 2026-10-11
+
+On top of `2513b8f Roadmap: t2-12, combat driven by Endstep's events`. All 123 tests pass (6 new).
+Checked by replaying a real match on the board, not live.
+
+1. **A real match recorded.** Against Forge AI, 13 turns, five combats of ours, with the dev bridge.
+   Kept as the fixture `tests/fixtures/bot-combats.ndjson.br`.
+2. **The turn was never known** (fix): Endstep sends `turnNumber` as a string (`"3"`), and
+   `normalize.ts` only took a number. With no turn, every combat's damage step had the same key,
+   so after a match's first combat no strike played. Replaying the match on the board, the old
+   code animated 1 combat of 5; now all 5 play (14 blows).
+3. **Combat from Endstep's events** (roadmap t2-12): who attacks (`attackerIds`), who blocks whom
+   (`blockerAssignments`) and each blow with its amount and damage step (`CARD_DAMAGED`,
+   `PLAYER_DAMAGED`, after a `TURN_PHASE`). They drive the strike: right blockers even when the
+   damage state has lost them, a double strike's two blows, the exact damage. The states only fill
+   in what the events don't say. `src/game/combatEvents.ts`; see
+   [features/combat-strike-and-game-end.md](features/combat-strike-and-game-end.md).
+4. **Spell damage from events on real data** (fix): `CARD_DAMAGED` names the card hit in
+   `targetCardId`, which the log didn't keep, so `spellDamage.ts` never found the event in a real
+   match. The log entry now names both cards.
+5. **Real matches as tests** (roadmap t5-4): `node tools/save-match.mjs <name>` keeps a recorded
+   match; `tests/realMatch.ts` plays it through the adapter; the harness replays it on the board
+   (`#match:<name>`). See [testing.md](testing.md#recorded-matches).
+6. **Roadmap**: t2-12 and t5-4 done in the tracker; t2-13 added (check combat when the bot
+   attacks, double blocks, trample: the recorded match had none). The Commander features, t2-6
+   (commander damage) and t5-2 (3- and 4-player tables), moved to a new Phase 6 · Maybe later:
+   not planned for now.
+
 ## Session of 2026-10-08
 
 On top of `3fab0ec Docs: roadmap, t1-2, t1-3, t1-5 and t1-8 done`. All 116 tests pass (19 new). Not

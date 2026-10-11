@@ -97,10 +97,30 @@ It prints `window.__actions` at the end. The script lived in the session's scrat
 the repo; adding it to `tools/` is roadmap item
 [t5-3](roadmap/phase-5-modes-and-platform/t5-3-visual-regression-tests.md).
 
+## Recorded matches
+
+A match played with the dev build (`pnpm build:dev` + `pnpm dev-server`) can be kept as a fixture:
+
+```sh
+node tools/save-match.mjs <name>        # .devlog/frames.ndjson → tests/fixtures/<name>.ndjson.br
+```
+
+Only the frames Endstep sent are kept (brotli; a 13-turn match is 26 KB). Then:
+
+- Tests: `playMatch(name)` in `tests/realMatch.ts` plays it through `EndstepAdapter` and returns
+  every state it publishes (see `tests/combatEvents.test.ts`).
+- Harness: `harness.html?speed=3#match:<name>` plays it on the board at the pace it came
+  (`speed` faster, `?turn=N` from turn N on). The console logs `DAMAGE LANDED <turn>` for each
+  blow and `MATCH OVER` at the end.
+
+| Fixture | What it has |
+| --- | --- |
+| `bot-combats` | 2026-10-11, against Forge AI, 13 turns: five combats of ours (unblocked, double strike, single blocks, a four-creature trade, lethal); the bot never attacks |
+
 ## Unit tests
 
 ```sh
 pnpm test
 ```
 
-116 tests at the end of the 2026-10-09 session.
+123 tests at the end of the 2026-10-11 session.

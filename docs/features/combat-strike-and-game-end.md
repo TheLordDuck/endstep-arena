@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Status | **Done**: strike in `814d611`; game-end timing on 2026-10-07 (release 0.5.0) |
-| Verified in a real match | No: see roadmap [t0-2](../roadmap/phase-0-finish-open-work/t0-2-verify-in-real-match.md) |
+| Verified in a real match | Replayed from a real match (2026-10-11, harness `#match:bot-combats`); not yet when the bot attacks |
 
 ## The strike
 
@@ -61,3 +61,26 @@ Grizzly Bears; the game ends without changing step. Screenshots:
 
 What Endstep sends in the last message of a real game won in combat, and whether the strike plays
 in real matches.
+
+## Change of 2026-10-11: the fight from Endstep's events
+
+Replaying a real match against Forge AI on the board showed the strike only in the first combat:
+
+- **Endstep sends `turnNumber` as a string** (`"3"`). It was read as a number, so no state had a
+  turn. Each damage step is shown once (`struck`, keyed by match, turn and step), so every later
+  combat's damage counted as already shown. Now read from a string too.
+- The log fallback of `fightBefore()` read fields Endstep doesn't send (`cardIds` on
+  `ATTACKERS_DECLARED`, cards on `BLOCKERS_DECLARED`).
+- By the damage state, the creatures that died have lost their attacking and blocking flags.
+
+Now the fight comes from Endstep's events (`src/game/combatEvents.ts`, roadmap
+[t2-12](../roadmap/phase-2-combat-and-effects/t2-12-combat-from-events.md)):
+
+- `fightBefore()`: the attackers from `ATTACKERS_DECLARED` (`attackerIds`), who blocks whom
+  from `BLOCKERS_DECLARED` (`blockerAssignments`); the states only when those are missing.
+- `combatStrike()`: each blow from `CARD_DAMAGED` / `PLAYER_DAMAGED`, by damage step (the last
+  `TURN_PHASE` before it): who strikes in each step (double strike included), the damage each
+  creature takes, and each attacker's share of a player's life. Blows that come just after the
+  state are worked out from the states, as before.
+
+Checked with harness `#match:bot-combats` (the recorded match): all five combats play, 14 blows.

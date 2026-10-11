@@ -101,7 +101,9 @@ player taking too long to act gets a countdown to when they forfeit.
 ## Development
 
 * `pnpm build:dev` + `pnpm dev-server`: the dev build reports frames and state
-  to `.devlog/` so they can be inspected offline.
+  to `.devlog/` so they can be inspected offline. `node tools/save-match.mjs <name>` keeps
+  the match as a test fixture, which the harness replays on the board (`#match:<name>`); see
+  [docs/testing.md](docs/testing.md).
 * `node build.mjs --harness` builds `dist-harness/harness.html#<scenario>`
   (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`, `strike`, `damage`, `damage-split`, `win`, `discard`, `tks`, `clock`, `clock-opp`, `keywords`, `piles`, `split`, `sideboard`, `copies`, `phyrexian`, `fireball`, `divided`, `self-discard`, `discard-cost`, `looting`, `proliferate`, `bot-cast`, `murder`, `wrath`, `strike-next-turn`, `strike-many`, `strike-unseen`, `surgical`, `surgical-target`, `surgical-grave`, `surgical-hand`, `surgical-hand-t`, `surgical-library`, `resolve`, `resolve-bolt`, `spell-damage`, `tokens`, `pump`, `exile-creature`, `log`, `spectate`, `wait-respond`, `wait-blockers`, `wait-deciding`, `replay`): the board
   rendered from fixture states, with no live match needed. See [docs/testing.md](docs/testing.md).

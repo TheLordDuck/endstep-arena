@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Status | **To do** |
-| Phase | [Phase 2 · Combat and visual effects](README.md) |
+| Phase | [Phase 6 · Maybe later](README.md) |
 | Type | Feature |
 | Needs approval | No (marked done directly) |
 
@@ -25,3 +25,4 @@ Endstep sends `commanderDamage` on each player; `normalize.ts` copies it, but th
 ## History
 
 - 2026-10-07: added to the roadmap.
+- 2026-10-11: moved to Phase 6 · Maybe later (not planned for now).
