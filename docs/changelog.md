@@ -1,5 +1,10 @@
 # Changelog
 
+## Release 0.6.0 (2026-10-12)
+
+On top of `c70cdd0`. All 123 tests pass. Everything in the sessions of 2026-10-08 and 2026-10-11
+below; `package.json` and `public/manifest.json` at 0.6.0.
+
 ## Session of 2026-10-11
 
 On top of `2513b8f Roadmap: t2-12, combat driven by Endstep's events`. All 123 tests pass (6 new).
