@@ -184,6 +184,8 @@ export class Board {
   private drag: { id: string; startX: number; startY: number; el: HTMLElement; active: boolean; theirs: boolean } | null = null;
   /** The stack tray is tucked away (the player asked for a clear view of the battlefield). */
   private stackHidden = false;
+  /** The stack as drawn, top (resolves next) first: what the magnifier lays out in a fan. */
+  private stackShown: { card: CardView; kind: string; text: string; mine: boolean; x?: number }[] = [];
   /** Reordering in the order box: the tile being dragged along the row. */
   private orderDrag: {
     id: string; startX: number; active: boolean;
@@ -303,7 +305,10 @@ export class Board {
       <div class="hand mine side-hand"></div>
       <div class="piles opp-piles"></div>
       <div class="piles me-piles"></div>
-      <div class="stack-dock"><button class="stack-toggle" data-ui="stack-toggle" title="Hide the stack"></button><div class="stack"></div></div>
+      <div class="stack-dock"><button class="stack-toggle" data-ui="stack-toggle" title="Hide the stack"></button><div class="stack-col">
+        <div class="stack-head"><span class="stack-count"></span><button class="stack-zoom" data-ui="stack-zoom" title="See the whole stack"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6.5" cy="6.5" r="4.5"/><path d="M10 10l4.5 4.5"/></svg></button></div>
+        <div class="stack"></div>
+      </div></div>
       <div class="prompt"></div>
       <div class="dock"></div>
       <svg class="arrows" aria-hidden="true">
@@ -701,7 +706,10 @@ export class Board {
         const dx = a.left + a.width / 2 - (b.left + b.width / 2);
         const dy = a.top + a.height / 2 - (b.top + b.height / 2);
         if (Math.abs(dx) + Math.abs(dy) < 3) continue;
-        el.animate([{ translate: `${dx}px ${dy}px` }, { translate: "0px 0px" }], { duration: 320, easing: "cubic-bezier(.2,.8,.2,1)" });
+        // Slide to the card's own translate, not to none: a stack item's place in the cascade is
+        // its translate, and ending at 0 drew the whole pile on its top item until the slide ended.
+        const [bx, by] = translateOf(el);
+        el.animate([{ translate: `${bx + dx}px ${by + dy}px` }, { translate: `${bx}px ${by}px` }], { duration: 320, easing: "cubic-bezier(.2,.8,.2,1)" });
         this.busyFor(320);
       }
       // An exile a spell's bolt is on its way to waits for the bolt (see playHits).
@@ -2045,6 +2053,7 @@ export class Board {
     const pending = this.state?.pending;
     if (pending?.type === "PAY_MANA") this.xFromPayment(pending);
     const xKeys = new Set<string>();
+    const shown: Board["stackShown"] = [];
     // stack[0] is the top (Endstep auto-yield checks stack[0]); draw the top last so it sits in front.
     const els = stack.slice().reverse().map((s, i) => {
       // The stack's copy of a card may come without what makes it a token (its art is looked up
@@ -2078,7 +2087,8 @@ export class Board {
       // A triggered ability ("When…", "Whenever…", "At…") or an activated one: the ribbon says which.
       const triggered = s.isAbility && /^\s*(when|whenever|at)\b/i.test(s.name);
       const face = el.querySelector<HTMLElement>(".face");
-      if (face) face.dataset.kindLong = s.id.startsWith("pending:") ? "Ability" : triggered ? "Triggered ability" : "Activated ability";
+      const kind = !s.isAbility ? "" : s.id.startsWith("pending:") ? "Ability" : triggered ? "Triggered ability" : "Activated ability";
+      if (face) face.dataset.kindLong = kind;
       // What was paid for X: Endstep's value, else the one you chose when casting it.
       const mine = !!meId && s.controllerId === meId;
       let x = s.x;
@@ -2091,6 +2101,7 @@ export class Board {
         if (x === undefined) delete face.dataset.x;
         else face.dataset.x = `X = ${x}`;
       }
+      shown.push({ card, kind, text: s.isAbility ? s.name : "", mine, x });
       el.classList.toggle("trigger", triggered);
       el.dataset.controller = s.controllerId ?? "";
       el.style.setProperty("--si", String(i));
@@ -2108,11 +2119,13 @@ export class Board {
       for (const key of this.xShown) if (!xKeys.has(key)) this.chosenX.delete(key);
       this.xShown = xKeys;
     } else for (const key of xKeys) this.xShown.add(key);
+    this.stackShown = shown.reverse();
     const box = this.q(".stack");
     reconcile(box, els);
     box.classList.toggle("has-items", stack.length > 0);
     box.dataset.n = String(stack.length);
     box.style.setProperty("--sn", String(stack.length));
+    this.q(".stack-count").textContent = `Stack · ${stack.length}`;
     // The arrow tab hides the stack for a clear look at the battlefield, and brings it back.
     // A fresh stack (after it empties) always shows.
     if (!stack.length) this.stackHidden = false;
@@ -2968,15 +2981,15 @@ export class Board {
 
   /** Arena's card fan: cards spread in an arc, with a slider under it when they don't all fit.
       `key` keeps the scroll position across redraws. Laid out by layoutFans(). */
-  private fanHtml(key: string, cards: CardView[], attrs: (c: CardView) => string, cls: (c: CardView) => string, label?: (c: CardView) => string): string {
+  private fanHtml(key: string, cards: CardView[], attrs: (c: CardView) => string, cls: (c: CardView) => string, label?: (c: CardView) => string, overlay?: (c: CardView) => string): string {
     for (const c of cards) if (!this.cardData.has(c.id)) this.cardData.set(c.id, c);
     const tiles = cards.map((c, i) => {
       // A face-down card you can't see shows the card back.
       const url = imageUrl(c, "large") ?? (c.faceDown && !c.peeked ? CARD_BACK_URL : null);
       return `<button class="fcard ${cls(c)}" data-fi="${i}" data-zoom="${esc(c.id)}" ${attrs(c)}>
-        <div class="fimg">${url ? `<img src="${esc(url)}" alt="${esc(c.name)}" draggable="false">` : `<span>${esc(c.name)}</span>`}</div>${label?.(c) ? `<span class="fzone">${esc(label(c))}</span>` : ""}</button>`;
+        <div class="fimg">${url ? `<img src="${esc(url)}" alt="${esc(c.name)}" draggable="false">` : `<span>${esc(c.name)}</span>`}${overlay?.(c) ?? ""}</div>${label?.(c) ? `<span class="fzone">${esc(label(c))}</span>` : ""}</button>`;
     }).join("");
-    return `<div class="fan" data-fan="${esc(key)}" data-n="${cards.length}">
+    return `<div class="fan" data-fan="${esc(key)}" data-n="${cards.length}" style="--n: ${cards.length}">
       <div class="fan-cards">${tiles || '<p class="muted">No cards</p>'}</div>
       <div class="fan-slider" data-fan-slider><div class="fan-thumb">◂ ▸</div></div>
     </div>`;
@@ -3011,14 +3024,17 @@ export class Board {
       const width = fan.clientWidth;
       const cw = cards[0]?.offsetWidth ?? 0;
       if (!n || !width || !cw) continue;
-      // Cards overlap to ~62% of their width; as many as fit are shown, the rest scroll in.
-      const step = cw * 0.62;
+      // Cards overlap to ~62% of their width; as many as fit are shown, the rest scroll in. The
+      // stack's items lie in a straight row instead, as in Arena, each half on the one before.
+      const row = !!fan.closest('.viewer[data-zone="stack"]');
+      const step = cw * (row ? 0.5 : 0.62);
       const half = Math.max(1, Math.floor((width - cw) / 2 / step));
       const scrolls = n > half * 2 + 1;
       const min = scrolls ? half : (n - 1) / 2;
       const max = scrolls ? n - 1 - half : (n - 1) / 2;
       const key = fan.dataset.fan!;
-      const pos = Math.max(min, Math.min(max, this.fanPos.get(key) ?? min));
+      // The stack opens on its right end: what resolves next.
+      const pos = Math.max(min, Math.min(max, this.fanPos.get(key) ?? (row ? max : min)));
       this.fanPos.set(key, pos);
       fan.classList.toggle("static", !scrolls);
       // The card under the pointer is raised whole; the ones lying on it move aside to stay in view.
@@ -3027,7 +3043,9 @@ export class Board {
         const d = i - pos;
         const out = Math.abs(d) > half + 0.5;
         c.classList.toggle("hover", i === hover);
-        c.style.transform = `translateX(${(d * step + (hover >= 0 && i > hover ? cw * 0.38 : 0)).toFixed(1)}px) translateY(${(d * d * cw * 0.03).toFixed(1)}px) rotate(${(d * 3.2).toFixed(2)}deg)`;
+        c.style.transform = row
+          ? `translateX(${(d * step + (hover >= 0 && i > hover ? cw * 0.55 : 0)).toFixed(1)}px)`
+          : `translateX(${(d * step + (hover >= 0 && i > hover ? cw * 0.38 : 0)).toFixed(1)}px) translateY(${(d * d * cw * 0.03).toFixed(1)}px) rotate(${(d * 3.2).toFixed(2)}deg)`;
         // Each card lies on the one to its left, so every name (top left) stays readable.
         c.style.zIndex = String(i + 1);
         c.style.opacity = out ? "0" : "1";
@@ -4377,6 +4395,10 @@ export class Board {
       if (btn.dataset.ui === "hide") this.hooks.onHide();
       if (btn.dataset.ui === "back") { this.classicDismissedFor = this.modeKey; this.render(state); }
       if (btn.dataset.ui === "close-viewer") this.closeViewer();
+      if (btn.dataset.ui === "stack-zoom") {
+        if (this.viewer?.zone === "stack") this.closeViewer();
+        else this.openViewer("", "stack");
+      }
       if (btn.dataset.ui === "stack-toggle") { this.stackHidden = !this.stackHidden; this.render(state); }
       if (btn.dataset.ui === "end-peek") { this.endPeek = !this.endPeek; this.render(state); }
       if (btn.dataset.ui === "peek") { this.peeking = !this.peeking; this.render(state); }
@@ -5226,6 +5248,7 @@ export class Board {
   private refreshViewer(): void {
     const v = this.viewer;
     const box = this.q(".viewer");
+    if (v?.zone === "stack") return this.refreshStackViewer(box);
     const p = this.state?.players.find((pl) => pl.id === v?.player);
     if (!v || !p) return this.closeViewer();
     const cards = v.zone === "graveyard" ? p.graveyard : v.zone === "exile" ? p.exile : p.commandZone;
@@ -5251,6 +5274,33 @@ export class Board {
     };
   }
 
+  /** The magnifier, as Arena's: every stack item upright in one overlapping row, the next to
+      resolve on the right, in front. Closed with Done, Esc, the magnifier again or a click outside. */
+  private refreshStackViewer(box: HTMLElement): void {
+    const items = this.stackShown.slice().reverse();
+    if (!items.length) return this.closeViewer();
+    const at = new Map(items.map((it, i) => [it.card.id, i]));
+    const item = (c: CardView) => items[at.get(c.id)!]!;
+    const next = items.length - 1;
+    const html = `<div class="phead"><h2>Stack</h2></div>
+      ${this.fanHtml("view:stack", items.map((it) => it.card), () => "",
+        (c) => `${at.get(c.id) === next ? "next " : ""}${item(c).mine ? "mine" : "theirs"}`,
+        (c) => (item(c).x === undefined ? "" : `X = ${item(c).x}`),
+        (c) => (item(c).kind ? `<div class="fability"><b>${esc(item(c).kind)}</b><span>${esc(item(c).text)}</span></div>` : ""))}
+      <div class="choices big"><button class="opt primary" data-ui="close-viewer" title="Esc">Done</button></div>`;
+    if (box.dataset.sig !== html) {
+      box.dataset.sig = html;
+      this.swapHtml(box, html);
+    }
+    box.dataset.zone = "stack";
+    box.classList.add("open");
+    this.layoutFans();
+    box.onclick = (e) => {
+      if (performance.now() < this.suppressClickUntil) return;
+      if (e.target === box) this.closeViewer();
+    };
+  }
+
   private closeViewer(): void {
     this.viewer = null;
     const box = this.q(".viewer");
@@ -5260,6 +5310,14 @@ export class Board {
 }
 
 // ------------------------------------------------------------------ helpers
+
+/** The element's CSS translate in px ("none" → 0 0), as it is with no animation running. */
+function translateOf(el: HTMLElement): [number, number] {
+  const t = getComputedStyle(el).translate;
+  if (!t || t === "none") return [0, 0];
+  const [x = 0, y = 0] = t.split(/\s+/).map((v) => parseFloat(v) || 0);
+  return [x, y];
+}
 
 /** The tab's sessionStorage, or nothing where it's blocked. */
 function sessionStore(): Storage | undefined {

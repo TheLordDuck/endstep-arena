@@ -13,6 +13,7 @@ board is drawn from a fixture state, with no live match. Actions it would send a
 Useful parameters:
 
 - `?freeze=<ms>`: stops animations and timers that long after load (for screenshots).
+- `?step=<ms>`: a scenario's follow-up states come that far apart instead of all at once.
 - `?point=x,y` / `?click=x,y`: moves the pointer or clicks once the board is up. The click runs
   before full-screen choices appear, so it can't drive them.
 
@@ -71,6 +72,8 @@ Added on 2026-10-08:
 | `strike-many` | Five unblocked attackers (three a pile of tokens); the life drops a blow at a time |
 | `strike-unseen` | No state showed the attack; the log names it: the strike plays |
 | `looting` | Faithless Looting's discard, asked without saying "discard": pick 2 cards right in your hand, no fan |
+| `stack7` | Seven items on the stack, spells and triggers of both players: click the magnifier beside *Stack · 7* |
+| `stack-resolve` | Three items on the stack and the top one resolves; with `?step=2000` the two states come 2 s apart, so the remaining pile can be watched sliding |
 | `wait-respond`, `wait-blockers`, `wait-deciding` | Not your move: the opponent can respond to your Lightning Bolt / is declaring blockers / is making a choice |
 
 Settings: `?prefs={"cardScale":1.3,"animSpeed":2.5}` (URL-encoded) starts the harness with other

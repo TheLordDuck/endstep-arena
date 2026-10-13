@@ -119,6 +119,41 @@ const scenarios: Record<string, Scenario> = {
     s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
     void opp;
   },
+  // Seven items in a cascade (spells and triggers of both players): the magnifier lays them out.
+  stack7: (s) => {
+    const [me] = players(s);
+    const spell = (id: number, name: string, ctrl: string, type: string, extra: Raw = {}) => ({ stackTargetId: id, isAbility: false, sourceCard: { id, name, controllerId: ctrl, types: [type] }, ...extra });
+    const trigger = (id: number, text: string, src: number, name: string, ctrl: string) => ({ stackTargetId: id, isAbility: true, abilityDescription: text, sourceCard: { id: src, name, controllerId: ctrl, types: ["Creature"] } });
+    s.stack = [
+      spell(900, "Counterspell", "1", "Instant", { targets: [{ id: 901, zone: "Stack" }] }),
+      trigger(905, "Whenever an opponent casts a spell, Monastery Mentor deals 1 damage to that player.", 920, "Monastery Mentor", "1"),
+      trigger(902, "Target creature gets +1/+1 until end of turn.", 110, "Tarmogoyf", "0"),
+      spell(901, "Fireball", "0", "Sorcery", { xValue: 3, targets: [{ id: -2, zone: "Player" }] }),
+      trigger(906, "When Serra Angel attacks, you gain 2 life.", 921, "Serra Angel", "1"),
+      spell(903, "Lightning Bolt", "1", "Instant", { targets: [{ id: -1, zone: "Player" }] }),
+      trigger(904, "At the beginning of your upkeep, draw a card.", 922, "Phyrexian Arena", "0"),
+    ];
+    (me!.hand as Raw[]).shift();
+    s.priorityPlayerId = "0";
+    s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
+  },
+  // Three items on the stack, and the top one (the opponent's Lightning Bolt) resolves: two stay.
+  "stack-resolve": (s) => {
+    const spell = (id: number, name: string, ctrl: string, type: string, extra: Raw = {}) => ({ stackTargetId: id, isAbility: false, sourceCard: { id, name, controllerId: ctrl, types: [type] }, ...extra });
+    const under = [
+      { stackTargetId: 902, isAbility: true, abilityDescription: "Target creature gets +1/+1 until end of turn.", sourceCard: { id: 110, name: "Tarmogoyf", controllerId: "0", types: ["Creature"] } },
+      spell(901, "Fireball", "0", "Sorcery", { xValue: 3, targets: [{ id: -2, zone: "Player" }] }),
+    ];
+    s.stack = [spell(903, "Lightning Bolt", "1", "Instant", { targets: [{ id: -1, zone: "Player" }] }), ...under];
+    s.priorityPlayerId = "0";
+    s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
+    return (t) => {
+      t.stack = under;
+      const mine = players(t)[0]!;
+      mine.life = (mine.life as number) - 3;
+      t.pendingAction = { type: "PRIORITY", promptVersion: 5, cardOptions: [] };
+    };
+  },
   // Casting Counterspell at an opponent's spell: stack items are targeted by their stack id.
   counter: (s) => {
     const [me, opp] = players(s);
@@ -1015,12 +1050,18 @@ const pacer = new StatePacer({ show: (s) => board.update(s), busyUntil: () => bo
 if (playing) playMatch(playing[1]);
 else {
   pacer.push(state);
-  for (let step = nextStep; step;) {
+  // `?step=<ms>`: each follow-up state comes that long after the one before (as a slow server).
+  const gap = Number(new URLSearchParams(location.search).get("step")) || 0;
+  const advance = (step: typeof nextStep) => {
+    if (!step) return;
     const after = step(raw);
     state = build({ seq: ++seq });
     pacer.push(state);
-    step = after || undefined;
-  }
+    if (gap) window.setTimeout(() => advance(after || undefined), gap);
+    else advance(after || undefined);
+  };
+  if (gap) window.setTimeout(() => advance(nextStep), gap);
+  else advance(nextStep);
 }
 
 /** Plays a recorded match at the pace its frames came (`?speed=2`: twice as fast), from the start

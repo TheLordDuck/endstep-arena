@@ -18,7 +18,19 @@ On top of `9927172`. All 125 tests pass (2 new). Compared against MTG Arena game
    Scryfall's related cards (`src/ui/board/relatedTokens.ts`), looked up once per card and only for
    cards whose text creates tokens. The extension's first request to a service other than Endstep;
    only the card's name is sent.
-4. **Roadmap:** t2-14 (stack in a fan) to do; t2-15, t2-17, t3-6, t3-7 and t3-9 awaiting approval,
+4. **The stack as Arena fans it** (roadmap t2-14, from the LegenVD videos). On the table, the items
+   under the next one fan out behind it to the left like a held hand, each turned a little more
+   (before: a diagonal cascade, smaller at each step). A magnifier beside `Stack · N` (now on the
+   pile's right) opens Arena's Stack view: every item upright in one overlapping row, the next to
+   resolve on the right and in front, each rimmed in its controller's color, abilities with their
+   kind and text, X when paid; hovering one brings it whole into view. Closed with Done, Esc, the
+   magnifier again or a click outside. Harness scenario `stack7`.
+5. **The stack no longer collapses when an item resolves.** The slide that moves cards to their
+   new place animated `translate` to 0, which is what sets a stack item's place in the pile:
+   for a third of a second every item was drawn on the top one, then jumped back. Cards now slide
+   to their own translate. Harness scenario `stack-resolve` (three items, the top one resolves),
+   and `?step=<ms>` to send a scenario's follow-up states that far apart.
+6. **Roadmap:** t2-14 (stack in a fan) to do; t2-15, t2-17, t3-6, t3-7 and t3-9 awaiting approval,
    all from the videos.
 
 ## Release 0.6.0 (2026-10-12)
