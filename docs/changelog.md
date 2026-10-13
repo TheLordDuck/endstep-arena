@@ -1,5 +1,26 @@
 # Changelog
 
+## Session of 2026-10-13
+
+On top of `9927172`. All 125 tests pass (2 new). Compared against MTG Arena gameplay videos
+(LegenVD); checked in the harness, not yet in a live match.
+
+1. **The buttons on the right as in Arena** (roadmap t4-5). The main button always sits at the
+   bottom, the alternative above it (No Attacks over All Attack, Resolve All over Resolve, Cancel
+   over Submit), with the next stop centered under it ("To Combat", "To Blockers") and the » that
+   ends the turn on a row of its own. Arena's words (*N* Attackers, *N* Blockers, Submit *N*,
+   Opponent's Turn) and colors (orange; red through blocks and damage; blue to back out). Before,
+   the dock stacked bottom-up and attacking and the stack had their buttons the other way round.
+2. **One pile per group of identical cards** (roadmap t2-16, replaces t2-7's four per pile). ×18
+   tokens make one pile with four drawn. A click on one card uses just it; a click on the ×N uses
+   them all (all attack, or all are picked), again to take them back. Harness scenario `horde`.
+3. **"Creates Token" beside an enlarged card** (roadmap t3-8). The tokens a card makes, from
+   Scryfall's related cards (`src/ui/board/relatedTokens.ts`), looked up once per card and only for
+   cards whose text creates tokens. The extension's first request to a service other than Endstep;
+   only the card's name is sent.
+4. **Roadmap:** t2-14 (stack in a fan) to do; t2-15, t2-17, t3-6, t3-7 and t3-9 awaiting approval,
+   all from the videos.
+
 ## Release 0.6.0 (2026-10-12)
 
 On top of `c70cdd0`. All 123 tests pass. Everything in the sessions below since 0.5.0 (2026-10-07

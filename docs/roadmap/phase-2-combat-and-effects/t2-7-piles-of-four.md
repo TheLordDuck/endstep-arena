@@ -26,3 +26,4 @@ Every identical permanent went into one pile, however many there were.
 
 - 2026-10-07: added to the roadmap.
 - 2026-10-07: done.
+- 2026-10-13: replaced by [t2-16](t2-16-one-pile-per-group.md): one pile per group, as in Arena.

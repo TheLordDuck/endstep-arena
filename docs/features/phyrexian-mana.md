@@ -20,13 +20,13 @@ From its client (`GameView-*.js`, the pay panel and the player plate).
 - Clicking the plate (or Enter on it) sends `{ type: "PAY_LIFE_PHYREXIAN", promptVersion }`, which
   pays one symbol. A new `PAY_MANA` follows with what's left.
 - Mana for the symbols is paid as usual: tapping lands (`TAP_MANA`), floating mana
-  (`USE_FLOATING_MANA`) or *Auto pay*.
+  (`USE_FLOATING_MANA`) or *Auto Pay*.
 
 ## On the board
 
 - With a Phyrexian symbol left, your plate lights up like a target; clicking it pays 2 life. The
   action buttons add **Pay 2 life**, which does the same.
-- Everything else about the payment is unchanged (lands, floating mana, Auto pay, Cancel).
+- Everything else about the payment is unchanged (lands, floating mana, Auto Pay, Cancel).
 
 ## Implementation
 

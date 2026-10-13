@@ -20,7 +20,7 @@ sends.
 - **End step**: stops at this turn's end step, or at the next turn.
 - **End of opponent's turn**: stops at an opponent's end step (the one before your turn).
 - **My next turn**: stops at the first stop of your next turn.
-- **End turn** (the dock's existing button) now runs on the same mechanism: it passes until the
+- **End turn** (the dock's » button) now runs on the same mechanism: it passes until the
   turn is over.
 
 On the way:

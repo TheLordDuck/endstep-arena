@@ -2,7 +2,7 @@
 
 Shortcuts, settings and sound to play fast and comfortably.
 
-**Phase status: Done** (4/4 done)
+**Phase status: Done** (5/5 done)
 
 ## Progress
 
@@ -10,6 +10,7 @@ Shortcuts, settings and sound to play fast and comfortably.
 - [x] t4-2 · [Extension settings](t4-2-extension-settings.md) — Done
 - [x] t4-3 · [Sounds](t4-3-sounds.md) — Done
 - [x] t4-4 · [Pass until…](t4-4-pass-until.md) — Done
+- [x] t4-5 · [The buttons on the right in Arena's order, colors and words](t4-5-arena-dock-buttons.md) — Done
 
 ## Features
 
@@ -19,3 +20,4 @@ Shortcuts, settings and sound to play fast and comfortably.
 | t4-2 | [Extension settings](t4-2-extension-settings.md) | Feature | **Done** |
 | t4-3 | [Sounds](t4-3-sounds.md) | Feature | **Done** |
 | t4-4 | [Pass until…](t4-4-pass-until.md) | Feature | **Done** |
+| t4-5 | [The buttons on the right in Arena's order, colors and words](t4-5-arena-dock-buttons.md) | Feature | **Done** |

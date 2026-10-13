@@ -6,6 +6,7 @@
 
 import type { AbilityOption, CardView, CombatLink, DivideView, GameState, LogEntry, PendingActionView, PileView, PlayerView, SideboardView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
+import { createsTokens, relatedTokens } from "./relatedTokens";
 import { CARD_BACK_URL, chosenLabels, createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
 import { arrangeMove, canConfirm, clickInMode, deckColumns, defenderForKey, deriveMode, discardInHand, isProliferate, divideLeft, divideLocked, divideReady, divideShort, divideStart, divideStep, humanize, keyForDefender, learnStep, promptKey, sideboardChanged, sideboardCheck, sideboardMove, sideboardStacks, stepNumber, type Mode, type SideboardStack } from "./modes";
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
@@ -48,7 +49,14 @@ const ENDSTEP_LOGO = `<img class="logo" src="/favicon.svg" alt="" draggable="fal
 /** Clear space (px) kept around each player's avatar, so no card sits under it. */
 const AVATAR_CLEARANCE = 16;
 /** Identical permanents pile up to this many; more make another pile beside it. */
-const MAX_PILE = 4;
+/** How many cards of a pile of identical permanents are drawn; the rest lie under them (×N counts all). */
+const PILE_SHOWN = 4;
+/** Where the main button goes next, in Arena's words ("To Combat", "To Blockers"…). */
+const STOP_NAMES: Record<string, string> = {
+  UPKEEP: "Upkeep", DRAW: "Draw", MAIN1: "Main 1", BEGIN_COMBAT: "Combat", DECLARE_ATTACKERS: "Attackers",
+  DECLARE_BLOCKERS: "Blockers", FIRST_STRIKE_DAMAGE: "First Strike", COMBAT_DAMAGE: "Damage", END_COMBAT: "End of Combat",
+  MAIN2: "Main 2", END_STEP: "End", CLEANUP: "Cleanup",
+};
 /** Space between an enlarged card and its keyword boxes (px, as in the CSS). */
 const KW_GAP = 10;
 
@@ -227,6 +235,8 @@ export class Board {
   private tokens = new Map<string, CardView>();
   /** Per permanent: who blocks it and what targets it (see groupKey). */
   private situation = new Map<string, string>();
+  /** Each pile's ×N button (a click uses every card of the pile). */
+  private pileCounts = new WeakMap<HTMLElement, HTMLButtonElement>();
   /** Crowded zones shown a page at a time: the page shown, by zone ("me:others", "opp:full"…). */
   private pages = new Map<string, number>();
   /** Zones laid out in pages this time, for their arrows. */
@@ -1683,12 +1693,9 @@ export class Board {
       if (unit) unit.push(c);
       else units.set(key, [c]);
     }
-    // Many copies (basic lands, tokens) make several piles of up to four, side by side, instead
-    // of one tall pile.
-    const piles: [string, CardView[]][] = [];
-    for (const [key, unit] of units) {
-      for (let i = 0; i < unit.length; i += MAX_PILE) piles.push([i ? `${key}#${i / MAX_PILE}` : key, unit.slice(i, i + MAX_PILE)]);
-    }
+    // Every copy goes in one pile however many there are (×18 tokens), as in Arena: only the
+    // last few are drawn, the rest lie under them.
+    const piles = [...units];
     for (const [key, unit] of piles) {
       const c = unit[0]!;
       const slotKey = unit.length > 1 ? `grp:${key}` : c.id;
@@ -1703,21 +1710,31 @@ export class Board {
       slot.dataset.members = unit.map((u) => u.id).join(",");
       slot.classList.toggle("group", unit.length > 1);
       if (unit.length > 1) {
-        slot.dataset.count = `×${unit.length}`;
-        slot.style.setProperty("--gn", String(unit.length));
+        const shown = Math.min(unit.length, PILE_SHOWN);
+        slot.style.setProperty("--gn", String(shown));
         slot.style.setProperty("--atts", "0");
         slot.style.setProperty("--held", "0");
         slot.classList.remove("holds");
         // Stacked vertically: each card behind shows its bottom strip (with its power/toughness).
+        // Past the few drawn, the cards lie exactly under the backmost one.
         const els = unit.map((u, i) => {
           const el = this.card(u, true);
           el.style.removeProperty("--att");
-          el.style.setProperty("--gi", String(i));
+          el.style.setProperty("--gi", String(Math.max(0, i - (unit.length - shown))));
           return el;
         });
-        reconcile(slot, els);
+        // The ×N: a click uses the whole pile at once (every copy attacks, is targeted…).
+        let count = this.pileCounts.get(slot);
+        if (!count) {
+          count = document.createElement("button");
+          count.className = "pile-all";
+          this.pileCounts.set(slot, count);
+        }
+        count.textContent = `×${unit.length}`;
+        count.dataset.pileAll = slotKey;
+        count.title = `${unit.length} × ${c.name}: click to use them all`;
+        reconcile(slot, [count, ...els]);
       } else {
-        delete slot.dataset.count;
         slot.style.removeProperty("--gn");
         const attached = c.attachmentIds.map((a) => this.cardData.get(a)).filter((a): a is CardView => !!a);
         // Exiled cards it holds peek out from behind its left edge (see .linked).
@@ -3469,7 +3486,23 @@ export class Board {
     const m = this.mode;
     const me = state.players.find((pl) => pl.isViewer);
     const myTurn = !!me && state.activePlayerId === me.id;
-    const buttons: { id: string; label: string; primary?: boolean; disabled?: boolean; on?: boolean }[] = [];
+    // Laid out as Arena does, top to bottom: our own extras (Pass until…, Hold priority, Undo),
+    // then the alternative (a blue Cancel / Decline / No Attacks, or an outlined pill such as
+    // Resolve All), then the main button, always in the same place at the bottom, with where it
+    // goes next under it ("To Combat") and the small » that passes the turn.
+    type Btn = { id: string; label: string; disabled?: boolean; on?: boolean; title?: string };
+    const extras: Btn[] = [];
+    const alts: (Btn & { look: "alt" | "outline" })[] = [];
+    let main: (Btn & { tone?: "combat" | "wait" }) | null = null;
+    let sub = "";
+    let skip: Btn | null = null;
+
+    const step = currentStep(state.phase, state.step);
+    const i = stepIndex(step);
+    const inCombat = ["DECLARE_BLOCKERS", "FIRST_STRIKE_DAMAGE", "COMBAT_DAMAGE"].includes(step ?? "");
+    const stops = this.hooks.phaseStops();
+    /** The next step of this turn the game stops at, after the given one. */
+    const nextStop = (from: number) => TURN_STEPS.slice(from + 1).find((s) => stops[myTurn ? "myTurn" : "oppTurn"].has(s.key));
 
     const live = state.status !== "COMPLETE" && m.kind !== "classic" && !state.replay && !state.spectating;
     if (!live) {
@@ -3477,65 +3510,82 @@ export class Board {
     } else if (this.passUntil) {
       // Passing for you: what it's passing to, and a way to stop.
       const label = this.passUntil.target === "endTurn" ? "Ending turn…" : `Passing to ${passLabel(this.passUntil.target)}…`;
-      buttons.push({ id: "passing", label, primary: true, disabled: true });
-      buttons.unshift({ id: "stop-pass", label: "Stop passing" });
+      alts.push({ id: "stop-pass", label: "Stop passing", look: "alt" });
+      main = { id: "passing", label, disabled: true, tone: "wait" };
     } else if (!p) {
-      buttons.push({ id: "wait", label: this.waiting?.short ?? (myTurn ? "Waiting…" : "Opponent's turn"), primary: true, disabled: true });
-      buttons.push({ id: "pass-until", label: "Pass until…" });
+      main = { id: "wait", label: myTurn ? this.waiting?.short ?? "Waiting…" : "Opponent's Turn", disabled: true, tone: "wait" };
+      extras.push({ id: "pass-until", label: "Pass until…" });
     } else if (p.type === "PRIORITY") {
+      extras.push({ id: "pass-until", label: "Pass until…" });
+      extras.push({ id: "hold", label: this.holdPriority ? "Holding priority (H)" : "Hold priority (H)", on: this.holdPriority });
       if (state.stack.length) {
-        buttons.push({ id: "resolve-all", label: "Resolve all" });
-        buttons.push({ id: "pass", label: "Resolve", primary: true });
+        alts.push({ id: "resolve-all", label: "Resolve All", look: "outline" });
+        main = { id: "pass", label: "Resolve" };
       } else {
-        // "End turn" once no later step of your turn has a stop.
-        const i = stepIndex(currentStep(state.phase, state.step));
-        const stops = this.hooks.phaseStops().myTurn;
-        const endTurn = myTurn && i >= 0 && !TURN_STEPS.slice(i + 1).some((s) => stops.has(s.key));
-        buttons.push({ id: "pass", label: myTurn ? (endTurn ? "End turn" : "Next") : "Pass", primary: true });
-        // Under the rest (the dock stacks upward): skip what's left of your turn, as Endstep's own button does.
-        if (myTurn && !endTurn && state.turnNumber !== undefined) buttons.unshift({ id: "end-turn", label: "End turn" });
+        // "End Turn" once no later step of your turn has a stop.
+        const next = i >= 0 ? nextStop(i) : undefined;
+        const endTurn = myTurn && i >= 0 && !next;
+        main = { id: "pass", label: myTurn ? (endTurn ? "End Turn" : "Next") : "Pass", tone: inCombat ? "combat" : undefined };
+        if (next) sub = `To ${STOP_NAMES[next.key] ?? next.label}`;
+        // Skip what's left of your turn, as Endstep's own button does.
+        if (myTurn && !endTurn && state.turnNumber !== undefined) skip = { id: "end-turn", label: "»", title: "End turn: pass priority for the rest of your turn" };
       }
-      buttons.push({ id: "hold", label: this.holdPriority ? "Holding priority (H)" : "Hold priority (H)", on: this.holdPriority });
-      buttons.push({ id: "pass-until", label: "Pass until…" });
     } else if (p.type === "YES_NO" && !fullScreenYesNo(p, state)) {
       // The answers replace the action buttons, as in Arena: Decline (blue) on top, Take action
       // (orange) under it. Answers Endstep words its own way keep their words.
       const [yes, no] = yesNoLabels(p);
       const plain = /^yes$/i.test(yes) && /^no$/i.test(no);
-      buttons.push({ id: "yes", label: plain ? "Take action" : yes, primary: true });
-      buttons.push({ id: "no", label: plain ? "Decline" : no, primary: true });
+      alts.push({ id: "no", label: plain ? "Decline" : no, look: "alt" });
+      main = { id: "yes", label: plain ? "Take action" : yes };
     } else if (m.kind === "attackers") {
-      buttons.push({ id: "all-attack", label: "All attack" });
-      if (m.assignments.size) buttons.push({ id: "clear", label: "Clear" });
-      buttons.push({ id: "confirm", label: m.assignments.size ? `Attack · ${m.assignments.size}` : "No attacks", primary: true });
+      // Nothing chosen: No Attacks (blue) over All Attack. Once some attack: Cancel Attacks over "N Attackers".
+      const n = m.assignments.size;
+      if (n) {
+        alts.push({ id: "clear", label: "Cancel Attacks", look: "outline" });
+        main = { id: "confirm", label: `${n} Attacker${n === 1 ? "" : "s"}`, tone: "combat" };
+      } else {
+        alts.push({ id: "confirm", label: "No Attacks", look: "alt" });
+        main = { id: "all-attack", label: "All Attack", disabled: !m.valid.size };
+      }
+      sub = "To Blockers";
     } else if (m.kind === "blockers") {
-      if (m.assignments.size) buttons.push({ id: "clear", label: "Clear" });
-      buttons.push({ id: "confirm", label: m.assignments.size ? `Block · ${m.assignments.size}` : "No blocks", primary: true });
+      const n = m.assignments.size;
+      if (n) alts.push({ id: "clear", label: "Cancel Blocks", look: "outline" });
+      main = n ? { id: "confirm", label: `${n} Blocker${n === 1 ? "" : "s"}`, tone: "combat" } : { id: "confirm", label: "No Blocks", tone: "combat" };
+      sub = "To Damage";
     } else if (m.kind === "divide" && p.divide && this.boardDivide()) {
-      // A spell's damage divided on the table: Reset under Submit, like Arena's Cancel and Submit.
-      buttons.push({ id: "div-reset", label: "Reset" });
-      buttons.push({ id: "div-submit", label: "Submit", primary: true, disabled: !divideReady(p.divide, m.amounts) });
+      // A spell's damage divided on the table: Reset over Submit, like Arena's Cancel and Submit.
+      alts.push({ id: "div-reset", label: "Reset", look: "outline" });
+      main = { id: "div-submit", label: "Submit", disabled: !divideReady(p.divide, m.amounts) };
     } else if (m.kind === "cards" && m.mana) {
-      buttons.push({ id: "cancel", label: "Cancel" });
+      alts.push({ id: "cancel", label: "Cancel", look: "alt" });
       // A Phyrexian symbol left: 2 life pays for it (so does a click on your plate).
-      if (p.phyrexian) buttons.push({ id: "pay-life", label: "Pay 2 life" });
-      buttons.push({ id: "auto-pay", label: "Auto pay", primary: true });
+      if (p.phyrexian) alts.push({ id: "pay-life", label: "Pay 2 life", look: "outline" });
+      main = { id: "auto-pay", label: "Auto Pay" };
     } else if (m.kind === "targets" || m.kind === "cards") {
       // Picking from a fan of cards: Cancel and Submit are under the fan instead.
       if (!this.q(".prompt .fan")) {
-        if (!m.mandatory) buttons.push({ id: "decline", label: "Cancel" });
-        // Proliferate: everything of yours at once (or click them one by one, then Done).
+        // Proliferate: everything of yours at once (or click them one by one, then Submit).
         if (p && isProliferate(p)) {
           const yours = this.proliferateYours();
-          if (yours.length) buttons.push({ id: "prolif-mine", label: `All yours · ${yours.length}` });
+          if (yours.length) alts.push({ id: "prolif-mine", label: `All yours · ${yours.length}`, look: "outline" });
         }
-        const count = `${m.selected.length}${m.max > 1 && m.max < 99 ? `/${m.max}` : ""}`;
-        buttons.push({ id: "confirm", label: `Done · ${count}`, primary: true, disabled: !canConfirm(m) });
+        if (!m.mandatory) alts.push({ id: "decline", label: "Cancel", look: "alt" });
+        main = { id: "confirm", label: `Submit ${m.selected.length}`, disabled: !canConfirm(m) };
       }
     }
     // Endstep says when the last action can be taken back.
-    if (p?.canUndo && buttons.length) buttons.push({ id: "undo", label: "↶ Undo" });
-    const html = buttons.map((b) => `<button class="${b.primary ? "primary" : "secondary"}${b.on ? " on" : ""}" data-act="${b.id}" ${b.disabled || (this.awaiting && b.id !== "stop-pass") ? "disabled" : ""}>${esc(b.label)}</button>`).join("");
+    if (p?.canUndo && main) extras.push({ id: "undo", label: "↶ Undo" });
+
+    const off = (b: Btn) => b.disabled || (this.awaiting && b.id !== "stop-pass") ? " disabled" : "";
+    const button = (b: Btn, cls: string) =>
+      `<button class="${cls}${b.on ? " on" : ""}" data-act="${b.id}"${b.title ? ` title="${esc(b.title)}"` : ""}${off(b)}>${esc(b.label)}</button>`;
+    const html = [
+      ...extras.map((b) => button(b, "secondary")),
+      ...alts.map((b) => button(b, b.look === "alt" ? "primary alt" : "secondary outline")),
+      main ? button(main, `primary${main.tone ? ` ${main.tone}` : ""}`) : "",
+      main ? `<div class="dock-foot"><span class="dock-sub">${esc(sub)}</span>${skip ? button(skip, "skip") : ""}</div>` : "",
+    ].join("");
     const dock = this.q(".dock");
     if (dock.dataset.sig !== html) {
       dock.dataset.sig = html;
@@ -4358,6 +4408,11 @@ export class Board {
       if (!this.awaiting) { this.controller.useFloatingMana(btn.dataset.spend); this.setAwaiting(true); }
       return;
     }
+    if (btn?.dataset.pileAll) {
+      const ids = this.slotEls.get(btn.dataset.pileAll)?.dataset.members?.split(",") ?? [];
+      if (ids.length && !this.awaiting) this.selectPile(ids, e);
+      return;
+    }
     if (btn?.dataset.act) return this.onDockAction(btn.dataset.act);
     if (btn?.dataset.focus) { this.focusedOpp = btn.dataset.focus; this.render(state); return; }
     if (btn && this.divideButton(btn, e.ctrlKey || e.metaKey)) return;
@@ -4417,6 +4472,44 @@ export class Board {
     // Priority: one click activates a permanent; hand cards are played by dragging. (A card in
     // the hand of a player you control, Emrakul's way, is played with a click: it stays up there.)
     if (m.kind === "idle" && !this.cardEls.get(key)?.closest(".hand.mine")) this.tryPlay(key, e.ctrlKey);
+  }
+
+  /** A click on a pile's ×N: every card of it attacks (or stops attacking), or is picked, at once.
+      Anything that takes one card at a time (blocking, paying, activating) uses the front one. */
+  private selectPile(ids: string[], e: MouseEvent): void {
+    const m = this.mode;
+    if (m.kind === "attackers") {
+      const valid = ids.filter((id) => m.valid.has(id));
+      if (!valid.length) return;
+      const assignments = new Map(m.assignments);
+      // A pile is all chosen or all not (a chosen card leaves for a pile of its own).
+      if (valid.every((id) => assignments.has(id))) for (const id of valid) assignments.delete(id);
+      else for (const id of valid) assignments.set(id, m.currentDefender);
+      this.setMode({ ...m, assignments, aiming: null });
+      return;
+    }
+    if (m.kind === "targets" || (m.kind === "cards" && !m.mana)) {
+      const valid = ids.filter((id) => m.valid.has(id));
+      if (!valid.length) return;
+      let selected: string[];
+      if (valid.every((id) => m.selected.includes(id))) selected = m.selected.filter((k) => !valid.includes(k));
+      else {
+        // Up to the most it can take: earlier picks are kept, not swapped out.
+        selected = [...m.selected];
+        for (const id of valid) if (!selected.includes(id) && selected.length < m.max) selected.push(id);
+      }
+      this.onSelectedMany({ ...m, selected });
+      return;
+    }
+    this.onSelectKey(ids.at(-1)!, e);
+  }
+
+  private onSelectedMany(next: Mode): void {
+    if (next.kind === "targets" && next.max === 1 && next.selected.length === 1) {
+      this.controller.chooseTargets(next.selected);
+      this.setAwaiting(true);
+    }
+    this.setMode(next);
   }
 
   /** Plays/activates a card if Endstep lists it as playable; asks which ability when there are several. */
@@ -4905,6 +4998,8 @@ export class Board {
     const gained = c.keywordsGranted ?? [];
     const lost = lostKeywords(c);
     const keywords = c.faceDown && !c.peeked ? [] : keywordNotes(c);
+    // A card that makes tokens shows them beside it ("Creates Token"), once Scryfall says which.
+    const tokens = !c.isToken && !(c.faceDown && !c.peeked) && !!c.name && createsTokens(c.oracleText);
     const notes = [
       ...chosenLabels(c).map(([label, value]) => `<span class="kchosen">${esc(label)}: ${esc(value)}</span>`),
       gained.length ? `<span class="kgain">Gained: ${esc(gained.join(", "))}</span>` : "",
@@ -4918,11 +5013,13 @@ export class Board {
       ${counters || c.damage ? `<div class="zextra">${counters}${c.damage ? `<span class="dmg">${c.damage} damage</span>` : ""}</div>` : ""}
       ${notes.length ? `<div class="zextra col">${notes.join("")}</div>` : ""}
       ${effects.map((fx) => `<div class="zextra fx"><b>✦ ${esc(fx.name)}</b><span>${esc(fx.oracleText ?? "")}</span></div>`).join("")}
-      ${keywords.length ? `<div class="zkw">${keywords.map((k) => {
+      ${keywords.length || tokens ? `<div class="zkw">${tokens ? '<div class="ztok" hidden></div>' : ""}${keywords.map((k) => {
         // A keyword an effect took away stays explained, marked as lost.
         const gone = lost.some((l) => l.toLowerCase().startsWith(k.name.toLowerCase()));
         return `<div class="kw${gone ? " lost" : ""}"><b>${esc(k.name)}${gone ? " · lost" : ""}</b><span>${esc(k.text)}</span></div>`;
       }).join("")}</div>` : ""}`;
+    zoom.dataset.card = c.name;
+    if (tokens) void this.fillTokens(c.name);
     zoom.classList.remove("kw-left");
     // Always at the top of the left column (over the opponent's plate while it's shown).
     const box = this.el.getBoundingClientRect();
@@ -4934,6 +5031,17 @@ export class Board {
     zoom.style.left = `${(columnW - zw) / 2}px`;
     zoom.style.top = "8px";
     zoom.classList.add("show");
+  }
+
+  /** Puts the tokens a card creates in its zoom, if that card is still the one shown. */
+  private async fillTokens(name: string): Promise<void> {
+    const tokens = await relatedTokens(name);
+    const zoom = this.q(".zoom");
+    const box = zoom.querySelector<HTMLElement>(".ztok");
+    if (!box || zoom.dataset.card !== name || !tokens.length) return;
+    box.innerHTML = `<h4>Creates Token${tokens.length > 1 ? "s" : ""}</h4>${tokens.map((t) =>
+      `<img src="${esc(t.image)}" alt="${esc(t.name)}" title="${esc(`${t.name} · ${t.typeLine}`)}">`).join("")}`;
+    box.hidden = false;
   }
 
   private hideZoom(): void {

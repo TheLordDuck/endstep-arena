@@ -48,12 +48,13 @@ reload icon on the extension card and refresh the endstep.cc tab.
 | **Undo** (above the big button) | Take back the last action, when Endstep allows it |
 | Right-click empty table | Game menu: Endstep's own items (decklist, auto-yields, settings, reports, reload…) open Endstep's window while the board steps aside; **Concede** asks to confirm first |
 | Right-click a card | Full card (all its text) in the left column, plus a menu when there is something to do with it |
+| Enlarge a card that makes tokens (hover or right-click) | A *Creates Token* box beside it shows the token(s), as in Arena. Endstep doesn't send them, so the card's name is looked up on [Scryfall](https://scryfall.com/docs/api) (once per card, only for cards whose text creates tokens) |
 | Click a step on the turn tracks (center) | Toggle whether the game stops there; a gold dot = stop. All steps stop by default |
 | Click gold-glowing cards or avatars | Choose targets, attackers, or cards |
 | Blocking: click your creature, then the attacker | Assign the block (click again to undo) |
-| Mana payment: click lands | Tap them, or press **Auto pay** |
+| Mana payment: click lands | Tap them, or press **Auto Pay** |
 | Phyrexian mana (Dismember…) | Tap lands for mana, or click your plate (or **Pay 2 life**) to pay 2 life for a symbol |
-| Big button (bottom-right) | Pass / Next / Resolve / Attack / Block / Done |
+| Big button (bottom-right) | Next / Pass / Resolve / All Attack / *N* Attackers / *N* Blockers / Submit, always in the same place, as in Arena; the choice that backs out (No Attacks, Cancel, Decline, Resolve All) sits above it, and under it where it goes next ("To Combat") |
 | Click a graveyard, exile or command pile | Browse it as a fan of cards (flashback etc. can be cast from there) |
 | Choosing cards from a library, graveyard or exile | Click cards in the fan (orange = picked), then **Submit**; scroll with the wheel or the slider |
 | Choosing from a hand (Thoughtseize, Thought-Knot Seer, Surgical Extraction, on an opponent or yourself) | Same fan: the cards are picked there, not on the hand; mixed zones are labelled |
@@ -70,8 +71,10 @@ reload icon on the extension card and refresh the endstep.cc tab.
 | Choosing X (or any number): − / +, a quick pick, ↑/↓ (Shift: 5), digit keys, Enter | Set the number, then **Choose X = n**; **Undo** takes the cast back when Endstep allows it |
 | ◂ ▸ beside a crowded zone | Page through lands or artifacts/enchantments (two rows) or planeswalkers/Sagas (3×2 grid); creatures shrink to fit their line instead |
 
-Identical permanents pile together (×N), four at most per pile: more copies (basic lands, tokens)
-make another pile beside it.
+Identical permanents pile together, all of them in one pile as in Arena: its ×N counts every copy
+(×18 tokens) and only the top four are drawn. Clicking a card of the pile uses just that one (it
+moves to a pile of its own, attacking or picked); clicking the ×N uses them all at once (they all
+attack, or are all picked as targets; a second click takes them back).
 
 Cards exiled "until ~ leaves the battlefield" (Portable Hole, Oblivion Ring, Fiend Hunter…) lie
 turned and greyed under the permanent holding them. Endstep doesn't send that link, so it is
@@ -86,7 +89,7 @@ to see (your morphs, cards you exiled face down) show their front the same way. 
 In a timed match each player's clock sits by their picture (gold while running, red under 30 s), and a
 player taking too long to act gets a countdown to when they forfeit.
 | **H** or *Hold priority* | Keep priority after what you cast or activate, until switched off |
-| *End turn* (under the action buttons) | Pass priority for the rest of your turn |
+| **»** (under the big button) | Pass priority for the rest of your turn |
 | *Pass until…* (by the action buttons) | Pass priority until combat, the end step or the opponent's end step; it stops early if the opponent casts something or you're asked anything. *Stop passing* ends it |
 | Hover or right-click a card with keywords | Boxes beside it explain each keyword (flying, trample, ward…) |
 | **Alt+Shift+A** or *Classic UI* | Switch between the Arena board and Endstep's UI |
@@ -105,7 +108,7 @@ player taking too long to act gets a countdown to when they forfeit.
   the match as a test fixture, which the harness replays on the board (`#match:<name>`); see
   [docs/testing.md](docs/testing.md).
 * `node build.mjs --harness` builds `dist-harness/harness.html#<scenario>`
-  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`, `strike`, `damage`, `damage-split`, `win`, `discard`, `tks`, `clock`, `clock-opp`, `keywords`, `piles`, `split`, `sideboard`, `copies`, `phyrexian`, `fireball`, `divided`, `self-discard`, `discard-cost`, `looting`, `proliferate`, `bot-cast`, `murder`, `wrath`, `strike-next-turn`, `strike-many`, `strike-unseen`, `surgical`, `surgical-target`, `surgical-grave`, `surgical-hand`, `surgical-hand-t`, `surgical-library`, `resolve`, `resolve-bolt`, `spell-damage`, `tokens`, `pump`, `exile-creature`, `log`, `spectate`, `wait-respond`, `wait-blockers`, `wait-deciding`, `replay`): the board
+  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`, `strike`, `damage`, `damage-split`, `win`, `discard`, `tks`, `clock`, `clock-opp`, `keywords`, `piles`, `split`, `sideboard`, `copies`, `phyrexian`, `fireball`, `divided`, `self-discard`, `discard-cost`, `looting`, `proliferate`, `horde`, `bot-cast`, `murder`, `wrath`, `strike-next-turn`, `strike-many`, `strike-unseen`, `surgical`, `surgical-target`, `surgical-grave`, `surgical-hand`, `surgical-hand-t`, `surgical-library`, `resolve`, `resolve-bolt`, `spell-damage`, `tokens`, `pump`, `exile-creature`, `log`, `spectate`, `wait-respond`, `wait-blockers`, `wait-deciding`, `replay`): the board
   rendered from fixture states, with no live match needed. See [docs/testing.md](docs/testing.md).
 * Sounds: drop audio files named after each sound into `public/sounds/` (Arena's own, say) and
   rebuild; see [public/sounds/README.md](public/sounds/README.md). Without them you hear only

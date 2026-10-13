@@ -366,6 +366,16 @@ const scenarios: Record<string, Scenario> = {
     s.pendingAction = { type: "DECLARE_ATTACKERS", promptVersion: 5, message: "Declare attackers",
       cardOptions: [{ id: byName(me!, "Tarmogoyf").id }, { id: byName(me!, "Grizzly Bears").id }], modeOptions: [] };
   },
+  // A horde, as in Arena: 18 identical Soldier tokens make one pile (×18, four drawn) and nine
+  // Mountains another; declaring attackers, the ×18 sends them all (a click on one, just it).
+  horde: (s) => {
+    const [me] = players(s);
+    const soldiers = Array.from({ length: 18 }, () => creature("Soldier", 1, 1, { isToken: true, tokenSetCode: "tdom", tokenCollectorNumber: "2", color: "W", basePower: 1, baseToughness: 1 }));
+    me!.battlefield = [...soldiers, ...Array.from({ length: 9 }, () => land("Mountain", { typeLine: "Basic Land — Mountain" }))];
+    s.phase = "DECLARE_ATTACKERS";
+    s.pendingAction = { type: "DECLARE_ATTACKERS", promptVersion: 5, message: "Declare attackers",
+      cardOptions: soldiers.map((c) => ({ id: c.id })), modeOptions: [] };
+  },
   block: (s) => {
     const [me, opp] = players(s);
     s.phase = "DECLARE_BLOCKERS";
