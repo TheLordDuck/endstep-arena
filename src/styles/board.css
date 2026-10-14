@@ -2624,8 +2624,8 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
    their own color. */
 .zkw .kw.state { border-left-color: #6fb8ff; }
 .zkw .kw.state b { color: #bfe0ff; font-family: var(--font); font-size: 13px; }
-.zkw .kw.counter { border-left-color: #6fd08a; }
-.zkw .kw.counter b { color: #c8f5d2; }
+.zkw .kw.kcount { border-left-color: #6fd08a; }
+.zkw .kw.kcount b { color: #c8f5d2; }
 .zkw .kw .sym { width: 1em; height: 1em; vertical-align: -0.14em; }
 
 /* Menus (a card's abilities, the table's game menu): a gold-framed dark panel like the rest of

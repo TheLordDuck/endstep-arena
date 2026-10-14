@@ -5479,7 +5479,7 @@ export class Board {
     const url = imageUrl(c, "large");
     // Its state (entered this turn, targeted, cost changed) and its counters, each in a box above
     // the keywords', as Arena shows them.
-    const facts = c.faceDown && !c.peeked ? [] : [...this.cardStateNotes(c), ...counterNotes(c.counters).map((n) => ({ ...n, kind: "counter" }))];
+    const facts = c.faceDown && !c.peeked ? [] : [...this.cardStateNotes(c), ...counterNotes(c.counters).map((n) => ({ ...n, kind: "kcount" }))];
     const effects = this.effectsByCard.get(c.id) ?? [];
     const held = this.held.get(c.id) ?? [];
     const holder = this.cardData.get(this.linked.get(c.id) ?? "");
