@@ -41,8 +41,9 @@ export interface SceneCtx {
   sun(color: number, intensity: number, from: [number, number, number]): THREE.DirectionalLight;
   /** A light that flickers like a flame (or pulses, with `pulse`). */
   glow(color: number, intensity: number, at: THREE.Vector3, distance: number, flicker?: number): THREE.PointLight;
-  /** Called on every frame with the time (s). */
-  onTick(fn: (t: number, dt: number) => void): void;
+  /** Called on every frame with the time (s). `moves` when it moves something that casts a shadow
+      (the shadows are otherwise drawn once per scene, as nothing else in it moves). */
+  onTick(fn: (t: number, dt: number) => void, moves?: "shadow"): void;
 }
 
 export interface ParticleOpts {
@@ -72,6 +73,8 @@ export class Battlefield3D {
   private world = new THREE.Group();
   private themeName: ThemeName | null = null;
   private ticks: ((t: number, dt: number) => void)[] = [];
+  /** Whether a tick moves something that casts a shadow: the shadows are then drawn every frame. */
+  private movingShadows = false;
   private layoutNow: SceneLayout = DEFAULT_LAYOUT;
   private size = { w: 0, h: 0 };
   private raf = 0;
@@ -96,6 +99,8 @@ export class Battlefield3D {
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: "low-power" });
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Drawn when the scene is built, and on every frame only where something casting one moves.
+    this.renderer.shadowMap.autoUpdate = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     // Down at the board, tilted a little, with a wide enough lens that the scenery at the edges
@@ -157,6 +162,7 @@ export class Battlefield3D {
       this.last = now;
       this.clock += dt;
       for (const fn of this.ticks) fn(this.clock, dt);
+      if (this.movingShadows) this.renderer.shadowMap.needsUpdate = true;
       this.renderer.render(this.scene, this.camera);
     };
     this.raf = requestAnimationFrame(loop);
@@ -178,6 +184,7 @@ export class Battlefield3D {
   private renderOnce(): void {
     if (!this.size.w) return;
     for (const fn of this.ticks) fn(this.clock, 0);
+    this.renderer.shadowMap.needsUpdate = true;
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -198,6 +205,7 @@ export class Battlefield3D {
     });
     this.world.clear();
     this.ticks = [];
+    this.movingShadows = false;
     this.scene.background = null;
     this.scene.fog = null;
   }
@@ -262,7 +270,10 @@ export class Battlefield3D {
       layout: this.layoutNow,
       at: (u, v, y = 0) => this.floorAt(u, v).setY(y),
       span, box, floorTexture, texture, add, rand,
-      onTick: (fn) => this.ticks.push(fn),
+      onTick: (fn, moves) => {
+        this.ticks.push(fn);
+        if (moves === "shadow") this.movingShadows = true;
+      },
       sun: (color, intensity, from) => {
         const light = new THREE.DirectionalLight(color, intensity);
         light.position.set(...from);

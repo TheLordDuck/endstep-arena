@@ -24,7 +24,7 @@ if (harness) {
   // Single self-contained page; <base> makes the card image URLs hit endstep.cc.
   const out = await esbuild.build({
     entryPoints: ["src/dev/harness.ts"], bundle: true, format: "iife", write: false,
-    loader: { ".css": "text" }, define: { __DEV_BRIDGE__: "false", __MATCHES__: JSON.stringify(matches) },
+    loader: { ".css": "text" }, define: { __DEV_BRIDGE__: "false", __LAZY_SCENE__: "false", __MATCHES__: JSON.stringify(matches) },
   });
   mkdirSync("dist-harness", { recursive: true });
   const js = out.outputFiles[0].text.replaceAll("</script", "<\\/script");
@@ -45,7 +45,7 @@ if (tests) {
     platform: "node",
     format: "esm",
     loader: { ".css": "text" },
-    define: { __DEV_BRIDGE__: "false" },
+    define: { __DEV_BRIDGE__: "false", __LAZY_SCENE__: "false" },
   });
   process.exit(0);
 }
@@ -72,6 +72,20 @@ if (dev) {
 }
 writeFileSync("dist/manifest.json", JSON.stringify(manifest, null, 2));
 
+// The release build is minified (its stylesheets too, bundled as text), so the pages load less;
+// --watch and --dev stay readable.
+const minify = !watch && !dev;
+/** The stylesheets as minified text (the "text" loader only copies them). */
+const minifyCss = {
+  name: "minify-css",
+  setup(build) {
+    build.onLoad({ filter: /\.css$/ }, async (args) => {
+      const out = await esbuild.transform(readFileSync(args.path, "utf8"), { loader: "css", minify: true, target: "chrome114" });
+      return { contents: out.code, loader: "text" };
+    });
+  },
+};
+
 const ctx = await esbuild.context({
   entryPoints,
   outdir: "dist",
@@ -79,14 +93,28 @@ const ctx = await esbuild.context({
   format: "iife",
   target: "chrome114",
   loader: { ".css": "text" },
-  define: { __DEV_BRIDGE__: String(dev) },
+  define: { __DEV_BRIDGE__: String(dev), __LAZY_SCENE__: "true" },
+  minify,
+  plugins: minify ? [minifyCss] : [],
+  sourcemap: watch ? "inline" : false,
+  logLevel: "info",
+});
+// The 3D table (three.js and the scenes): a module of its own, which the board loads the first
+// time a match is on a 3D table (see src/ui/board/scene/loadScene.ts).
+const sceneCtx = await esbuild.context({
+  entryPoints: { scene: "src/ui/board/scene/Battlefield3D.ts" },
+  outdir: "dist",
+  bundle: true,
+  format: "esm",
+  target: "chrome114",
+  minify,
   sourcemap: watch ? "inline" : false,
   logLevel: "info",
 });
 
 if (watch) {
-  await ctx.watch();
+  await Promise.all([ctx.watch(), sceneCtx.watch()]);
 } else {
-  await ctx.rebuild();
-  await ctx.dispose();
+  await Promise.all([ctx.rebuild(), sceneCtx.rebuild()]);
+  await Promise.all([ctx.dispose(), sceneCtx.dispose()]);
 }

@@ -52,7 +52,8 @@ export class Overlay {
   private root!: ShadowRoot;
   private layer!: HTMLElement;
   private body!: HTMLElement;
-  private board!: Board;
+  /** Made for the first match the page shows: pages without one never build it (see ensureBoard). */
+  private board: Board | null = null;
   private socket: SocketStatus = "none";
   private paused = false;
   private frame = 0;
@@ -79,7 +80,7 @@ export class Overlay {
   mount(): void {
     this.host = document.createElement("endstep-arena-ui");
     this.root = this.host.attachShadow({ mode: "open" });
-    this.root.innerHTML = `<style>${css}\n${boardCss}</style>
+    this.root.innerHTML = `<style>${css}</style>
       <div class="layer">
         <button class="pill" data-action="toggle" title="Toggle Arena UI (Alt+Shift+A)">
           <span class="dot"></span><span class="pill-label">Arena UI</span><span class="pill-state"></span>
@@ -101,6 +102,48 @@ export class Overlay {
       </div>`;
     this.layer = this.root.querySelector(".layer")!;
     this.body = this.root.querySelector(".panel-body")!;
+    document.documentElement.appendChild(this.host);
+
+    this.root.querySelector(".panel")!.addEventListener("click", (e) => this.onClick(e));
+    this.root.querySelector(".pill")!.addEventListener("click", (e) => this.onClick(e));
+    // Remember which zone <details> the user opened, so re-renders don't collapse them.
+    this.root.addEventListener("toggle", (e) => {
+      const el = e.target as HTMLElement;
+      if (el instanceof HTMLDetailsElement && el.dataset.key) this.openZones.set(el.dataset.key, el.open);
+    }, true);
+    window.addEventListener("keydown", (e) => {
+      if (shortcut(e, "KeyA")) this.setEnabled(!this.settings.enabled);
+      else if (shortcut(e, "KeyD")) this.setDebug(!this.settings.debug);
+      else return;
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
+    this.pacer = new StatePacer({
+      show: () => {
+        // Each state is drawn as it's handed over (not merged with the next one in a frame).
+        this.syncBoard();
+        this.invalidate();
+      },
+      busyUntil: () => this.board?.busyUntil() ?? 0,
+      dwellMs: () => this.board?.dwellMs() ?? 0,
+    });
+    this.adapter.subscribe((state) => {
+      if (state) this.ensureBoard();
+      this.pacer.push(state);
+    });
+    const state = this.adapter.getGameState();
+    if (state) this.ensureBoard();
+    this.pacer.push(state);
+    this.adapter.subscribe(() => this.invalidate());
+    this.render();
+  }
+
+  /** The board, with its stylesheet, put up the first time there's a match. */
+  private ensureBoard(): void {
+    if (this.board) return;
+    const style = document.createElement("style");
+    style.textContent = boardCss;
+    this.root.querySelector("style")!.after(style);
     this.board = new Board(this.controller, {
       onToggleDebug: () => this.setDebug(!this.settings.debug),
       onHide: () => this.setEnabled(false),
@@ -131,35 +174,6 @@ export class Overlay {
       endShown: (shown) => this.damageSound({ ended: shown }),
     });
     this.layer.prepend(this.board.el);
-    document.documentElement.appendChild(this.host);
-
-    this.root.querySelector(".panel")!.addEventListener("click", (e) => this.onClick(e));
-    this.root.querySelector(".pill")!.addEventListener("click", (e) => this.onClick(e));
-    // Remember which zone <details> the user opened, so re-renders don't collapse them.
-    this.root.addEventListener("toggle", (e) => {
-      const el = e.target as HTMLElement;
-      if (el instanceof HTMLDetailsElement && el.dataset.key) this.openZones.set(el.dataset.key, el.open);
-    }, true);
-    window.addEventListener("keydown", (e) => {
-      if (shortcut(e, "KeyA")) this.setEnabled(!this.settings.enabled);
-      else if (shortcut(e, "KeyD")) this.setDebug(!this.settings.debug);
-      else return;
-      e.preventDefault();
-      e.stopPropagation();
-    }, true);
-    this.pacer = new StatePacer({
-      show: () => {
-        // Each state is drawn as it's handed over (not merged with the next one in a frame).
-        this.syncBoard();
-        this.invalidate();
-      },
-      busyUntil: () => this.board.busyUntil(),
-      dwellMs: () => this.board.dwellMs(),
-    });
-    this.adapter.subscribe((state) => this.pacer.push(state));
-    this.pacer.push(this.adapter.getGameState());
-    this.adapter.subscribe(() => this.invalidate());
-    this.render();
   }
 
   setSocketStatus(status: SocketStatus): void {
@@ -169,9 +183,9 @@ export class Overlay {
   /** The tap reports whether an action actually went out on the socket. */
   onActionResult(ok: boolean, type: string, reason?: "not-allowed" | "not-connected"): void {
     if (!ok) {
-      this.board.setAwaiting(false);
+      this.board?.setAwaiting(false);
       const what = type.toLowerCase().replace(/_/g, " ");
-      this.board.toast(reason === "not-allowed" ? `Couldn't send ${what}: the extension doesn't allow this action yet.` : `Couldn't send ${what}: not connected to the game.`);
+      this.board?.toast(reason === "not-allowed" ? `Couldn't send ${what}: the extension doesn't allow this action yet.` : `Couldn't send ${what}: not connected to the game.`);
     }
   }
 
@@ -181,7 +195,7 @@ export class Overlay {
     if (target === this.boardState) return;
     this.boardState = target;
     this.layer.classList.toggle("board-on", !!target);
-    this.board.update(target);
+    this.board?.update(target);
   }
 
   /** Coalesces any number of updates into one render per animation frame (the board itself is
@@ -294,7 +308,7 @@ export class Overlay {
     void runBoardMenuItem(label).then((ok) => {
       if (!ok) {
         back();
-        this.board.toast(`Couldn't open "${label}" from Endstep's menu.`);
+        this.board?.toast(`Couldn't open "${label}" from Endstep's menu.`);
         return;
       }
       // Wait for its window to show (items without one come straight back), then to close.

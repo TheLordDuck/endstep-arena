@@ -11,7 +11,7 @@
   },
   "permissions": ["storage"],
   "web_accessible_resources": [
-    { "resources": ["sounds/*"], "matches": ["https://endstep.cc/*"] }
+    { "resources": ["sounds/*", "scene.js"], "matches": ["https://endstep.cc/*"] }
   ],
   "content_scripts": [
     {

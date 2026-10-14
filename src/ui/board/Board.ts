@@ -19,11 +19,13 @@ import { HandKnowledge } from "../../game/handKnowledge";
 import { counterNotes, keywordNotes, type KeywordNote } from "./keywords";
 import { MULLIGAN_RULE, mulliganCost, mulliganHint, mulliganStatus } from "./mulligan";
 import { handLimitWarning } from "./handLimit";
+import { offHandCards } from "./oppCastables";
 import { lifeGainSource } from "./lifeGain";
 import { bestLine, chosenModes, frameColor, loyaltyCost, loyaltyLines, loyaltyNeeded, modeLines, withoutCost } from "./abilityText";
 import { ANIM_SPEEDS, CARD_SCALES, TABLES, validTableImage, type BoardPrefs, type TableChoice } from "./prefs";
-import { Battlefield3D, type SceneLayout } from "./scene/Battlefield3D";
-import { THEME_FOR_LAND, THEMES, type ThemeName } from "./scene/themes";
+import type { Battlefield3D, SceneLayout } from "./scene/Battlefield3D";
+import { THEME_FOR_LAND, THEME_NAMES, type ThemeName } from "./scene/themeNames";
+import { loadScene } from "./scene/loadScene";
 import { deckLand } from "./tableArt";
 import { Sounds, type Sfx } from "./sounds";
 import { damageDealt } from "../../game/spellDamage";
@@ -306,6 +308,8 @@ export class Board {
   /** The table in 3D (see renderFelt); null until wanted, or where WebGL isn't available. */
   private scene3d: Battlefield3D | null = null;
   private scene3dFailed = false;
+  /** The 3D code is on its way (see loadScene). */
+  private scene3dLoading = false;
   /** Each player's picture when Endstep has none for them, by match and player (see portraitArt). */
   private portraits = new Map<string, string>();
   /** The turn each card was put into a graveyard, as seen from here (see cardStateNotes). */
@@ -2906,14 +2910,11 @@ export class Board {
       : choice === "random" ? this.randomScene(state.matchId)
       : choice === "auto" ? (land ? THEME_FOR_LAND[land] ?? "garden" : "garden")
       : choice;
-    if (theme && !this.scene3d && !this.scene3dFailed) {
-      this.scene3d = Battlefield3D.create();
-      if (this.scene3d) felt.prepend(this.scene3d.canvas);
-      else this.scene3dFailed = true;
-    }
-    const three = !!theme && !!this.scene3d;
+    if (theme && !this.scene3d && !this.scene3dFailed) this.loadScene3d();
+    // While its code loads, the table is already the scene's (its dark rim), not the mat.
+    const three = !!theme && (!!this.scene3d || this.scene3dLoading);
     felt.classList.toggle("three", three);
-    if (three) {
+    if (three && this.scene3d) {
       this.scene3d!.setTheme(theme);
       this.scene3d!.setAnimated(!reducedMotion());
       this.scene3d!.start();
@@ -2928,6 +2929,20 @@ export class Board {
     if (felt.style.getPropertyValue("--felt-art") !== value) felt.style.setProperty("--felt-art", value);
   }
 
+  /** Loads the 3D table's code, then puts the scene on the table (or the mat, where it can't be). */
+  private loadScene3d(): void {
+    if (this.scene3dLoading) return;
+    this.scene3dLoading = true;
+    void loadScene().then((Scene) => Scene.create(), () => null).then((scene) => {
+      this.scene3dLoading = false;
+      if (scene) {
+        this.scene3d = scene;
+        this.q(".felt").prepend(scene.canvas);
+      } else this.scene3dFailed = true;
+      if (this.state) this.renderFelt(this.state, this.zones(this.state).me);
+    });
+  }
+
   /** The scene for a match when the table is Random: drawn once per match (kept for the rest of
       it, across reloads of the tab), never the same as the last match's. */
   private randomScene(matchId: string): ThemeName {
@@ -2939,7 +2954,7 @@ export class Board {
     } catch {
       // No storage: a new draw.
     }
-    const all = Object.keys(THEMES) as ThemeName[];
+    const all = THEME_NAMES;
     let theme = stored?.matchId === matchId && all.includes(stored.theme as ThemeName) ? stored.theme as ThemeName : null;
     if (!theme) {
       const last = this.sceneFor?.theme ?? stored?.theme;

@@ -5,13 +5,9 @@
 
 import * as THREE from "three";
 import type { SceneCtx } from "./Battlefield3D";
+import type { ThemeName } from "./themeNames";
 
-export type ThemeName = "garden" | "glacier" | "cathedral" | "forge" | "academy";
-
-/** The scene for a deck's main color. */
-export const THEME_FOR_LAND: Record<string, ThemeName> = {
-  Plains: "academy", Island: "glacier", Swamp: "cathedral", Mountain: "forge", Forest: "garden",
-};
+export type { ThemeName };
 
 export const THEMES: Record<ThemeName, (c: SceneCtx) => void> = { garden, glacier, cathedral, forge, academy };
 
@@ -515,7 +511,7 @@ function cathedral(c: SceneCtx): void {
         const f = new THREE.Mesh(new THREE.SphereGeometry(H * 0.004, 8, 8), flame);
         f.position.set(x, hgt + H * 0.006, zz);
         g.add(candle, f);
-        c.onTick((t) => f.scale.set(1 + Math.sin(t * 13 + k) * 0.15, 1.8 + Math.sin(t * 17 + k * 2) * 0.35, 1));
+        c.onTick((t) => f.scale.set(1 + Math.sin(t * 13 + k) * 0.15, 1.8 + Math.sin(t * 17 + k * 2) * 0.35, 1), "shadow");
       }
       g.position.set(e.x, 0, z);
       c.add(shadowed(g));
@@ -642,7 +638,7 @@ function forge(c: SceneCtx): void {
     g.add(bowl, leg, embers, fire);
     g.position.copy(p);
     c.add(shadowed(g));
-    c.onTick((t) => fire.scale.set(1 + Math.sin(t * 11 + p.z) * 0.12, 1 + Math.sin(t * 7.3 + p.x) * 0.25, 1 + Math.sin(t * 9 + p.z) * 0.12));
+    c.onTick((t) => fire.scale.set(1 + Math.sin(t * 11 + p.z) * 0.12, 1 + Math.sin(t * 7.3 + p.x) * 0.25, 1 + Math.sin(t * 9 + p.z) * 0.12), "shadow");
     c.glow(0xff8a3a, 22, p.clone().setY(H * 0.12), H * 0.3, 0.25);
     pool(c, p, H * 0.1, 0xff7a2a, 0.1);
   }
