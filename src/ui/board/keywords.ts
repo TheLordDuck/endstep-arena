@@ -160,6 +160,51 @@ export function keywordNotes(c: Pick<CardView, "oracleText" | "keywordsGranted">
   return found.map((name) => ({ name, text: GLOSSARY[name]! }));
 }
 
+/** What each kind of counter does, for the boxes beside an enlarged card (as Arena explains them). */
+const COUNTERS: Record<string, string> = {
+  "+1/+1": "Each +1/+1 counter gives it +1/+1.",
+  "-1/-1": "Each -1/-1 counter gives it -1/-1.",
+  "stun": "If a permanent with a stun counter would become untapped, remove one from it instead.",
+  "shield": "If it would be dealt damage or destroyed, remove a shield counter from it instead.",
+  "lore": "A Saga's chapter: one is added as it enters and after your draw step, and the chapter with that number triggers. After the last one, it's sacrificed.",
+  "loyalty": "A planeswalker's loyalty: its abilities add or remove them, and damage dealt to it removes them. With none, it's put into its owner's graveyard.",
+  "finality": "If a permanent with a finality counter would die, exile it instead.",
+  "time": "At the beginning of your upkeep, remove a time counter (suspend, vanishing…). Something happens when the last is removed.",
+  "oil": "Oil counters are spent by this card's abilities.",
+  "charge": "Charge counters are spent by this card's abilities.",
+  "level": "A leveler's level: Level up adds one, and its abilities grow with it.",
+  "fade": "At the beginning of your upkeep, remove a fade counter. If you can't, sacrifice it.",
+  "age": "Cumulative upkeep: one is added each upkeep, and you pay its cost for each.",
+  "quest": "Quest counters count toward this card's goal.",
+  "bounty": "Something happens when a creature with a bounty counter dies.",
+  "page": "Page counters are spent by this card's abilities.",
+  "rev": "Rev counters are added and spent by this card's abilities.",
+  "lock": "A locked door: unlocking it adds a lock counter.",
+};
+/** Counters named after a keyword (Ikoria's flying counter…) give it. */
+const KEYWORD_COUNTERS = ["flying", "first strike", "double strike", "deathtouch", "hexproof", "indestructible", "lifelink", "menace", "reach", "trample", "vigilance", "haste"];
+
+/** How a counter is named: "+1/+1", "-1/-1", "+1/+0"…, else its kind in words ("stun", "first strike"). */
+export function counterLabel(kind: string): string {
+  const k = kind.toUpperCase().replace(/PLUS/g, "P").replace(/MINUS/g, "M");
+  const m = /^([PM+-])(\d+)\/?([PM+-])(\d+)$/.exec(k);
+  const sign = (s: string) => (s === "M" || s === "-" ? "-" : "+");
+  if (m) return `${sign(m[1]!)}${m[2]}/${sign(m[3]!)}${m[4]}`;
+  return kind.toLowerCase().replace(/_/g, " ").trim();
+}
+
+/** The counters on a card, a box each: "3 +1/+1 Counters" and what they do. */
+export function counterNotes(counters: Record<string, number>): KeywordNote[] {
+  return Object.entries(counters).filter(([, n]) => n > 0).map(([kind, n]) => {
+    const label = counterLabel(kind);
+    const title = label.replace(/\b[a-z]/g, (ch) => ch.toUpperCase());
+    const keyword = KEYWORD_COUNTERS.find((k) => k === label);
+    const pt = /^[+-]\d+\/[+-]\d+$/.test(label) ? `Each ${label} counter gives it ${label}.` : undefined;
+    const text = COUNTERS[label] ?? pt ?? (keyword ? `It has ${keyword}.` : "Used by this card's abilities, or other cards'.");
+    return { name: `${n} ${title} Counter${n === 1 ? "" : "s"}`, text };
+  });
+}
+
 /** The keywords a card prints on its own lines ("Flying, vigilance", "Ward {2}", "Protection
     from red"), in order: not the ones its abilities only mention or give to others. */
 export function printedKeywords(oracleText: string | undefined): string[] {

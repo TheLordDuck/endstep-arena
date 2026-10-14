@@ -180,9 +180,23 @@ function toPlayer(v: unknown, index: number, viewerSeat: number, peeks: Map<stri
     manaPool: p.manaPool,
     hasMonarch: p.hasMonarch === true,
     hasInitiative: p.hasInitiative === true,
+    experience: num(p.experienceCounters) ?? 0,
+    rad: num(p.radCounters) ?? 0,
+    ringTempts: num(p.ringTempts) ?? 0,
+    citysBlessing: p.hasCitysBlessing === true,
+    enduringStory: p.hasEnduringStory === true,
+    ...(str(p.dungeonRoomId) ? { dungeonRoom: str(p.dungeonRoomId) } : {}),
+    ...commanderCasts(p.commanderTax),
     hasLost: p.hasLostGame === true,
     hasConceded: p.hasConceded === true,
   };
+}
+
+/** Endstep's commanderTax: { <commander's index>: times cast }, the ones cast at least once. */
+function commanderCasts(v: unknown): { commanderCasts?: Record<string, number> } {
+  if (typeof v !== "object" || v === null) return {};
+  const out = Object.fromEntries(Object.entries(v).filter(([, n]) => typeof n === "number" && n > 0)) as Record<string, number>;
+  return Object.keys(out).length ? { commanderCasts: out } : {};
 }
 
 // Endstep stack items: { sourceCard, isAbility, abilityDescription, stackTargetId, targets }.
@@ -572,6 +586,7 @@ export function normalize(raw: Raw, meta: FrameMeta): GameState {
     combat: combatOf(players),
     clock: toClock(raw.clock, meta),
     idle: toIdle(raw.idleTimeout, meta),
+    ...(raw.isDay === true ? { dayNight: "day" as const } : raw.isNight === true ? { dayNight: "night" as const } : {}),
     reveals: [],
     unrecognizedKeys: Object.keys(raw).filter((k) => !KNOWN_TOP_LEVEL.has(k)),
     desynced: meta.desynced,

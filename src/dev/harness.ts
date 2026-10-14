@@ -1034,6 +1034,28 @@ const scenarios: Record<string, Scenario> = {
     s.pendingAction = { type: "CHOOSE_CARDS", contextType: "sideboard", promptVersion: 20, message: "Sideboard for game 2", min: 60, max: 999, cardOptions,
       sideboardState: { mainCount: 60, mode: "SIDEBOARD", self: "EDITING", opponent: "SUBMITTED", deadlineMs: Date.now() + 154_000 } };
   },
+  // Game information: the zone counts under the piles, the players' counters (experience, rad,
+  // the Ring, the city's blessing, an enduring story, a dungeon room, commander tax), night, and
+  // in the enlarged cards' boxes their counters and state: hover Tarmogoyf (3 +1/+1 and a stun
+  // counter, entered this turn), the Serra Angel (targeted by Lightning Bolt), or the Opt that has
+  // just gone to the graveyard (click it).
+  info: (s) => {
+    const [me, opp] = players(s);
+    Object.assign(opp!, { experienceCounters: 3, radCounters: 2, ringTempts: 2, hasCitysBlessing: true, dungeonRoomId: "Lost Mine of Phandelver: Goblin Lair", commanderTax: { 0: 2 } });
+    Object.assign(me!, { hasEnduringStory: true, radCounters: 1 });
+    s.isNight = true;
+    const goyf = byName(me!, "Tarmogoyf");
+    goyf.counters = { P1P1: 3, STUN: 1 };
+    goyf.hasSummoningSickness = true;
+    const angel = byName(opp!, "Serra Angel");
+    s.stack = [{ stackTargetId: 990, isAbility: false, sourceCard: { id: 990, name: "Lightning Bolt", controllerId: "0", types: ["Instant"] }, targets: [{ id: angel.id, zone: "Battlefield" }] }];
+    return (t) => {
+      const mine = players(t)[0]!;
+      const hand = mine.hand as Raw[];
+      (mine.graveyard as Raw[]).push(card("Opt", { typeLine: "Instant" }));
+      mine.hand = hand;
+    };
+  },
   // The match chat: a conversation so far (open it with C or the Chat button), then the opponent
   // writes (a bubble by their picture), a spectator chimes in (a bubble under the Chat button),
   // and the opponent starts typing again. With ?step=<ms> they come one by one.

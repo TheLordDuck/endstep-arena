@@ -16,7 +16,7 @@ import { REPLAY_SPEEDS, type ReplayCommand, type ReplayStatus } from "../../game
 import { avatarPicture } from "../../game/endstep/avatars";
 import { ExileLinks } from "../../game/exileLinks";
 import { HandKnowledge } from "../../game/handKnowledge";
-import { keywordNotes } from "./keywords";
+import { counterNotes, keywordNotes, type KeywordNote } from "./keywords";
 import { bestLine, chosenModes, frameColor, loyaltyCost, loyaltyLines, loyaltyNeeded, modeLines, withoutCost } from "./abilityText";
 import { ANIM_SPEEDS, CARD_SCALES, TABLES, type BoardPrefs } from "./prefs";
 import { Battlefield3D, type SceneLayout } from "./scene/Battlefield3D";
@@ -298,6 +298,10 @@ export class Board {
   /** The table in 3D (see renderFelt); null until wanted, or where WebGL isn't available. */
   private scene3d: Battlefield3D | null = null;
   private scene3dFailed = false;
+  /** Each player's picture when Endstep has none for them, by match and player (see portraitArt). */
+  private portraits = new Map<string, string>();
+  /** The turn each card was put into a graveyard, as seen from here (see cardStateNotes). */
+  private graveTurn = new Map<string, number>();
   /** The scene drawn for the match on screen (see randomScene). */
   private sceneFor: { matchId: string; theme: ThemeName } | null = null;
 
@@ -318,6 +322,7 @@ export class Board {
       </section>
       <div class="midline">
         <div class="turn-label"></div>
+        <div class="daynight" hidden></div>
       </div>
       <section class="side me">
         <div class="emblems"></div>
@@ -645,6 +650,11 @@ export class Board {
     this.el.classList.toggle("proliferating", !!state.pending && isProliferate(state.pending) && !state.replay && !state.spectating);
     this.renderClassicChip(classic);
 
+    // The cards that just went to a graveyard, and on which turn (for their zoom).
+    if (prev && prev.matchId === state.matchId && state.turnNumber !== undefined) {
+      const before = new Set(prev.players.flatMap((p) => p.graveyard.map((c) => c.id)));
+      for (const p of state.players) for (const c of p.graveyard) if (!before.has(c.id)) this.graveTurn.set(c.id, state.turnNumber);
+    }
     const fight = this.fightBefore(prev, state);
     this.captureFallen(fight, state);
     const casts = this.captureCasts();
@@ -722,6 +732,11 @@ export class Board {
     this.renderOppTiles(z.others, state);
     this.applyStateClasses(state);
     this.renderPhase(state, prev);
+    const dn = this.q(".daynight");
+    dn.hidden = !state.dayNight;
+    dn.className = `daynight ${state.dayNight ?? ""}`;
+    dn.textContent = state.dayNight === "day" ? "☀ Day" : state.dayNight === "night" ? "☾ Night" : "";
+    dn.title = state.dayNight === "day" ? "It's day (daybound cards are up)" : state.dayNight === "night" ? "It's night (nightbound cards are up)" : "";
     this.renderPrompt(state);
     this.renderDock(state);
     this.renderReveals(state);
@@ -2258,6 +2273,7 @@ export class Board {
       el.dataset.player = player.id;
       el.querySelector(".pile-label")!.textContent = label;
       el.querySelector(".pile-count")!.textContent = count === undefined ? "?" : String(count);
+      el.title = `${label}: ${count ?? "?"}${zone === "library" ? "" : " (click to look)"}`;
       el.classList.toggle("empty", !count);
       // Pile thickness, like a real stack of cards: one fine layer per few cards.
       const thick = Math.min(16, Math.ceil((count ?? 0) / 3));
@@ -2291,7 +2307,22 @@ export class Board {
     pile("exile", "Exile", player.exile.length, player.exile.at(-1));
     if (player.commandZone.length) pile("command", "Command", player.commandZone.length, player.commandZone[0]);
     box.classList.toggle("has-cmd", player.commandZone.length > 0);
-    reconcile(box, piles);
+    // How many cards they have in each zone, as Arena's corner panel shows it.
+    let counts = box.querySelector<HTMLElement>(".zcounts");
+    if (!counts) {
+      counts = document.createElement("div");
+      counts.className = "zcounts";
+    }
+    const hand = player.hand?.length ?? player.handSize;
+    const zc = (zone: string, label: string, n: number | undefined, icon: string) =>
+      `<span class="zc ${zone}" title="${label}: ${n ?? "?"}"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg><b>${n ?? "?"}</b></span>`;
+    const html = zc("hand", "Cards in hand", hand, ZC_ICONS.hand) + zc("library", "Library", player.librarySize, ZC_ICONS.library)
+      + zc("graveyard", "Graveyard", player.graveyard.length, ZC_ICONS.graveyard) + zc("exile", "Exile", player.exile.length, ZC_ICONS.exile);
+    if (counts.dataset.sig !== html) {
+      counts.dataset.sig = html;
+      counts.innerHTML = html;
+    }
+    reconcile(box, [...piles, counts]);
   }
 
   /** A static copy of a pile's top card, when the card itself sits in the side hand. */
@@ -2509,8 +2540,17 @@ export class Board {
       p.energy ? `<span class="chip energy" title="Energy">⚡ ${p.energy}</span>` : "",
       p.hasMonarch ? '<span class="chip" title="Monarch">♛</span>' : "",
       p.hasInitiative ? '<span class="chip" title="Initiative">Init</span>' : "",
+      p.experience ? `<span class="chip exp" title="${p.experience} experience counter${p.experience === 1 ? "" : "s"}">EXP ${p.experience}</span>` : "",
+      p.rad ? `<span class="chip rad" title="${p.rad} rad counter${p.rad === 1 ? "" : "s"}">☢ ${p.rad}</span>` : "",
+      p.ringTempts ? `<span class="chip ring" title="The Ring tempts you — level ${Math.min(p.ringTempts, 4)}/4"><i>${"●".repeat(Math.min(p.ringTempts, 4))}${"○".repeat(Math.max(0, 4 - p.ringTempts))}</i> The Ring</span>` : "",
+      p.citysBlessing ? '<span class="chip bless" title="City\'s blessing: ten or more permanents">City\'s Blessing</span>' : "",
+      p.enduringStory ? '<span class="chip story" title="An enduring story: three or more artifacts, legendaries and/or Sagas kept">Enduring Story</span>' : "",
+      p.dungeonRoom ? `<span class="chip dungeon" title="Current dungeon room: ${esc(p.dungeonRoom)}">⛫ ${esc(p.dungeonRoom)}</span>` : "",
+      ...Object.entries(p.commanderCasts ?? {}).map(([i, n]) => {
+        const name = p.commandZone[Number(i)]?.name ?? "their commander";
+        return `<span class="chip tax" title="Commander tax: +${n * 2} generic mana to cast ${esc(name)} from the command zone">Tax +${n * 2}</span>`;
+      }),
       p.controlledBy !== undefined ? '<span class="chip" title="Another player makes this player\'s decisions">Controlled</span>' : "",
-      !p.isViewer ? `<span class="chip" title="Cards in hand">✋ ${p.handSize ?? "?"}</span>` : "",
       ...(this.looseEffects.get(p.id) ?? []).map((fx) => `<span class="chip fx" title="${esc(effectText(fx))}">✦ ${esc(fx.effectSourceName || fx.name)}</span>`),
     ].join("");
     // The corner keeps just the name (and status chips).
@@ -2525,6 +2565,7 @@ export class Board {
     // The life total sits on the table, just above the player's cards, with the avatar on it.
     orb.dataset.player = p.id;
     orb.classList.toggle("priority", hasPrio);
+    orb.classList.toggle("turn", active);
     orb.classList.toggle("out", p.hasLost || p.hasConceded);
     // The player's Endstep avatar (framed as they chose); without one, their commander's art; and
     // under either, Endstep's logo, which shows if there's no picture or it can't load.
@@ -3030,11 +3071,24 @@ export class Board {
       can't load. */
   private avatarHtml(p: PlayerView): string {
     const avatar = avatarPicture(p.username, () => this.state && this.render(this.state));
-    const commander = p.commandZone[0];
-    const art = commander ? imageUrl(commander, "art_crop") : null;
+    const art = this.portraitArt(p);
     const pic = avatar ?? (art ? { url: art, size: "cover", position: "50% 30%" } : null);
     const style = pic ? `background-image: url(&quot;${esc(pic.url)}&quot;); background-size: ${esc(pic.size)}; background-position: ${esc(pic.position)}` : "";
     return `<div class="avatar" title="${esc(p.name)}">${ENDSTEP_LOGO}${pic ? `<div class="pic" style="${style}"></div>` : ""}</div>`;
+  }
+
+  /** A player's picture when Endstep has no avatar for them: their commander's art, else a card of
+      their deck as soon as one is seen (a creature or planeswalker first), kept for the match. */
+  private portraitArt(p: PlayerView): string | null {
+    const key = `${this.state?.matchId ?? ""}:${p.id}`;
+    const kept = this.portraits.get(key);
+    if (kept) return kept;
+    const commander = p.commandZone[0];
+    const seen = [...p.battlefield, ...p.graveyard, ...p.exile, ...(p.hand ?? [])].filter((c) => !c.faceDown && !c.isToken && c.name && !isLand(c));
+    const pick = commander ?? seen.find((c) => /creature|planeswalker/i.test(`${c.types.join(" ")} ${c.typeLine ?? ""}`)) ?? seen[0];
+    const url = pick ? imageUrl(pick, "art_crop") : null;
+    if (url) this.portraits.set(key, url);
+    return url;
   }
 
   /** The game is over, Arena style: the table dims behind your picture, big, with Victory or
@@ -5423,7 +5477,9 @@ export class Board {
     const zoom = this.q(".zoom");
     if (c.faceDown && !c.peeked && !extra) return this.hideZoom();
     const url = imageUrl(c, "large");
-    const counters = Object.entries(c.counters).map(([k, n]) => `<span>${esc(k)} ×${n}</span>`).join("");
+    // Its state (entered this turn, targeted, cost changed) and its counters, each in a box above
+    // the keywords', as Arena shows them.
+    const facts = c.faceDown && !c.peeked ? [] : [...this.cardStateNotes(c), ...counterNotes(c.counters).map((n) => ({ ...n, kind: "counter" }))];
     const effects = this.effectsByCard.get(c.id) ?? [];
     const held = this.held.get(c.id) ?? [];
     const holder = this.cardData.get(this.linked.get(c.id) ?? "");
@@ -5442,10 +5498,11 @@ export class Board {
     zoom.innerHTML = `
       <div class="zcard">${url ? `<img src="${esc(url)}" alt="${esc(c.name)}">` : `<div class="ztext"><b>${esc(c.name)}</b><i>${esc(c.typeLine ?? "")}</i><p>${esc(c.oracleText ?? "")}</p></div>`}</div>
       ${extra ? `<div class="zextra">${esc(extra)}</div>` : ""}
-      ${counters || c.damage ? `<div class="zextra">${counters}${c.damage ? `<span class="dmg">${c.damage} damage</span>` : ""}</div>` : ""}
+      ${c.damage ? `<div class="zextra"><span class="dmg">${c.damage} damage</span></div>` : ""}
       ${notes.length ? `<div class="zextra col">${notes.join("")}</div>` : ""}
       ${effects.map((fx) => `<div class="zextra fx"><b>✦ ${esc(fx.name)}</b><span>${esc(fx.oracleText ?? "")}</span></div>`).join("")}
-      ${keywords.length || tokens ? `<div class="zkw">${tokens ? '<div class="ztok" hidden></div>' : ""}${keywords.map((k) => {
+      ${keywords.length || tokens || facts.length ? `<div class="zkw">${facts.map((n) =>
+        `<div class="kw ${n.kind}"><b>${esc(n.name)}</b>${n.text ? `<span>${withSymbols(esc(n.text))}</span>` : ""}</div>`).join("")}${tokens ? '<div class="ztok" hidden></div>' : ""}${keywords.map((k) => {
         // A keyword an effect took away stays explained, marked as lost.
         const gone = lost.some((l) => l.toLowerCase().startsWith(k.name.toLowerCase()));
         return `<div class="kw${gone ? " lost" : ""}"><b>${esc(k.name)}${gone ? " · lost" : ""}</b><span>${esc(k.text)}</span></div>`;
@@ -5455,7 +5512,7 @@ export class Board {
     zoom.classList.remove("kw-left");
     // Always at the top of the left column (over the opponent's plate while it's shown).
     const box = this.el.getBoundingClientRect();
-    const extraH = (extra ? 60 : 0) + (counters || c.damage ? 40 : 0) + notes.length * 22 + effects.length * 56;
+    const extraH = (extra ? 60 : 0) + (c.damage ? 40 : 0) + notes.length * 22 + effects.length * 56;
     const columnW = parseFloat(getComputedStyle(this.el).gridTemplateColumns) || 260;
     const zh = Math.min(box.height - extraH - 24, box.height * 0.6, 520);
     const zw = Math.max(120, Math.min(columnW - 16, zh / 1.397, 380));
@@ -5463,6 +5520,30 @@ export class Board {
     zoom.style.left = `${(columnW - zw) / 2}px`;
     zoom.style.top = "8px";
     zoom.classList.add("show");
+  }
+
+  /** What's going on with a card right now, as Arena's boxes say it: it came onto the battlefield
+      (or into a graveyard) this turn, what on the stack targets it, a cost changed in your hand. */
+  private cardStateNotes(c: CardView): (KeywordNote & { kind: string })[] {
+    const state = this.state;
+    if (!state) return [];
+    const out: (KeywordNote & { kind: string })[] = [];
+    const where = state.players.find((p) => p.battlefield.some((b) => b.id === c.id)) ? "battlefield"
+      : state.players.find((p) => p.graveyard.some((g) => g.id === c.id)) ? "graveyard"
+      : state.players.find((p) => p.hand?.some((h) => h.id === c.id)) ? "hand" : null;
+    if (where === "battlefield" && c.summoningSick) out.push({ name: "Entered the Battlefield this turn.", text: "", kind: "state" });
+    if (where === "graveyard" && state.turnNumber !== undefined && this.graveTurn.get(c.id) === state.turnNumber) {
+      out.push({ name: "Entered the Graveyard this turn.", text: "", kind: "state" });
+    }
+    const by = state.stack.filter((s) => s.targets.includes(c.id)).map((s) => (s.isAbility ? `${s.card?.name ?? "An"} ability` : s.card?.name ?? s.name));
+    if (by.length) out.push({ name: "Targeted By", text: [...new Set(by)].join(", "), kind: "state" });
+    // A spell in your hand that costs other than printed now (a cost reducer, an extra cost).
+    if (where === "hand" && c.manaCost && state.pending?.type === "PRIORITY") {
+      const cost = state.pending.playable.find((p) => p.cardId === c.id)?.abilities.find((a) => a.cost && /^cast\b/i.test(a.description))?.cost;
+      const plain = (v: string) => v.replace(/\s+/g, "").toUpperCase();
+      if (cost && plain(cost) !== plain(c.manaCost)) out.push({ name: "Cost Modified", text: `This spell's mana cost is ${cost} now (printed ${c.manaCost}).`, kind: "state" });
+    }
+    return out;
   }
 
   /** Puts the tokens a card creates in its zoom, if that card is still the one shown. */
@@ -5725,6 +5806,14 @@ export class Board {
 }
 
 // ------------------------------------------------------------------ helpers
+
+/** The icons of the zone counts (see renderPiles). */
+const ZC_ICONS = {
+  hand: '<path d="M4 7.5l5-1.8 1.9 12-5 1.8z"/><path d="M9.5 5l5.2.2-.4 12.2-5.2-.2z" opacity=".85"/><path d="M15.2 5.6l5 1.6-3.6 11.7-5-1.6z" opacity=".7"/>',
+  library: '<path d="M6 3h12v15H6z"/><path d="M5 5H4v16h13v-1H5z" opacity=".6"/><path d="M9 7h6v1.5H9z" fill="#14100c"/>',
+  graveyard: '<path d="M6 21V9a6 6 0 0 1 12 0v12zm5-14v2.5H8.5V11H11v5h2v-5h2.5V9.5H13V7z" fill-rule="evenodd"/><path d="M3 21h18v1.5H3z"/>',
+  exile: '<path d="M12 3a9 9 0 1 0 9 9h-2a7 7 0 1 1-7-7zm0 4a5 5 0 1 0 5 5h-2a3 3 0 1 1-3-3z"/>',
+};
 
 /** A key typed into a text box (the chat, a card name search), wherever it sits: inside the
     board's shadow root the event's target is the host, so the first element of its path counts. */

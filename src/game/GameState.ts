@@ -101,6 +101,19 @@ export interface PlayerView {
   manaPool?: unknown;
   hasMonarch: boolean;
   hasInitiative: boolean;
+  /** Experience and rad counters, and how far the Ring has tempted them (0 to 4). */
+  experience: number;
+  rad: number;
+  ringTempts: number;
+  /** The city's blessing (Ascend), and an enduring story (kept three or more artifacts,
+      legendaries and/or Sagas). */
+  citysBlessing: boolean;
+  enduringStory: boolean;
+  /** The dungeon room they're in (venture into the dungeon). */
+  dungeonRoom?: string;
+  /** Commander tax: how many times each of their commanders was cast from the command zone, by
+      its place in their command zone. */
+  commanderCasts?: Record<string, number>;
   hasLost: boolean;
   hasConceded: boolean;
   /** Set while the player has lost connection: when (local clock, ms) their seat concedes if
@@ -330,6 +343,8 @@ export interface GameState {
   updatedAt: number;
   /** Set when this is a replay frame: where the replay is, for its controls. */
   replay?: ReplayStatus;
+  /** Day or night (once a card with daybound or nightbound has made it one or the other). */
+  dayNight?: "day" | "night";
   /** Watching someone else's game (/spectate/:id): nothing can be answered. */
   spectating?: boolean;
   /** The game log so far, oldest first (kept by the adapter; a replay's up to its frame). */

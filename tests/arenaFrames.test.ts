@@ -87,7 +87,8 @@ const card = (name: string, extra: Partial<CardView> = {}): CardView => ({
 });
 const player = (extra: Partial<PlayerView>): PlayerView => ({
   id: "0", seat: 0, name: "Me", isViewer: true, poison: 0, energy: 0, hand: [], battlefield: [], graveyard: [], exile: [], commandZone: [],
-  effects: [], libraryTop: [], hasMonarch: false, hasInitiative: false, hasLost: false, hasConceded: false, ...extra,
+  effects: [], libraryTop: [], hasMonarch: false, hasInitiative: false, hasLost: false, hasConceded: false,
+  experience: 0, rad: 0, ringTempts: 0, citysBlessing: false, enduringStory: false, ...extra,
 });
 
 test("the table's land: the deck's main color, from its lands and cards", () => {

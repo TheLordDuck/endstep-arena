@@ -899,13 +899,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .plate:empty { display: none; }
 .opp-plate { grid-row: 1 / 4; align-self: start; margin-top: 10px; }
 .me-plate { grid-row: 5 / 8; align-self: end; margin-bottom: 10px; }
-/* The avatar sits on the central life total: above yours, below the opponent's (toward the table). */
+/* Arena's portrait: a big round picture in the middle of each side, sitting on its player's life
+   plate (above yours, below the opponent's, toward the table). */
 .avatar {
   position: absolute;
   left: 50%;
   translate: -50% 0;
-  width: 64px;
-  height: 64px;
+  width: 88px;
+  height: 88px;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -916,7 +917,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.6);
   transition: box-shadow 0.25s ease, border-color 0.25s ease;
   /* A round margin in the table color, so nothing shows right under the edge of the picture. */
-  outline: 8px solid rgba(12, 10, 8, 0.9);
+  outline: 6px solid rgba(12, 10, 8, 0.9);
 }
 /* The picture (avatar, else commander art) over Endstep's logo, which shows when there's none. */
 .avatar { overflow: hidden; background: #0a0806; }
@@ -924,14 +925,21 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* The logo's square fills the circle, its diamond centered. */
 .avatar .logo { object-fit: cover; scale: 1.08; }
 .avatar .pic { background-repeat: no-repeat; }
-.me-life .avatar { bottom: calc(100% + 4px); }
-.opp-life .avatar { top: calc(100% + 4px); }
+.me-life .avatar { bottom: calc(100% - 4px); }
+.opp-life .avatar { top: calc(100% - 4px); }
+/* On its player's turn the portrait glows gold, breathing slowly. */
+.life-orb.turn .avatar { border-color: var(--gold-hi); animation: turn-glow 2.6s ease-in-out infinite; }
+@keyframes turn-glow {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(255, 214, 120, 0.3), 0 0 20px 4px rgba(255, 196, 80, 0.35), 0 8px 22px rgba(0, 0, 0, 0.6); }
+  50% { box-shadow: 0 0 0 3px rgba(255, 214, 120, 0.5), 0 0 34px 10px rgba(255, 196, 80, 0.55), 0 8px 22px rgba(0, 0, 0, 0.6); }
+}
+.board.still .life-orb.turn .avatar { animation: none; box-shadow: 0 0 0 3px rgba(255, 214, 120, 0.4), 0 0 26px 6px rgba(255, 196, 80, 0.45); }
 /* A player who lost connection: a small line under their picture, with the time left to return. */
 .conn {
   position: absolute;
   left: 50%;
   translate: -50% 0;
-  top: calc(100% + 84px);
+  top: calc(100% + 96px);
   display: flex;
   align-items: center;
   gap: 5px;
@@ -954,14 +962,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
   position: absolute;
   left: 50%;
   translate: -50% 0;
-  top: calc(100% + 84px);
+  top: calc(100% + 96px);
   display: flex;
   gap: 6px;
   white-space: nowrap;
   pointer-events: auto;
 }
-.me-life .timers { top: auto; bottom: calc(100% + 84px); }
-.opp-life.has-timers .conn { top: calc(100% + 112px); }
+.me-life .timers { top: auto; bottom: calc(100% + 96px); }
+.opp-life.has-timers .conn { top: calc(100% + 124px); }
 .timers > span {
   display: flex;
   align-items: center;
@@ -1001,10 +1009,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
   z-index: 27;
   display: grid;
   place-items: center;
-  min-width: 70px;
-  height: 46px;
+  min-width: 76px;
+  height: 44px;
   padding: 0 18px;
-  border-radius: 999px;
+  border-radius: 12px 12px 18px 18px;
   font: 700 30px/1 "Cinzel", Georgia, serif;
   color: #fff;
   font-variant-numeric: tabular-nums;
@@ -1027,6 +1035,20 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .chip { padding: 0 6px; border-radius: 999px; font-size: 11px; background: rgba(255, 255, 255, 0.07); color: var(--muted); }
 .chip.poison { color: #9be37a; }
 .chip.energy { color: #ffd84a; }
+/* The player's other counters and markers (as Endstep lists them). */
+.chip.exp { color: #8fd4ff; }
+.chip.rad { color: #a8f07a; }
+.chip.ring { color: var(--gold-hi); }
+.chip.ring i { font-style: normal; letter-spacing: 0.05em; }
+.chip.bless { color: #9fd6ff; background: rgba(90, 160, 255, 0.16); }
+.chip.story { color: #e0c8ff; background: rgba(160, 120, 255, 0.16); }
+.chip.dungeon { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.chip.tax { color: #ffc28a; }
+/* Day or night, beside the turn. */
+.daynight { padding: 2px 10px; border-radius: 999px; font: 700 12px/18px var(--font); background: var(--glass); border: 1px solid var(--glass-line); }
+.daynight[hidden] { display: none; }
+.daynight.day { color: #ffd76a; border-color: rgba(255, 215, 106, 0.5); }
+.daynight.night { color: #a9c4ff; border-color: rgba(140, 170, 255, 0.5); }
 .life-orb.priority .avatar { border-color: var(--gold-hi); box-shadow: 0 0 0 3px rgba(232, 198, 120, 0.3), 0 0 26px rgba(232, 198, 120, 0.55); }
 .plate.active .pname { color: var(--gold-hi); }
 .plate.out { opacity: 0.5; filter: grayscale(1); }
@@ -1182,6 +1204,39 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border: 1px solid var(--glass-line);
 }
 .pile:not([data-zone="library"]):not([data-zone="exile"]):hover .pile-card .face { outline: 2px solid var(--gold); outline-offset: 2px; }
+/* As in Arena, the piles carry no labels or counts (hover one for its name and count; the counts
+   are in the row under them), and exile shows only when something is in it. */
+.pile-label, .pile-count { display: none; }
+.pile.empty[data-zone="exile"] { visibility: hidden; }
+
+/* Each player's zone counts (hand, library, graveyard, exile), in a row under their piles: the
+   opponent's top right, yours bottom left. */
+.zcounts {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+.zc {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font: 700 12px/18px var(--font);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  cursor: help;
+  transition: scale 0.15s ease, background 0.15s ease;
+}
+.zc svg { width: 14px; height: 14px; fill: var(--gold); }
+.zc:hover { scale: 1.15; background: rgba(232, 198, 120, 0.12); }
+.zc.exile svg { fill: #b9a6ff; }
 .pile.empty .pile-count { opacity: 0.5; }
 
 /* Exile: a dark void. Smoky mist is drawn in from the rim and swallowed by the black center,
@@ -2565,6 +2620,13 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .ztok img { width: calc(100% - 16px); margin: 0 8px; aspect-ratio: 63 / 88; border-radius: 9px; object-fit: cover; background: #1b1712; }
 .zkw .kw.lost { border-left-color: #ff9a86; opacity: 0.7; }
 .zkw .kw.lost b { color: #ff9a86; }
+/* The card's state (entered this turn, targeted by…, cost modified) in blue; its counters in
+   their own color. */
+.zkw .kw.state { border-left-color: #6fb8ff; }
+.zkw .kw.state b { color: #bfe0ff; font-family: var(--font); font-size: 13px; }
+.zkw .kw.counter { border-left-color: #6fd08a; }
+.zkw .kw.counter b { color: #c8f5d2; }
+.zkw .kw .sym { width: 1em; height: 1em; vertical-align: -0.14em; }
 
 /* Menus (a card's abilities, the table's game menu): a gold-framed dark panel like the rest of
    the board, a Cinzel title over a gold rule, items that light up in gold. Conceding is red,
