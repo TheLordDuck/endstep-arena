@@ -1907,6 +1907,31 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .mcard:hover { scale: 1.06; translate: 0 -10px; z-index: 2; }
 .mcard img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .mcard span { display: block; padding: 10px; font-size: 13px; }
+/* What the mulligan costs, under the buttons, with the rule behind a "?". */
+.mull-hint {
+  margin: 14px auto 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  font: 500 14px/1.4 var(--font);
+  color: var(--muted);
+  text-align: center;
+}
+.mull-help {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--glass-line);
+  background: var(--glass);
+  font: 700 11px/1 var(--font);
+  color: var(--gold-hi);
+  cursor: help;
+}
+.mull-help:hover { border-color: var(--gold); }
 
 /* Choose One: an ability card per option, glowing blue; the loyalty cost in a shield. */
 .acards { display: flex; justify-content: center; gap: min(28px, 2vw); padding: 8px 0 12px; }

@@ -17,6 +17,7 @@ import { avatarPicture } from "../../game/endstep/avatars";
 import { ExileLinks } from "../../game/exileLinks";
 import { HandKnowledge } from "../../game/handKnowledge";
 import { counterNotes, keywordNotes, type KeywordNote } from "./keywords";
+import { MULLIGAN_RULE, mulliganCost, mulliganHint } from "./mulligan";
 import { bestLine, chosenModes, frameColor, loyaltyCost, loyaltyLines, loyaltyNeeded, modeLines, withoutCost } from "./abilityText";
 import { ANIM_SPEEDS, CARD_SCALES, TABLES, type BoardPrefs } from "./prefs";
 import { Battlefield3D, type SceneLayout } from "./scene/Battlefield3D";
@@ -3828,16 +3829,22 @@ export class Board {
         // The opening hand, big and fanned in the middle; Mulligan on the left, Keep on the right.
         const labels: [string, string] = p.stringOptions.length >= 2 ? [p.stringOptions[0]!, p.stringOptions[1]!] : ["Keep", "Mulligan"];
         const special = p.stringOptions[2];
-        const hand = state.players.find((pl) => pl.isViewer)?.hand ?? [];
-        const keep = /^keep$/i.test(labels[0]) && hand.length ? `${labels[0]} ${hand.length}` : labels[0];
+        const me = state.players.find((pl) => pl.isViewer);
+        const hand = me?.hand ?? [];
         const n = hand.length;
+        // The hand you drew (Endstep says "Keep this 7-card hand"), and what keeping it costs
+        // (cards to the bottom), under the buttons; Keep says how many you keep.
+        const drawn = Math.max(n, Number(/(\d+)-card hand/.exec(p.message ?? "")?.[1] ?? 0));
+        const cost = mulliganCost(state.log, me?.seat, drawn, labels[0]);
+        const keep = /^keep\b/i.test(labels[0]) && drawn ? `Keep ${cost.keep}` : labels[0];
         const cards = hand.map((c, i) => {
           const url = imageUrl(c, "large");
           const t = i - (n - 1) / 2;
           return `<div class="mcard" data-zoom="${esc(c.id)}" style="--t: ${t}; --a: ${Math.abs(t)}">${url ? `<img src="${esc(url)}" alt="${esc(c.name)}" draggable="false">` : `<span>${esc(c.name)}</span>`}</div>`;
         }).join("");
         return `${n ? `<div class="mull-hand" style="--n: ${n}">${cards}</div>` : ""}
-          <div class="choices big"><button class="opt alt" data-mull="mull">${esc(labels[1])}</button><button class="opt primary" data-mull="keep">${esc(keep)}</button>${special ? `<button class="opt alt" data-mull-special="${esc(special)}">${esc(special)}</button>` : ""}</div>`;
+          <div class="choices big"><button class="opt alt" data-mull="mull">${esc(labels[1])}</button><button class="opt primary" data-mull="keep">${esc(keep)}</button>${special ? `<button class="opt alt" data-mull-special="${esc(special)}">${esc(special)}</button>` : ""}</div>
+          ${drawn ? `<p class="mull-hint">${esc(mulliganHint(cost, drawn))}<span class="mull-help" title="${esc(MULLIGAN_RULE)}">?</span></p>` : ""}`;
       }
       case "CHOOSE_MODE":
       case "CHOOSE_ABILITY": {
@@ -4647,7 +4654,7 @@ export class Board {
       if (permId === this.hoverPerm || this.zoomPinned || this.drag?.active) return;
       this.hoverPerm = permId;
       const c = permId ? this.cardData.get(permId) : undefined;
-      if (perm && c && (!c.faceDown || c.peeked)) this.showHoverZoom(c, perm, perm.dataset.stackText || undefined);
+      if (perm && c && (!c.faceDown || c.peeked)) this.showHoverZoom(c, perm);
       else this.hideZoom();
     });
     el.addEventListener("pointerleave", () => {
@@ -5451,9 +5458,10 @@ export class Board {
 
   // ---------------------------------------------------------------- zoom (right-click)
 
-  /** Hovering a permanent shows it big beside it, on whichever side has room. */
-  private showHoverZoom(c: CardView, anchor: HTMLElement, extra?: string): void {
-    this.showZoom(c, extra);
+  /** Hovering a permanent shows it big beside it, on whichever side has room: the card alone (its
+      boxes are in the right-click zoom). */
+  private showHoverZoom(c: CardView, anchor: HTMLElement): void {
+    this.showZoom(c, undefined, true);
     const zoom = this.q(".zoom");
     if (!zoom.classList.contains("show")) return;
     const box = this.el.getBoundingClientRect();
@@ -5473,23 +5481,26 @@ export class Board {
     if (kw) zoom.classList.toggle("kw-left", x === left || x + zw + KW_GAP + kw.offsetWidth > box.width - 8);
   }
 
-  private showZoom(c: CardView, extra?: string): void {
+  /** `bare` (hovering) shows only the card; its boxes (state, counters, keywords, effects,
+      tokens…) are for the right-click zoom on the left. */
+  private showZoom(c: CardView, extra?: string, bare = false): void {
     const zoom = this.q(".zoom");
     if (c.faceDown && !c.peeked && !extra) return this.hideZoom();
     const url = imageUrl(c, "large");
     // Its state (entered this turn, targeted, cost changed) and its counters, each in a box above
     // the keywords', as Arena shows them.
-    const facts = c.faceDown && !c.peeked ? [] : [...this.cardStateNotes(c), ...counterNotes(c.counters).map((n) => ({ ...n, kind: "kcount" }))];
-    const effects = this.effectsByCard.get(c.id) ?? [];
-    const held = this.held.get(c.id) ?? [];
-    const holder = this.cardData.get(this.linked.get(c.id) ?? "");
-    const gained = c.keywordsGranted ?? [];
-    const lost = lostKeywords(c);
-    const keywords = c.faceDown && !c.peeked ? [] : keywordNotes(c);
+    const hidden = bare || (c.faceDown && !c.peeked);
+    const facts = hidden ? [] : [...this.cardStateNotes(c), ...counterNotes(c.counters).map((n) => ({ ...n, kind: "kcount" }))];
+    const effects = bare ? [] : this.effectsByCard.get(c.id) ?? [];
+    const held = bare ? [] : this.held.get(c.id) ?? [];
+    const holder = bare ? undefined : this.cardData.get(this.linked.get(c.id) ?? "");
+    const gained = bare ? [] : c.keywordsGranted ?? [];
+    const lost = bare ? [] : lostKeywords(c);
+    const keywords = hidden ? [] : keywordNotes(c);
     // A card that makes tokens shows them beside it ("Creates Token"), once Scryfall says which.
-    const tokens = !c.isToken && !(c.faceDown && !c.peeked) && !!c.name && createsTokens(c.oracleText);
+    const tokens = !c.isToken && !hidden && !!c.name && createsTokens(c.oracleText);
     const notes = [
-      ...chosenLabels(c).map(([label, value]) => `<span class="kchosen">${esc(label)}: ${esc(value)}</span>`),
+      ...(bare ? [] : chosenLabels(c)).map(([label, value]) => `<span class="kchosen">${esc(label)}: ${esc(value)}</span>`),
       gained.length ? `<span class="kgain">Gained: ${esc(gained.join(", "))}</span>` : "",
       lost.length ? `<span class="klost">Lost: ${esc(lost.join(", "))}</span>` : "",
       held.length ? `<span>Exiled with it: ${esc(held.map((h) => h.name).join(", "))}</span>` : "",
@@ -5498,7 +5509,7 @@ export class Board {
     zoom.innerHTML = `
       <div class="zcard">${url ? `<img src="${esc(url)}" alt="${esc(c.name)}">` : `<div class="ztext"><b>${esc(c.name)}</b><i>${esc(c.typeLine ?? "")}</i><p>${esc(c.oracleText ?? "")}</p></div>`}</div>
       ${extra ? `<div class="zextra">${esc(extra)}</div>` : ""}
-      ${c.damage ? `<div class="zextra"><span class="dmg">${c.damage} damage</span></div>` : ""}
+      ${c.damage && !bare ? `<div class="zextra"><span class="dmg">${c.damage} damage</span></div>` : ""}
       ${notes.length ? `<div class="zextra col">${notes.join("")}</div>` : ""}
       ${effects.map((fx) => `<div class="zextra fx"><b>✦ ${esc(fx.name)}</b><span>${esc(fx.oracleText ?? "")}</span></div>`).join("")}
       ${keywords.length || tokens || facts.length ? `<div class="zkw">${facts.map((n) =>
@@ -5512,7 +5523,7 @@ export class Board {
     zoom.classList.remove("kw-left");
     // Always at the top of the left column (over the opponent's plate while it's shown).
     const box = this.el.getBoundingClientRect();
-    const extraH = (extra ? 60 : 0) + (c.damage ? 40 : 0) + notes.length * 22 + effects.length * 56;
+    const extraH = (extra ? 60 : 0) + (c.damage && !bare ? 40 : 0) + notes.length * 22 + effects.length * 56;
     const columnW = parseFloat(getComputedStyle(this.el).gridTemplateColumns) || 260;
     const zh = Math.min(box.height - extraH - 24, box.height * 0.6, 520);
     const zw = Math.max(120, Math.min(columnW - 16, zh / 1.397, 380));

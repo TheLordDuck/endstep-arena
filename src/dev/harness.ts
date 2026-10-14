@@ -588,6 +588,16 @@ const scenarios: Record<string, Scenario> = {
     s.turnNumber = 0; s.phase = "UPKEEP";
     s.pendingAction = { type: "MULLIGAN", promptVersion: 1, message: "Keep this hand or mulligan to six?", stringOptions: ["Keep", "Mulligan"] };
   },
+  // After two mulligans: Keep 5, and keeping puts 2 cards on the bottom (the line under the buttons).
+  mulligan2: (s) => {
+    s.turnNumber = 0; s.phase = "UPKEEP";
+    s.pendingAction = { type: "MULLIGAN", promptVersion: 3, message: "Keep this 7-card hand, or mulligan?", stringOptions: ["Keep 7", "Mulligan"] };
+    s.__events = [
+      { type: "MULLIGAN", sequenceNumber: 30, message: "Flavio mulliganed to 6.", amount: 6, playerIndex: "0", playerName: "Flavio" },
+      { type: "MULLIGAN", sequenceNumber: 31, message: "Flavio has mulliganed down to 6 cards.", playerIndex: "0", playerName: "Flavio" },
+      { type: "MULLIGAN", sequenceNumber: 32, message: "Flavio mulliganed to 5.", amount: 5, playerIndex: "0", playerName: "Flavio" },
+    ];
+  },
   mode: (s) => {
     s.pendingAction = { type: "CHOOSE_MODE", promptVersion: 8, sourceCardName: "Kolaghan's Command", message: "Choose two", min: 2, max: 2,
       modeOptions: [
