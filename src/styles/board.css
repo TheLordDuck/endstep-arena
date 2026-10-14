@@ -914,6 +914,42 @@ button { font: inherit; color: inherit; cursor: pointer; }
   rotate: calc(var(--r, 0deg) * -1);
   transform-origin: 50% -20%;
 }
+/* What they can play from outside their hand (flashback, adventure, their commander…): right of
+   their hand, hanging like its cards, face up, with what lets them play it under each; hovering
+   one slides it down into view. */
+.opp-side { grid-row: 1; z-index: 3; }
+.opp-side:has(.card:hover) { z-index: 26; }
+.opp-side .card {
+  --cw: var(--ohand-w);
+  position: absolute;
+  left: calc(var(--cx, 50%) + var(--x, 0px) * 1.2 - var(--cw) / 2);
+  top: calc(var(--cw) * -0.72 + var(--y, 0px) * 0.4);
+  rotate: calc(var(--r, 0deg) * -1);
+  transform-origin: 50% -20%;
+  filter: drop-shadow(0 0 6px rgba(232, 198, 120, 0.45));
+}
+.opp-side .card .face { transition: translate 0.16s ease; }
+.opp-side .card:hover { z-index: 50; }
+.opp-side .card:hover .face { translate: 0 calc(var(--cw) * 0.9); }
+.opp-side .card::after {
+  content: attr(data-from);
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  bottom: calc(var(--cw) * -0.12);
+  translate: -50% 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(232, 198, 120, 0.55);
+  background: rgba(20, 16, 10, 0.92);
+  font: 600 8px var(--font);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--gold-hi);
+  pointer-events: none;
+}
+.opp-side .card:hover::after { translate: -50% calc(var(--cw) * 0.9); }
 
 /* ---------- Player plates ---------- */
 /* In the left corners: the player's name and status chips (the avatar is on the life total).

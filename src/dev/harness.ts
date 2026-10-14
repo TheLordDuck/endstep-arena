@@ -905,6 +905,19 @@ const scenarios: Record<string, Scenario> = {
     s.activePlayerId = "1"; s.phase = "MAIN2"; s.turnNumber = 7;
     s.pendingAction = { type: "PRIORITY", promptVersion: 23, cardOptions: [] };
   },
+  // What the opponent can play from outside their hand, by it: flashback and escape in their
+  // graveyard, an adventure in exile. (Their other cards there, and Snapcaster's mention of
+  // flashback, don't count.)
+  oppside: (s) => {
+    const [, opp] = players(s);
+    (opp!.graveyard as Raw[]).push(
+      card("Faithless Looting", { typeLine: "Sorcery", oracleText: "Draw two cards, then discard two cards.\nFlashback {2}{R}" }),
+      card("Kroxa, Titan of Death's Hunger", { typeLine: "Legendary Creature — Elder Giant", oracleText: "When Kroxa enters, sacrifice it unless it escaped.\nEscape—{B}{B}{R}{R}, Exile five other cards from your graveyard." }),
+      card("Snapcaster Mage", { typeLine: "Creature — Human Wizard", oracleText: "Flash\nWhen Snapcaster Mage enters, target instant or sorcery card in your graveyard gains flashback until end of turn." }),
+      card("Lightning Bolt", { typeLine: "Instant", oracleText: "Lightning Bolt deals 3 damage to any target." }));
+    (opp!.exile as Raw[]).push(
+      card("Bonecrusher Giant", { typeLine: "Creature — Giant // Instant — Adventure", oracleText: "Whenever Bonecrusher Giant becomes the target of a spell, it deals 2 damage to that spell's controller." }));
+  },
   // Nine cards in hand on your turn: you'll discard two at the end of it.
   handlimit: (s) => {
     const [me] = players(s);
@@ -1339,3 +1352,5 @@ if (play) setTimeout(() => (board as unknown as { tryPlay(id: string): boolean }
   state = build({ viewerSeat: frame.viewerSeat, seq: ++seq });
   board.update(state);
 };
+// Dev hook: every scenario's name, for tools/visual.mjs (screenshots of each one).
+(window as unknown as { __scenarios: string[] }).__scenarios = Object.keys(scenarios);

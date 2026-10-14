@@ -320,6 +320,7 @@ export class Board {
       <div class="felt"><div class="mat"><div class="mat-art"></div><div class="mat-grain"></div></div></div>
       <div class="opp-tiles"></div>
       <div class="hand opp-hand"></div>
+      <div class="hand opp-side"></div>
       <div class="plate opp-plate" data-player=""></div>
       <div class="lifebar opp-bar"><div class="track-half left"></div><div class="life-orb opp-life"></div><div class="track-half right"></div></div>
       <div class="mana-pool opp-mana"></div>
@@ -730,6 +731,7 @@ export class Board {
     this.renderHandWarning(state, z.me);
     this.renderSideHand(state);
     this.renderOppHand(z.opp);
+    this.renderOppSide(state, z.opp);
     const casting = this.pendingStackItem(state, z.me);
     this.renderStack(casting ? [casting, ...state.stack] : state.stack, z.me?.id);
     this.renderPiles(this.q(".me-piles"), z.me);
@@ -2046,6 +2048,22 @@ export class Board {
       if (p.libraryTop.some((c) => c.id === id)) return "Library";
     }
     return null;
+  }
+
+  /** Beside the opponent's hand, as yours has its side hand: what they can play from outside it
+      (their commander, flashback and escape cards in their graveyard, adventures and foretold
+      cards in exile…), read from the cards (see oppCastables). Not while you play for them. */
+  private renderOppSide(state: GameState, opp: PlayerView | null): void {
+    const yours = state.pending?.type === "PRIORITY" && state.pending.playable.some((o) => opp?.graveyard.some((c) => c.id === o.cardId) || opp?.exile.some((c) => c.id === o.cardId));
+    const els = (yours || state.spectating ? [] : offHandCards(opp)).map(({ card, how }) => {
+      this.sideIds.add(card.id);
+      const el = this.card(card, false);
+      el.dataset.from = how;
+      el.title = `${card.name}: ${how}`;
+      return el;
+    });
+    for (const el of this.q(".opp-side").children) if (!els.includes(el as HTMLElement)) { delete (el as HTMLElement).dataset.from; (el as HTMLElement).removeAttribute("title"); }
+    reconcile(this.q(".opp-side"), els);
   }
 
   /**
@@ -4358,7 +4376,13 @@ export class Board {
     const mainWidth = sideSpan ? width - sideSpan - 40 : width;
     this.fan(main, mainWidth * 0.92, mainWidth / 2);
     if (sideSpan) side.style.setProperty("--cx", `${width - sideSpan / 2}px`);
-    this.fan(this.q(".opp-hand"), this.q(".opp-hand").clientWidth * 0.9, null);
+    const oppHand = this.q(".opp-hand");
+    const oppSpan = this.fan(oppHand, oppHand.clientWidth * 0.9, null);
+    // What they can play from outside their hand: just right of it (the hand's x is drawn at 0.55,
+    // the side's at 1.2, so its cards stand apart with their labels).
+    const oppSide = this.q(".opp-side");
+    const sideW = this.fan(oppSide, oppHand.clientWidth * 0.3, null);
+    if (sideW) oppSide.style.setProperty("--cx", `${oppHand.clientWidth / 2 + (oppSpan || 0) * 0.55 / 2 + 36 + sideW * 1.2 / 2}px`);
     this.applyHandHover();
     this.placeManaWheel();
     this.layoutFans();

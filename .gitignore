@@ -11,3 +11,5 @@ releases/
 !public/sounds/README.md
 # Notes and conversation logs kept beside the project.
 /*.txt
+# Visual regression screenshots (tools/visual.mjs): kept on this machine only.
+.visual/

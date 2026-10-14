@@ -12,7 +12,8 @@
     "package": "node build.mjs && node tools/package.mjs",
     "dev-server": "node tools/dev-server.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node build.mjs --tests && node --test \".test-dist/*.test.mjs\""
+    "test": "node build.mjs --tests && node --test \".test-dist/*.test.mjs\"",
+    "visual": "node tools/visual.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.287",
