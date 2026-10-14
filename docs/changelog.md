@@ -1,5 +1,33 @@
 # Changelog
 
+## Release 0.7.0 (2026-10-14)
+
+On top of `10a40e8`. All 151 tests pass; no visual change in the 94 harness scenarios
+(`pnpm visual`). Everything in the sessions below since 0.6.0 (2026-10-13 and 2026-10-14), plus
+these commits, which had no session entry; `package.json` and `public/manifest.json` at 0.7.0.
+
+1. **Zone counts, player counters, counter and state boxes, Arena portrait** (`e4318aa`); counter
+   boxes in the zoom keep the board's font (`a5e2321`).
+2. **Mulligan:** its cost under its buttons, a line saying where the opponent is with their hand,
+   and your hand off the hand strip until you keep it (`995e58c`, `6724644`). The hover zoom shows
+   the card alone.
+3. **Life gain orbs:** golden orbs fly from the card that gave the life (or gather around the
+   portrait), and the total changes as they land (`6724644`).
+4. **Hand size warning:** on your turn with more than seven cards, a pill over the hand says how
+   many you'll discard (`6724644`).
+5. **Pass until my turn:** a blue button under Pass in the opponent's turn, and "My turn" in the
+   Pass until… menu. An attacker you block comes out of its pile at once; the combat arrows go away
+   once blocks are declared; Endstep's win/loss sound waits for the board's result screen (`6724644`).
+6. **Table background:** the Table setting is a dropdown, with None (a plain dark color) and
+   Custom (a picture of your own, a file or a link) (`eaf7d6e`).
+7. **The opponent's side hand:** beside their hand, what they can play from elsewhere (commander,
+   flashback and escape in the graveyard, adventures and foretold cards in exile). Screenshot
+   tests of every harness scenario: `pnpm visual` (`a16aa76`).
+8. **Lighter on the page** (`10a40e8`): the release build is minified; three.js and the scenes are
+   `scene.js`, loaded the first time a match is on a 3D table; the board is built at the first
+   match, not on every page; the 3D table draws its shadows once per scene (every frame only where
+   flames move). The content script goes from 1.6 MB to 406 KB.
+
 ## Session of 2026-10-14
 
 On top of `675f033`. All 140 tests pass (15 new, in `tests/arenaFrames.test.ts` and `tests/chat.test.ts`). Checked in the
