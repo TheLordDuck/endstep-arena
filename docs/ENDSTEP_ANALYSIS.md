@@ -228,3 +228,21 @@ is still to be seen in a real match.
   `TOKEN_CREATED` ✧, `TURN_BEGAN` (a turn separator)…
 * Replays record the same events as `{ t, k: "event", event }` lines, played into the log as
   the replay moves.
+
+## 11. Match chat (from `main-lSLqJzmy.js`, 2026-10-14)
+
+All on the game socket; a frame's chat is a match's when `payload.matchId` (or the frame's
+`matchId`) names it, with no `lobbyId` or `eventChatId` (a frame naming two matches is ignored).
+
+* Inbound `CHAT`: `payload = { message, messageId, userId, username, senderRole ("player" |
+  "spectator" | "system"), clientMessageId?, replyTo?, identityHidden?, quickReply?,
+  quickRepliesOnly?, matchId }`, `timestamp` on the frame. The server sends your own messages
+  back too (with your `clientMessageId`); Endstep's client shows them as pending until then.
+  `identityHidden` hides the writer's name ("Opponent"). The client keeps the last 200.
+* Outbound `CHAT`: `{ type: "CHAT", payload: { message, matchId, clientMessageId, replyToId?,
+  quickReply? } }`; the message trimmed and cut at 500 characters.
+* `CHAT_TYPING`, both ways: `payload = { scope: "match", id: <matchId>, active }` (inbound also
+  `userId`, `username`, `identityHidden`); an indicator lasts 4 s without news.
+* `CHAT_REFUSED`: `payload = { reason, clientMessageId?, matchId?, mutedUntil?, remainingMs? }`,
+  reasons `quick_replies_only`, `quick_reply_too_soon`, `quick_reply_repeat`, `spectator_muted`,
+  `unknown_quick_reply`. `CHAT_MUTE`: `payload.mute = { reason, mutedUntil, … }` or null.

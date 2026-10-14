@@ -8,6 +8,13 @@ import { stopsAction, type PhaseStops } from "./endstep/phaseStops";
 
 export type ActionSink = (matchId: string, action: WireAction) => void;
 
+/** Where the match chat goes: a message (with the id that matches the server's echo to it), or
+    that you're typing. */
+export interface ChatSink {
+  send(matchId: string, text: string, clientMessageId: string): void;
+  typing(matchId: string, active: boolean): void;
+}
+
 /** Endstep ids are numbers on the wire; the UI keeps them as strings. */
 export const wireId = (id: string): string | number => (/^-?\d+$/.test(id) ? Number(id) : id);
 
@@ -22,7 +29,23 @@ export class GameController {
   constructor(
     private readonly getState: () => GameState | null,
     private readonly sink: ActionSink,
+    private readonly chat?: ChatSink,
   ) {}
+
+  /** A chat message to the match (players and spectators alike; not in a replay). */
+  sendChat(text: string): boolean {
+    const state = this.getState();
+    const message = text.trim();
+    if (!state || state.replay || !message || !this.chat) return false;
+    this.chat.send(state.matchId, message, crypto.randomUUID());
+    return true;
+  }
+
+  /** You started or stopped typing in the chat. */
+  chatTyping(active: boolean): void {
+    const state = this.getState();
+    if (state && !state.replay) this.chat?.typing(state.matchId, active);
+  }
 
   private send(action: WireAction): void {
     const state = this.getState();

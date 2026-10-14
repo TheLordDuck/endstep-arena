@@ -334,6 +334,33 @@ export interface GameState {
   spectating?: boolean;
   /** The game log so far, oldest first (kept by the adapter; a replay's up to its frame). */
   log?: LogEntry[];
+  /** The match's chat (kept by the adapter), when there's been any. */
+  chat?: ChatView;
+}
+
+/** The match's chat, from Endstep's CHAT frames. */
+export interface ChatView {
+  /** Oldest first, the last 200. */
+  messages: ChatMessage[];
+  /** Who's typing right now, and until when (local clock, ms) that holds without news. */
+  typing: { name: string; until: number }[];
+  /** Why a message wasn't sent, or that your chat is muted, as Endstep words it. */
+  notice?: { text: string; until: number };
+}
+
+export interface ChatMessage {
+  id: string;
+  /** The writer's account name ("Opponent" when Endstep hides who it is). */
+  username: string;
+  text: string;
+  /** When it was sent (local clock, ms). */
+  ts: number;
+  mine: boolean;
+  /** "player", "spectator" or "system". */
+  role: string;
+  /** Sent from here and not yet confirmed by the server. */
+  pending?: boolean;
+  clientMessageId?: string;
 }
 
 /** One line of the game log, from one of Endstep's game events. */

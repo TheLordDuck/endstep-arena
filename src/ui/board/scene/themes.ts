@@ -531,17 +531,17 @@ function cathedral(c: SceneCtx): void {
 
 // ------------------------------------------------------------------ Forge (red)
 
-/** A forge in a volcano: basalt tiles with lava glowing in the cracks (hotter toward the middle),
-    a river of lava across the middle between stone banks, cliffs of basalt columns along the
-    edges, braziers, embers rising. */
+/** A forge in a volcano, kept dim so the cards read on it: dark basalt tiles with embers glowing
+    faintly in the cracks near the middle, a narrow river of lava across the middle between stone
+    banks, cliffs of basalt columns along the edges, braziers, a few embers rising. */
 function forge(c: SceneCtx): void {
   const { h: H } = c.span;
   const L = c.layout;
-  c.add(new THREE.HemisphereLight(0xffb48a, 0x1a0805, 0.6));
-  c.sun(0xffd2a8, 1.5, [-30, 70, -20]);
+  c.add(new THREE.HemisphereLight(0xc8b4a8, 0x120a07, 0.75));
+  c.sun(0xffe2c8, 1.3, [-30, 70, -20]);
 
   const hexes = (g: G, w: number, h: number, fill: boolean) => {
-    const r = h / 34;
+    const r = h / 28;
     const dx = r * Math.sqrt(3);
     for (let y = 0, row = 0; y < h + r; y += r * 1.5, row++) {
       for (let x = row % 2 ? dx / 2 : 0; x < w + dx; x += dx) {
@@ -553,61 +553,57 @@ function forge(c: SceneCtx): void {
         }
         g.closePath();
         if (fill) {
-          const t = 24 + Math.floor(c.rand() * 18);
-          g.fillStyle = `rgb(${t + 8},${t - 1},${t - 6})`;
+          const t = 30 + Math.floor(c.rand() * 8);
+          g.fillStyle = `rgb(${t + 4},${t},${t - 2})`;
           g.fill();
-          g.strokeStyle = "rgba(255,255,255,0.05)";
-          g.lineWidth = 3;
-          g.stroke();
         } else g.stroke();
       }
     }
   };
   const map = c.floorTexture((g, w, h) => {
-    g.fillStyle = "#0e0605";
+    g.fillStyle = "#151110";
     g.fillRect(0, 0, w, h);
     hexes(g, w, h, true);
-    speckle(g, w, h, (w * h) / 80, ["rgba(0,0,0,0.25)", "rgba(90,70,60,0.14)"], [1, 3], c.rand);
+    speckle(g, w, h, (w * h) / 90, ["rgba(0,0,0,0.18)", "rgba(80,70,64,0.1)"], [1, 3], c.rand);
   });
   const cracks = c.floorTexture((g, w, h, px) => {
     g.fillStyle = "#000";
     g.fillRect(0, 0, w, h);
     const [, my] = px(0.5, L.mid);
-    // Hotter toward the river, nearly cold at the far ends.
+    // Embers only near the river; cold everywhere else.
     const heat = g.createLinearGradient(0, 0, 0, h);
     const m = my / h;
-    heat.addColorStop(0, "rgba(255,70,15,0.06)");
-    heat.addColorStop(Math.max(0, m - 0.22), "rgba(255,80,20,0.18)");
-    heat.addColorStop(Math.max(0, m - 0.05), "rgba(255,150,50,0.95)");
-    heat.addColorStop(Math.min(1, m + 0.05), "rgba(255,150,50,0.95)");
-    heat.addColorStop(Math.min(1, m + 0.22), "rgba(255,80,20,0.18)");
-    heat.addColorStop(1, "rgba(255,70,15,0.06)");
+    heat.addColorStop(0, "rgba(255,70,15,0)");
+    heat.addColorStop(Math.max(0, m - 0.12), "rgba(255,70,15,0)");
+    heat.addColorStop(Math.max(0, m - 0.03), "rgba(255,110,40,0.55)");
+    heat.addColorStop(Math.min(1, m + 0.03), "rgba(255,110,40,0.55)");
+    heat.addColorStop(Math.min(1, m + 0.12), "rgba(255,70,15,0)");
+    heat.addColorStop(1, "rgba(255,70,15,0)");
     g.strokeStyle = heat;
-    g.lineWidth = h / 320;
-    g.shadowColor = "#ff6a1a";
-    g.shadowBlur = h / 160;
+    g.lineWidth = h / 500;
     hexes(g, w, h, false);
   });
-  const ground = floor(c, map, { roughness: 0.85, bump: 1.6, emissive: cracks, emissiveColor: 0xff7a2a, emissiveIntensity: 0.8 });
-  c.onTick((t) => (ground.emissiveIntensity = 0.75 + Math.sin(t * 0.9) * 0.12));
+  const ground = floor(c, map, { roughness: 0.85, bump: 1.6, emissive: cracks, emissiveColor: 0xff7a2a, emissiveIntensity: 0.5 });
+  c.onTick((t) => (ground.emissiveIntensity = 0.45 + Math.sin(t * 0.9) * 0.08));
 
   // The river of lava, slowly flowing, between basalt banks.
-  const depth = H * 0.055;
+  const depth = H * 0.04;
   const lava = repeatTex(c.texture(512, 128, (g, w, h) => {
     const grad = g.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, "#c22a08");
-    grad.addColorStop(0.5, "#ff7a1a");
-    grad.addColorStop(1, "#c22a08");
+    grad.addColorStop(0, "#3a0c04");
+    grad.addColorStop(0.5, "#b8400e");
+    grad.addColorStop(1, "#3a0c04");
     g.fillStyle = grad;
     g.fillRect(0, 0, w, h);
-    speckle(g, w, h, 700, ["#ffb030", "#ff8a1a", "#a82006", "#ffd060", "#6a1203"], [3, 16], c.rand);
+    // Dark crust floating on it.
+    speckle(g, w, h, 260, ["#2a0a04", "#5a1606", "#d8641a"], [3, 12], c.rand);
   }), bandRepeat(c, depth, 4));
-  const river = band(c, L.mid, depth, H * 0.003, std({ map: lava, emissiveMap: lava, emissive: 0xffffff, emissiveIntensity: 1.3, roughness: 0.6 }));
+  const river = band(c, L.mid, depth, H * 0.003, std({ map: lava, emissiveMap: lava, emissive: 0xffffff, emissiveIntensity: 0.8, roughness: 0.7 }));
   river.castShadow = false;
   c.onTick((t) => (lava.offset.x = t * 0.03));
   const bank = std({ color: 0x241b18, roughness: 0.9, flatShading: true });
   for (const s of [-1, 1]) band(c, L.mid, H * 0.02, H * 0.02, bank).position.z += s * (depth / 2 + H * 0.01);
-  for (let i = 0; i < 4; i++) c.glow(0xff6a20, 55, c.at(0.2 + i * 0.2, L.mid, H * 0.05), H * 0.4, 0.2);
+  for (let i = 0; i < 2; i++) c.glow(0xff6a20, 18, c.at(0.3 + i * 0.4, L.mid, H * 0.05), H * 0.3, 0.15);
 
   // Cliffs of basalt columns along both edges.
   const basalt = std({ color: 0x2c2522, roughness: 0.85, flatShading: true });
@@ -629,8 +625,8 @@ function forge(c: SceneCtx): void {
 
   // Braziers in front of the cliffs.
   const iron = std({ color: 0x3a302c, roughness: 0.5, metalness: 0.8 });
-  const coal = std({ color: 0x8a2a08, emissive: 0xff4a08, emissiveIntensity: 1, roughness: 0.8 });
-  const fireMat = new THREE.MeshBasicMaterial({ color: 0xff7a20, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false });
+  const coal = std({ color: 0x5a1a06, emissive: 0xc83a08, emissiveIntensity: 0.7, roughness: 0.8 });
+  const fireMat = new THREE.MeshBasicMaterial({ color: 0xff7a20, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false });
   for (const e of edges(c, 0.075)) for (const v of [0.24, 0.72]) {
     const p = new THREE.Vector3(e.x, 0, c.at(0.5, v).z);
     const g = new THREE.Group();
@@ -647,14 +643,14 @@ function forge(c: SceneCtx): void {
     g.position.copy(p);
     c.add(shadowed(g));
     c.onTick((t) => fire.scale.set(1 + Math.sin(t * 11 + p.z) * 0.12, 1 + Math.sin(t * 7.3 + p.x) * 0.25, 1 + Math.sin(t * 9 + p.z) * 0.12));
-    c.glow(0xff8a3a, 55, p.clone().setY(H * 0.12), H * 0.4, 0.3);
-    pool(c, p, H * 0.12, 0xff7a2a, 0.25);
+    c.glow(0xff8a3a, 22, p.clone().setY(H * 0.12), H * 0.3, 0.25);
+    pool(c, p, H * 0.1, 0xff7a2a, 0.1);
   }
 
-  const trim = std({ color: 0xffa060, emissive: 0xff5a10, emissiveIntensity: 1, roughness: 0.5 });
+  const trim = std({ color: 0xb87048, emissive: 0x8a2a08, emissiveIntensity: 0.5, roughness: 0.5 });
   dais(c, L.opp.u, L.opp.v, basalt, trim);
   dais(c, L.me.u, L.me.v, basalt, trim);
-  c.particles({ count: 130, color: 0xffa040, size: H * 0.007, motion: "rise", speed: H * 0.03, height: H * 0.35 });
+  c.particles({ count: 45, color: 0xff9a40, size: H * 0.006, motion: "rise", speed: H * 0.025, height: H * 0.3, opacity: 0.55 });
 }
 
 // ------------------------------------------------------------------ Academy (white)

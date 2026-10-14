@@ -6,6 +6,7 @@ import type { GameEventEntry, GameState, LogEntry, RevealView } from "../GameSta
 import type { ReplayStatus } from "../ReplayPlayer";
 import { RingBuffer } from "../../shared/RingBuffer";
 import { normalize, toLogEntry, toReveal, type Raw } from "./normalize";
+import { MatchChat } from "./chat";
 
 /** How many recent reveals are kept (for the popups and for cards known in a hand). */
 const MAX_REVEALS = 20;
@@ -66,6 +67,8 @@ export class EndstepAdapter {
   private serverSkew: number | undefined;
   /** The last `serverNowMs` counted, by field (a state keeps it until it changes). */
   private seenServerNow = new Map<string, number>();
+  /** The match's chat. */
+  private chat = new MatchChat();
 
   getGameState(): GameState | null {
     return this.state;
@@ -128,10 +131,35 @@ export class EndstepAdapter {
         return;
       case "SEAT_CONNECTIVITY":
         return this.onConnectivity(f);
+      case "CHAT":
+      case "CHAT_TYPING":
+      case "CHAT_REFUSED":
+      case "CHAT_MUTE":
+        return this.onChat(frame);
       case "GAME_GONE":
         if (isObj(f.payload) && f.payload.matchId === this.matchId) this.reset();
         return;
     }
+  }
+
+  /** A chat frame: kept when it's about the match being shown (or the one this page is for). */
+  private onChat(frame: Raw): void {
+    const id = MatchChat.matchOf(frame);
+    if (!id || this.replayRoute || id !== (this.matchId ?? this.routeMatchId)) return;
+    if (this.chat.handle(frame, this.myName())) this.publish();
+  }
+
+  /** Your account name (as chat messages name their writer). */
+  private myName(): string | undefined {
+    const players = Array.isArray(this.raw?.players) ? this.raw.players : [];
+    const me = players[this.viewerSeat];
+    return isObj(me) && typeof me.name === "string" ? me.name : undefined;
+  }
+
+  /** A message you just wrote on the board: shown at once, confirmed when the server sends it back. */
+  addSentChat(clientMessageId: string, text: string): void {
+    this.chat.addSent(clientMessageId, text, this.myName() ?? "You", this.spectating);
+    this.publish();
   }
 
   /** A game event as a line of the log (each once: it may come again on a reconnect). */
@@ -185,6 +213,7 @@ export class EndstepAdapter {
     if (!sameMatch && this.matchId) {
       this.connectivity.clear();
       this.log = [];
+      this.chat.clear();
     }
     this.matchId = f.matchId as string;
     this.viewerSeat = typeof f.viewerSeat === "number" ? f.viewerSeat : this.viewerSeat;
@@ -218,6 +247,7 @@ export class EndstepAdapter {
     this.state = null;
     this.reveals = [];
     this.log = [];
+    this.chat.clear();
     this.connectivity.clear();
     this.serverSkew = undefined;
     this.seenServerNow.clear();
@@ -240,7 +270,8 @@ export class EndstepAdapter {
       const conn = this.connectivity.get(i);
       return conn && !conn.connected && !p.hasLost && !p.hasConceded ? { ...p, disconnected: { deadline: conn.deadline } } : p;
     });
-    this.state = { ...state, players, reveals: this.reveals, log: this.log, ...(this.spectating ? { spectating: true } : {}) };
+    const chat = this.chat.view();
+    this.state = { ...state, players, reveals: this.reveals, log: this.log, ...(chat ? { chat } : {}), ...(this.spectating ? { spectating: true } : {}) };
     for (const cb of this.listeners) cb(this.state);
   }
 

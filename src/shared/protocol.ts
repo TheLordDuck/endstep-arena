@@ -42,6 +42,28 @@ export function isSendActionCommand(v: unknown): v is SendActionCommand {
     typeof c.action === "object" && c.action !== null && typeof c.action.type === "string";
 }
 
+/** The match chat, written on the board: a message (as Endstep's own chat box sends it, at most
+    CHAT_MAX characters), or that you're typing. Not a game action: it has its own frame types. */
+export interface ChatCommand {
+  tag: typeof COMMAND_TAG;
+  kind: "send-chat" | "chat-typing";
+  matchId: string;
+  message?: string;
+  clientMessageId?: string;
+  active?: boolean;
+}
+
+/** Endstep's limit on a chat message (its client cuts longer ones). */
+export const CHAT_MAX = 500;
+
+export function isChatCommand(v: unknown): v is ChatCommand {
+  if (typeof v !== "object" || v === null) return false;
+  const c = v as Partial<ChatCommand>;
+  if (c.tag !== COMMAND_TAG || typeof c.matchId !== "string" || !c.matchId) return false;
+  if (c.kind === "send-chat") return typeof c.message === "string" && typeof c.clientMessageId === "string";
+  return c.kind === "chat-typing" && typeof c.active === "boolean";
+}
+
 /** Endstep's damage sound, timed to the board's hits: held back while `hold` is on (the board is
     shown with its animations), and let go as a `hit` lands there. See src/inject/damageSound.ts. */
 export interface DamageSoundCommand {

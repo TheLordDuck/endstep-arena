@@ -2382,6 +2382,113 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 /* ---------- Corner, zoom, menu, viewer, banners ---------- */
 .corner { position: absolute; top: 12px; right: 16px; z-index: 50; display: flex; gap: 6px; opacity: 0.55; transition: opacity 0.2s; }
 .corner:hover { opacity: 1; }
+/* The Chat button: a gold dot with the count while messages wait unread (the corner shows up). */
+.chat-btn { position: relative; }
+.chat-btn[hidden] { display: none; }
+.chat-btn.unread { color: var(--text); border-color: var(--gold); }
+.chat-btn.unread::after {
+  content: attr(data-unread);
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font: 700 10px/16px var(--font);
+  color: #231a0c;
+  background: var(--gold-hi);
+  box-shadow: 0 0 8px rgba(255, 214, 120, 0.7);
+}
+.corner:has(.chat-btn.unread) { opacity: 1; }
+
+/* The chat panel: in the left column like the log (beside it when both are open), the
+   conversation, who's typing, a notice when a message is refused, and the box to write in. */
+.chat {
+  position: absolute;
+  top: 92px;
+  bottom: 250px;
+  left: 12px;
+  z-index: 61;
+  display: none;
+  flex-direction: column;
+  width: clamp(240px, 19vw, 320px);
+  border-radius: 12px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  animation: slide-in-left 0.18s ease;
+}
+.board.chat-open .chat { display: flex; }
+.board.log-open .chat { left: calc(24px + clamp(240px, 19vw, 320px)); }
+.chat-list { flex: 1; overflow-y: auto; padding: 8px 0; scrollbar-width: thin; scrollbar-color: rgba(232, 198, 120, 0.3) transparent; user-select: text; -webkit-user-select: text; }
+.cmsg { padding: 3px 12px; font: 400 13px/1.4 var(--font); color: #e6dcc8; overflow-wrap: anywhere; }
+.cmsg b { font-weight: 700; color: #ff9a86; }
+.cmsg.mine b { color: var(--gold-hi); }
+.cmsg.spectator b { color: #a9b6c8; font-style: italic; }
+.cmsg.system { color: var(--muted); font-style: italic; }
+.cmsg.pending { opacity: 0.55; }
+.chat-typing, .chat-notice { padding: 0 12px; font: italic 12px/1.5 var(--font); color: var(--muted); }
+.chat-typing:empty, .chat-notice:empty { display: none; }
+.chat-notice { color: #ffb4a4; }
+.chat-form { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--glass-line); }
+.chat-in {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-line);
+  background: rgba(0, 0, 0, 0.45);
+  font: 400 13px var(--font);
+  color: var(--text);
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.chat-in:focus { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(232, 198, 120, 0.2); }
+.chat-send { padding: 0 12px; border: 0; border-radius: 8px; font: 700 12px var(--font); color: #231a0c; background: linear-gradient(180deg, var(--gold-hi), var(--gold)); }
+.chat-send:hover { filter: brightness(1.08); }
+
+/* A new message, for a moment, in a bubble by its writer's picture (pointing at it), or under the
+   Chat button for a spectator's. Clicking it opens the chat. */
+.bubbles { position: absolute; inset: 0; z-index: 62; pointer-events: none; }
+.bubble {
+  position: absolute;
+  max-width: min(320px, 26vw);
+  padding: 7px 12px 8px;
+  border-radius: 12px;
+  font: 500 14px/1.35 var(--font);
+  color: #231a0c;
+  background: linear-gradient(180deg, #fff8e6, #ecdcb4);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  translate: 0 -50%;
+  animation: bubble-in 0.25s cubic-bezier(.2, 1.3, .4, 1);
+  transition: opacity 0.35s ease, scale 0.35s ease;
+}
+.bubble b { display: block; font: 700 11px/1.3 var(--font); letter-spacing: 0.04em; color: #7a5a22; }
+/* The tail, pointing at the picture on the left. */
+.bubble.me::before, .bubble.opp::before {
+  content: "";
+  position: absolute;
+  left: -7px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  translate: 0 -50%;
+  rotate: 45deg;
+  background: #f5e9cc;
+  border-left: 1px solid rgba(0, 0, 0, 0.35);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+}
+.bubble.btn { translate: 0 0; }
+.bubble.out { opacity: 0; scale: 0.92; }
+@keyframes bubble-in { from { opacity: 0; scale: 0.8; } }
+.board.still .bubble { animation: none; }
 
 .zoom {
   --zw: 300px;

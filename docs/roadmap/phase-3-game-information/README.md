@@ -2,7 +2,7 @@
 
 Understand what happened and what you're waiting for without opening Endstep's panel.
 
-**Phase status: In progress** (5/17 done)
+**Phase status: In progress** (6/18 done)
 
 ## Progress
 
@@ -23,6 +23,7 @@ Understand what happened and what you're waiting for without opening Endstep's p
 - [ ] t3-15 · [What a mulligan costs, under the button](t3-15-mulligan-cost.md) — Awaiting approval
 - [ ] t3-16 · [The player's portrait and life as in Arena](t3-16-arena-player-portrait.md) — Awaiting approval
 - [ ] t3-17 · [Library and graveyard without labels, by the portrait](t3-17-piles-without-labels.md) — Awaiting approval
+- [x] t3-18 · [The match chat on the board](t3-18-match-chat.md) — Done
 
 ## Features
 
@@ -45,3 +46,4 @@ Understand what happened and what you're waiting for without opening Endstep's p
 | t3-15 | [What a mulligan costs, under the button](t3-15-mulligan-cost.md) | Feature | **Awaiting approval** |
 | t3-16 | [The player's portrait and life as in Arena](t3-16-arena-player-portrait.md) | Feature | **Awaiting approval** |
 | t3-17 | [Library and graveyard without labels, by the portrait](t3-17-piles-without-labels.md) | Feature | **Awaiting approval** |
+| t3-18 | [The match chat on the board](t3-18-match-chat.md) | Feature | **Done** |

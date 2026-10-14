@@ -2,7 +2,7 @@
 // adapter and mounts the overlay. Registered at document_start so no frame
 // posted by the tap is missed.
 
-import { COMMAND_TAG, isBridgeEnvelope, type SendActionCommand } from "../shared/protocol";
+import { CHAT_MAX, COMMAND_TAG, isBridgeEnvelope, type ChatCommand, type SendActionCommand } from "../shared/protocol";
 import { RingBuffer } from "../shared/RingBuffer";
 import { EndstepAdapter, isReplayPath } from "../game/endstep/EndstepAdapter";
 import { decodeReplay } from "../game/endstep/replay";
@@ -59,6 +59,19 @@ const controller = new GameController(
   (matchId, action) => {
     const command: SendActionCommand = { tag: COMMAND_TAG, kind: "send-action", matchId, action };
     window.postMessage(command, location.origin);
+  },
+  // The chat travels the same way; a message shows on the board at once.
+  {
+    send: (matchId, text, clientMessageId) => {
+      const message = text.slice(0, CHAT_MAX);
+      const command: ChatCommand = { tag: COMMAND_TAG, kind: "send-chat", matchId, message, clientMessageId };
+      window.postMessage(command, location.origin);
+      adapter.addSentChat(clientMessageId, message);
+    },
+    typing: (matchId, active) => {
+      const command: ChatCommand = { tag: COMMAND_TAG, kind: "chat-typing", matchId, active };
+      window.postMessage(command, location.origin);
+    },
   },
 );
 

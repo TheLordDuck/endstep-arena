@@ -1,13 +1,15 @@
 // Runs in the page's MAIN world at document_start, before Endstep's bundle.
 // It observes Endstep's own game socket and forwards game frames to the
 // isolated content script; it never alters, drops or delays a frame.
-// Its one write path sends whitelisted GAME_ACTION frames in the exact
-// envelope Endstep's client uses, so the server sees an ordinary action.
+// Its write paths send whitelisted GAME_ACTION frames, and the match chat's CHAT and CHAT_TYPING
+// frames, in the exact envelopes Endstep's client uses, so the server sees ordinary ones.
 // It also times Endstep's damage sound to the board's hits (see damageSound.ts).
 
 import {
   ALLOWED_ACTIONS,
   BRIDGE_TAG,
+  CHAT_MAX,
+  isChatCommand,
   isSendActionCommand,
   type TapMessage,
 } from "../shared/protocol";
@@ -33,7 +35,8 @@ declare global {
   };
 
   // Cheap substring test before anything is forwarded; the isolated side parses.
-  const isGameFrame = (data: string) => data.includes('"GAME_') || data.includes('"ATTACH"') || data.includes('"SEAT_CONNECTIVITY"');
+  // (CHAT, CHAT_TYPING, CHAT_REFUSED, CHAT_MUTE: the board keeps only its match's chat.)
+  const isGameFrame = (data: string) => data.includes('"GAME_') || data.includes('"ATTACH"') || data.includes('"SEAT_CONNECTIVITY"') || data.includes('"CHAT');
 
   const isGameSocket = (url: string) => {
     try {
@@ -98,6 +101,19 @@ declare global {
       current!.send(JSON.stringify({ type: "GAME_ACTION", payload }));
     }
     post({ kind: "action-result", ok, type: action.type, reason: ok ? undefined : allowed ? "not-connected" : "not-allowed" });
+  });
+
+  // The match chat from the Arena UI: a message, or that you're typing, as Endstep's chat box sends them.
+  window.addEventListener("message", (ev) => {
+    if (ev.source !== window || !isChatCommand(ev.data)) return;
+    const c = ev.data;
+    if (!current || current.readyState !== NativeWebSocket.OPEN) return;
+    if (c.kind === "send-chat") {
+      const message = c.message!.trim().slice(0, CHAT_MAX);
+      if (message) current.send(JSON.stringify({ type: "CHAT", payload: { message, matchId: c.matchId, clientMessageId: c.clientMessageId } }));
+    } else {
+      current.send(JSON.stringify({ type: "CHAT_TYPING", payload: { scope: "match", id: c.matchId, active: c.active } }));
+    }
   });
 
   // Replays: Endstep downloads the file and plays it itself, with no socket involved. A copy of

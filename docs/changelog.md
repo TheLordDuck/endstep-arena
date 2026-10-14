@@ -2,7 +2,7 @@
 
 ## Session of 2026-10-14
 
-On top of `675f033`. All 133 tests pass (8 new, in `tests/arenaFrames.test.ts`). Checked in the
+On top of `675f033`. All 140 tests pass (15 new, in `tests/arenaFrames.test.ts` and `tests/chat.test.ts`). Checked in the
 harness with Scryfall's images and on the recorded match (`#match:bot-combats`), not yet in a live
 match. Eight roadmap features from the LegenVD videos, all approved and done today.
 
@@ -34,13 +34,19 @@ match. Eight roadmap features from the LegenVD videos, all approved and done tod
    almost from above with three.js (`src/ui/board/scene/`), all modelled and drawn in code: a floor
    with a large pattern, a band on the midline, a dais under each picture, tall scenery along the
    edges, shadows, lights and particles. Five, one per color: Academy, Glacier, Cathedral, Forge
-   and Garden. Settings → Table: the deck's color (default), any of the five, or Plain (the play
+   and Garden. Settings → Table: Random (default: a new scene each match), the deck's color, any of the five, or Plain (the play
    mat on wood dyed in the deck's color; also without WebGL). New pref `table` (an old
    `tableArt: false` becomes Plain). It pauses while hidden and runs at 30 fps at most. The
    content script grows from 0.6 to 1.6 MB (three.js, not minified).
 9. **Harness:** scenarios `pw` (now Garruk Wildspeaker on the table), `pw-click`, `pw-stack`,
    `modal` and `ability-frames`; `?play=<card id>`; how to see card art there (docs/testing.md).
-10. **Roadmap:** the eight above done; the docs of t2-21, t3-10 to t3-17, t4-6 and t4-7 (added to the
+10. **The match chat on the board** (t3-18, asked for during the session). A new message shows
+   for a moment in a bubble by its writer's picture; the Chat button (or C) opens the conversation
+   and a box to write in, with Endstep's typing indicator, refusals and mutes. Endstep's chat
+   protocol read from its bundle (docs/ENDSTEP_ANALYSIS.md §11); the tap sends `CHAT` and
+   `CHAT_TYPING` frames on a path of their own. Settings → Chat bubbles. Harness scenario `chat`.
+   See [features/match-chat.md](features/match-chat.md).
+11. **Roadmap:** the eight above done; the docs of t2-21, t3-10 to t3-17, t4-6 and t4-7 (added to the
     tracker on 2026-10-13, awaiting approval) written.
 
 ## Session of 2026-10-13

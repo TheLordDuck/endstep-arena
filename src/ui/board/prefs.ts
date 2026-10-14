@@ -13,13 +13,17 @@ export interface BoardPrefs {
   volume: number;
   /** The game log panel is open. */
   logOpen: boolean;
-  /** The table: a 3D scene for the deck's main color ("auto"), one chosen, or the plain mat. */
+  /** The table: a 3D scene picked at random for each match ("random"), the one for the deck's
+      main color ("auto"), one chosen, or the plain mat. */
   table: TableChoice;
+  /** A new chat message shows for a moment in a bubble by its writer's picture. */
+  chatBubbles: boolean;
 }
 
-export type TableChoice = "auto" | "academy" | "glacier" | "cathedral" | "forge" | "garden" | "plain";
+export type TableChoice = "random" | "auto" | "academy" | "glacier" | "cathedral" | "forge" | "garden" | "plain";
 
 export const TABLES: { value: TableChoice; label: string }[] = [
+  { value: "random", label: "Random" },
   { value: "auto", label: "Deck's color" },
   { value: "academy", label: "Academy" },
   { value: "glacier", label: "Glacier" },
@@ -36,7 +40,8 @@ export const DEFAULT_PREFS: BoardPrefs = {
   sound: true,
   volume: 0.6,
   logOpen: false,
-  table: "auto",
+  table: "random",
+  chatBubbles: true,
 };
 
 export const ANIM_SPEEDS: { value: number; label: string }[] = [
@@ -64,6 +69,7 @@ export function cleanPrefs(stored: Partial<Record<keyof BoardPrefs, unknown>> | 
   if (typeof stored.sound === "boolean") p.sound = stored.sound;
   p.volume = num(stored.volume, 0, 1) ?? p.volume;
   if (typeof stored.logOpen === "boolean") p.logOpen = stored.logOpen;
+  if (typeof stored.chatBubbles === "boolean") p.chatBubbles = stored.chatBubbles;
   const table = (stored as { table?: unknown }).table;
   if (TABLES.some((t) => t.value === table)) p.table = table as TableChoice;
   // Before the scenes, the table was the deck's land art or plain.

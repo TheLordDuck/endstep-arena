@@ -85,9 +85,10 @@ Added on 2026-10-14:
 | `pw-stack` | Loyalty abilities on the stack in the ability frame, with their cost: Garruk's −1 (named by its printed text) and Jace's 0 (named by what it does) |
 | `modal` | Kolaghan's Command on the stack, two of its four modes chosen (the other two dimmed), told from Endstep's description |
 | `ability-frames` | An activated ability (as printed, cost included) and a trigger in Arena's ability frame |
+| `chat` | The match chat: a conversation, then the opponent writes (a bubble by their picture), a spectator too (under the Chat button), and the opponent starts typing; press C to open it and write (the reply comes back as the server's echo). With `?step=800` they come one by one |
 
-Every scenario now shows permanents in Arena's frame with their keyword icons and the table's
-land art; `keywords`, `clock` (the rope), `stack7` (the magnifier), `order`, `divided` and
+Every scenario now shows permanents with their keyword icons and the 3D table; `keywords`,
+`clock` (the rope), `stack7` (the magnifier), `order`, `divided` and
 `fireball` (the target beams) show the rest of the 2026-10-14 changes.
 
 `?play=<card id>` clicks that card as if to play it (a permanent with several abilities opens its
@@ -152,4 +153,4 @@ Only the frames Endstep sent are kept (brotli; a 13-turn match is 26 KB). Then:
 pnpm test
 ```
 
-133 tests at the end of the 2026-10-14 session.
+140 tests at the end of the 2026-10-14 session.

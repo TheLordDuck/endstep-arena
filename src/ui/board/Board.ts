@@ -4,7 +4,7 @@
 // All game actions go through GameController; this file never talks to
 // Endstep directly.
 
-import type { AbilityOption, CardView, CombatLink, DivideView, GameState, LogEntry, PendingActionView, PileView, PlayerView, SideboardView, StackItemView } from "../../game/GameState";
+import type { AbilityOption, CardView, ChatMessage, CombatLink, DivideView, GameState, LogEntry, PendingActionView, PileView, PlayerView, SideboardView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
 import { createsTokens, relatedTokens } from "./relatedTokens";
 import { CARD_BACK_URL, chosenLabels, createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
@@ -20,7 +20,7 @@ import { keywordNotes } from "./keywords";
 import { bestLine, chosenModes, frameColor, loyaltyCost, loyaltyLines, loyaltyNeeded, modeLines, withoutCost } from "./abilityText";
 import { ANIM_SPEEDS, CARD_SCALES, TABLES, type BoardPrefs } from "./prefs";
 import { Battlefield3D, type SceneLayout } from "./scene/Battlefield3D";
-import { THEME_FOR_LAND, type ThemeName } from "./scene/themes";
+import { THEME_FOR_LAND, THEMES, type ThemeName } from "./scene/themes";
 import { deckLand } from "./tableArt";
 import { Sounds, type Sfx } from "./sounds";
 import { damageDealt } from "../../game/spellDamage";
@@ -283,9 +283,23 @@ export class Board {
   private spectateBacks: HTMLElement[] = [];
   /** The land of your deck's main color this game (see renderFelt). */
   private feltLand: { matchId: string; land: string | null } | null = null;
+  /** The chat panel is open; how many of the match's messages you've seen in it; the messages
+      already shown in a bubble (each once); since when (local clock) messages get a bubble, so a
+      reconnect's history doesn't burst out in bubbles. */
+  private chatOpen = false;
+  private chatSeen = 0;
+  private bubbled = new Set<string>();
+  private bubbleSince = Date.now() - 10_000;
+  private bubbles = new Map<string, HTMLElement>();
+  private chatTimer = 0;
+  /** You're typing in the chat (Endstep tells the others), until a pause. */
+  private chatTyping = false;
+  private chatTypingTimer = 0;
   /** The table in 3D (see renderFelt); null until wanted, or where WebGL isn't available. */
   private scene3d: Battlefield3D | null = null;
   private scene3dFailed = false;
+  /** The scene drawn for the match on screen (see randomScene). */
+  private sceneFor: { matchId: string; theme: ThemeName } | null = null;
 
   constructor(private readonly controller: GameController, private readonly hooks: BoardHooks) {
     this.el = document.createElement("div");
@@ -339,7 +353,16 @@ export class Board {
         <div class="log-list"></div>
         <div class="log-peek"></div>
       </aside>
+      <aside class="chat" aria-label="Chat">
+        <div class="log-head"><b>Chat</b><button class="log-x" data-ui="chat" title="Close the chat (Esc)">✕</button></div>
+        <div class="chat-list" aria-live="polite"></div>
+        <div class="chat-typing"></div>
+        <div class="chat-notice" role="status"></div>
+        <form class="chat-form"><input class="chat-in" maxlength="500" placeholder="Say something…" autocomplete="off" spellcheck="true"><button type="submit" class="chat-send" title="Send (Enter)">Send</button></form>
+      </aside>
+      <div class="bubbles"></div>
       <div class="corner">
+        <button class="ghost chat-btn" data-ui="chat" title="Chat (C)">Chat</button>
         <button class="ghost" data-ui="log" title="Game log (L)">Log</button>
         <button class="ghost" data-ui="debug" title="Debug panel (Alt+Shift+D)">Debug</button>
         <button class="ghost" data-ui="hide" title="Show Endstep's classic UI (Alt+Shift+A)">Classic UI</button>
@@ -546,6 +569,7 @@ export class Board {
         <div class="set-row"><span>Animation speed</span>${seg("animSpeed", ANIM_SPEEDS, !p.animations)}</div>
         <div class="set-row"><span>Card size</span>${seg("cardScale", CARD_SCALES)}</div>
         <div class="set-row"><span>Table</span>${seg("table", TABLES)}</div>
+        <div class="set-row"><span>Chat bubbles</span>${seg("chatBubbles", onOff)}</div>
         <div class="set-row"><span>Sounds</span>${seg("sound", onOff)}</div>
         <div class="set-row"><span>Volume</span><input type="range" class="vol" min="0" max="100" step="5" value="${Math.round(p.volume * 100)}" data-pref-range="volume"${p.sound ? "" : " disabled"}></div>
       </div>
@@ -560,6 +584,7 @@ export class Board {
       ["Any time", [
         ["H", "Hold priority after what you cast or activate (again: let it pass)"],
         ["L", "Game log, shown or hidden"],
+        ["C", "Chat, opened or closed (Enter sends, Esc closes)"],
         ["?", "This list"],
         ["Esc", "Close a menu or panel; stop aiming an attacker"],
         ["Alt+Shift+A", "Arena board or Endstep's own UI"],
@@ -701,6 +726,7 @@ export class Board {
     this.renderDock(state);
     this.renderReveals(state);
     this.renderLog(state);
+    this.renderChat(state);
     this.layout();
     this.placeScene();
     this.renderManaWheel(state);
@@ -2586,6 +2612,115 @@ export class Board {
     }
   }
 
+  /** The match chat: the panel (its messages, who's typing, a refusal or mute notice), the Chat
+      button's unread mark, and a bubble by the writer's picture for each new message. */
+  private renderChat(state: GameState): void {
+    const chat = state.chat;
+    const messages = chat?.messages ?? [];
+    const open = this.chatOpen && !state.replay;
+    this.el.classList.toggle("chat-open", open);
+    if (open) this.chatSeen = messages.length;
+    this.chatSeen = Math.min(this.chatSeen, messages.length);
+    const unread = messages.slice(this.chatSeen).filter((m) => !m.mine).length;
+    const btn = this.q(".chat-btn");
+    btn.hidden = !!state.replay;
+    btn.classList.toggle("unread", unread > 0);
+    btn.dataset.unread = unread ? String(Math.min(unread, 99)) : "";
+    if (open) {
+      const list = this.q(".chat-list");
+      const html = messages.map((m) => `<div class="cmsg${m.mine ? " mine" : ""}${m.role === "spectator" ? " spectator" : ""}${m.role === "system" ? " system" : ""}${m.pending ? " pending" : ""}"><b>${esc(m.username)}</b> <span>${esc(m.text)}</span></div>`).join("")
+        || '<p class="log-empty">No messages yet.</p>';
+      if (list.dataset.sig !== html) {
+        const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 48;
+        list.innerHTML = html;
+        list.dataset.sig = html;
+        if (atBottom || !list.dataset.scrolled) list.scrollTop = list.scrollHeight;
+        list.dataset.scrolled = "1";
+      }
+    }
+    const now = Date.now();
+    const typing = (chat?.typing ?? []).filter((t) => t.until > now).map((t) => t.name);
+    this.q(".chat-typing").textContent = typing.length ? `${typing.join(", ")} ${typing.length > 1 ? "are" : "is"} typing…` : "";
+    const notice = chat?.notice && chat.notice.until > now ? chat.notice.text : "";
+    this.q(".chat-notice").textContent = notice;
+    // "Typing…" and notices expire on their own.
+    clearTimeout(this.chatTimer);
+    if (typing.length || notice) this.chatTimer = window.setTimeout(() => this.state && this.renderChat(this.state), 1000);
+    for (const m of messages) {
+      if (m.pending || this.bubbled.has(m.id)) continue;
+      this.bubbled.add(m.id);
+      if (m.ts < this.bubbleSince || !this.prefs.chatBubbles || (open && m.mine)) continue;
+      this.chatBubble(state, m);
+    }
+  }
+
+  /** A message in a bubble by its writer's picture for a few seconds (a spectator's by the Chat
+      button); a newer one from the same writer replaces it. Clicking it opens the chat. */
+  private chatBubble(state: GameState, m: ChatMessage): void {
+    const z = this.zones(state);
+    const who = state.players.find((p) => p.username === m.username || p.targetName === m.username || p.name === m.username);
+    const side = who && who === z.me ? "me" : who && who === z.opp ? "opp" : "btn";
+    const anchor = side === "btn" ? this.q(".chat-btn") : this.el.querySelector<HTMLElement>(`.${side}-life .avatar`) ?? this.q(`.${side}-life`);
+    const box = this.el.getBoundingClientRect();
+    const r = anchor.getBoundingClientRect();
+    if (!r.width) return;
+    this.bubbles.get(side)?.remove();
+    const el = document.createElement("div");
+    el.className = `bubble ${side}`;
+    el.innerHTML = `<b>${esc(m.username)}</b><span>${esc(m.text)}</span>`;
+    el.title = "Open the chat";
+    if (side === "btn") {
+      el.style.top = `${r.bottom - box.top + 10}px`;
+      el.style.right = `${box.right - r.right}px`;
+    } else {
+      el.style.left = `${r.right - box.left + 14}px`;
+      el.style.top = `${r.top - box.top + r.height / 2}px`;
+    }
+    this.q(".bubbles").appendChild(el);
+    this.bubbles.set(side, el);
+    const ms = Math.min(9000, 3500 + m.text.length * 60);
+    window.setTimeout(() => {
+      el.classList.add("out");
+      window.setTimeout(() => {
+        el.remove();
+        if (this.bubbles.get(side) === el) this.bubbles.delete(side);
+      }, 400);
+    }, ms);
+  }
+
+  /** Opens or closes the chat panel (opening puts the cursor in its box). */
+  private toggleChat(open = !this.chatOpen): void {
+    this.chatOpen = open;
+    if (!open) this.stopChatTyping();
+    if (this.state) this.renderChat(this.state);
+    const input = this.q<HTMLInputElement>(".chat-in");
+    if (open) input.focus({ preventScroll: true });
+    else input.blur();
+  }
+
+  private sendChatMessage(): void {
+    const input = this.q<HTMLInputElement>(".chat-in");
+    if (this.controller.sendChat(input.value)) input.value = "";
+    this.stopChatTyping();
+  }
+
+  /** You're typing: the others are told once, and again that you stopped after a pause. */
+  private onChatInput(): void {
+    if (!this.chatTyping && this.q<HTMLInputElement>(".chat-in").value.trim()) {
+      this.chatTyping = true;
+      this.controller.chatTyping(true);
+    }
+    clearTimeout(this.chatTypingTimer);
+    this.chatTypingTimer = window.setTimeout(() => this.stopChatTyping(), 3000);
+  }
+
+  private stopChatTyping(): void {
+    clearTimeout(this.chatTypingTimer);
+    if (!this.chatTyping) return;
+    this.chatTyping = false;
+    this.controller.chatTyping(false);
+  }
+
   /** Arena's rope: while a player is running out of time to act (the last stretch of their idle
       timer), a burning line across the table on their side, in their color, that burns down to
       nothing as their time runs out. The countdown by their picture stays. */
@@ -2608,7 +2743,10 @@ export class Board {
     if (this.feltLand?.matchId !== state.matchId || !this.feltLand.land) this.feltLand = { matchId: state.matchId, land: deckLand(me) };
     const land = this.feltLand.land;
     const choice = this.prefs.table;
-    const theme: ThemeName | null = choice === "plain" ? null : choice === "auto" ? (land ? THEME_FOR_LAND[land] ?? "garden" : "garden") : choice;
+    const theme: ThemeName | null = choice === "plain" ? null
+      : choice === "random" ? this.randomScene(state.matchId)
+      : choice === "auto" ? (land ? THEME_FOR_LAND[land] ?? "garden" : "garden")
+      : choice;
     const felt = this.q(".felt");
     if (theme && !this.scene3d && !this.scene3dFailed) {
       this.scene3d = Battlefield3D.create();
@@ -2630,6 +2768,33 @@ export class Board {
     felt.dataset.land = three ? "" : print ?? "";
     const value = url ? `url("${url}")` : "none";
     if (felt.style.getPropertyValue("--felt-art") !== value) felt.style.setProperty("--felt-art", value);
+  }
+
+  /** The scene for a match when the table is Random: drawn once per match (kept for the rest of
+      it, across reloads of the tab), never the same as the last match's. */
+  private randomScene(matchId: string): ThemeName {
+    if (this.sceneFor?.matchId === matchId) return this.sceneFor.theme;
+    const KEY = "endstepArena.scene";
+    let stored: { matchId?: string; theme?: string } | null = null;
+    try {
+      stored = JSON.parse(sessionStorage.getItem(KEY) ?? "null");
+    } catch {
+      // No storage: a new draw.
+    }
+    const all = Object.keys(THEMES) as ThemeName[];
+    let theme = stored?.matchId === matchId && all.includes(stored.theme as ThemeName) ? stored.theme as ThemeName : null;
+    if (!theme) {
+      const last = this.sceneFor?.theme ?? stored?.theme;
+      const pool = all.filter((t) => t !== last);
+      theme = pool[Math.floor(Math.random() * pool.length)]!;
+      try {
+        sessionStorage.setItem(KEY, JSON.stringify({ matchId, theme }));
+      } catch {
+        // Kept for this page only.
+      }
+    }
+    this.sceneFor = { matchId, theme };
+    return theme;
   }
 
   /** Lines the 3D table up with the board: its middle band on the midline, a dais under each
@@ -4391,6 +4556,27 @@ export class Board {
         t.parentElement?.querySelector<HTMLElement>(".name-opt.first")?.click();
       }
     });
+    // The chat box: Enter sends, Esc closes; no key typed in it reaches the board's shortcuts or
+    // Endstep's (which listen further up).
+    const chatIn = this.q<HTMLInputElement>(".chat-in");
+    this.q(".chat-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      this.sendChatMessage();
+    });
+    chatIn.addEventListener("input", () => this.onChatInput());
+    chatIn.addEventListener("blur", () => this.stopChatTyping());
+    for (const type of ["keydown", "keyup", "keypress"]) {
+      chatIn.addEventListener(type, (e) => {
+        e.stopPropagation();
+        if (type === "keydown" && (e as KeyboardEvent).key === "Escape") {
+          e.preventDefault();
+          this.toggleChat(false);
+        }
+      });
+    }
+    this.q(".bubbles").addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest(".bubble")) this.toggleChat(true);
+    });
     // Hovering a stack item shows its target arrows.
     el.addEventListener("pointerover", (e) => {
       const t = e.target as HTMLElement;
@@ -4447,6 +4633,8 @@ export class Board {
     // A drag the browser cancels (e.g. the window loses focus) ends like a drop.
     window.addEventListener("pointercancel", (e) => this.onPointerUp(e));
     window.addEventListener("keydown", (e) => {
+      // Typing (the chat, a card name): the keys are the text's.
+      if (typingIn(e)) return;
       // Watching a replay: Space plays or pauses, ←/→ step a change (Shift: a turn).
       if (this.state?.replay && this.el.classList.contains("live") && !e.ctrlKey && !e.altKey && !e.metaKey) {
         const cmd: ReplayCommand | null = e.key === " " ? { kind: "toggle" }
@@ -4517,6 +4705,13 @@ export class Board {
         e.preventDefault();
         e.stopImmediatePropagation();
         this.setPref({ logOpen: !this.prefs.logOpen });
+        return;
+      }
+      // C: the chat, opened (cursor in its box) or closed.
+      if ((e.key === "c" || e.key === "C") && this.el.classList.contains("live") && !this.state?.replay && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        this.toggleChat();
         return;
       }
       // H: hold priority on or off (not while typing a card name).
@@ -4617,6 +4812,7 @@ export class Board {
       if (btn.dataset.ui === "confirm-cancel") this.hideConfirm();
       if (btn.dataset.ui === "settings-close") this.q(".settings").classList.remove("open");
       if (btn.dataset.ui === "log") this.setPref({ logOpen: !this.prefs.logOpen });
+      if (btn.dataset.ui === "chat") this.toggleChat();
       if (btn.dataset.ui === "leave-spectate") this.hooks.leaveSpectate();
       if (btn.dataset.ui === "ability-cancel") { this.abilityPick = null; this.peeking = false; this.render(state); }
       return;
@@ -5529,6 +5725,13 @@ export class Board {
 }
 
 // ------------------------------------------------------------------ helpers
+
+/** A key typed into a text box (the chat, a card name search), wherever it sits: inside the
+    board's shadow root the event's target is the host, so the first element of its path counts. */
+function typingIn(e: KeyboardEvent): boolean {
+  const t = e.composedPath()[0];
+  return t instanceof HTMLElement && (t.matches("input, textarea") || t.isContentEditable);
+}
 
 /** The element's CSS translate in px ("none" → 0 0), as it is with no animation running. */
 function translateOf(el: HTMLElement): [number, number] {

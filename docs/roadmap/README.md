@@ -19,7 +19,7 @@ approved, rejected and marked done there. These files mirror its state as of
 
 ## Summary
 
-Awaiting approval: 15 · Approved: 0 · To do: 7 · Done: 45 · Rejected: 1
+Awaiting approval: 15 · Approved: 0 · To do: 7 · Done: 46 · Rejected: 1
 
 **Approved:** none right now.
 
@@ -32,7 +32,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 | [Phase 0 · Finish open work](phase-0-finish-open-work/README.md) | **In progress** | 4/5 | To do: 1 · Done: 4 |
 | [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md) | **In progress** | 9/10 | To do: 1 · Done: 9 |
 | [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **In progress** | 20/23 | Awaiting approval: 1 · To do: 2 · Done: 20 |
-| [Phase 3 · Game information](phase-3-game-information/README.md) | **In progress** | 5/17 | Awaiting approval: 11 · To do: 1 · Done: 5 |
+| [Phase 3 · Game information](phase-3-game-information/README.md) | **In progress** | 6/18 | Awaiting approval: 11 · To do: 1 · Done: 6 |
 | [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md) | **In progress** | 5/7 | Awaiting approval: 2 · Done: 5 |
 | [Phase 5 · Modes and platform](phase-5-modes-and-platform/README.md) | **In progress** | 2/3 | To do: 1 · Done: 2 · Rejected: 1 |
 | [Phase 6 · Maybe later](phase-6-maybe-later/README.md) | **Not planned** | 0/2 | Awaiting approval: 1 · To do: 1 |
@@ -86,7 +86,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t2-23 · [Abilities on the stack in Arena's ability frame](phase-2-combat-and-effects/t2-23-ability-frame-on-stack.md) — Done
 - [x] t2-24 · [An illustrated table](phase-2-combat-and-effects/t2-24-illustrated-table.md) — Done
 
-### [Phase 3 · Game information](phase-3-game-information/README.md): In progress (5/17)
+### [Phase 3 · Game information](phase-3-game-information/README.md): In progress (6/18)
 
 - [x] t3-1 · [Game log](phase-3-game-information/t3-1-game-log.md) — Done
 - [x] t3-2 · [Game and turn clocks](phase-3-game-information/t3-2-game-clocks.md) — Done
@@ -105,6 +105,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [ ] t3-15 · [What a mulligan costs, under the button](phase-3-game-information/t3-15-mulligan-cost.md) — Awaiting approval
 - [ ] t3-16 · [The player's portrait and life as in Arena](phase-3-game-information/t3-16-arena-player-portrait.md) — Awaiting approval
 - [ ] t3-17 · [Library and graveyard without labels, by the portrait](phase-3-game-information/t3-17-piles-without-labels.md) — Awaiting approval
+- [x] t3-18 · [The match chat on the board](phase-3-game-information/t3-18-match-chat.md) — Done
 
 ### [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md): In progress (5/7)
 

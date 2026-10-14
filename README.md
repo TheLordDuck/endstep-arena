@@ -73,7 +73,7 @@ reload icon on the extension card and refresh the endstep.cc tab.
 
 Permanents show their printed keywords as icons along the bottom; tokens show in Arena's token
 frame: their art in a window arched on top, edged in their color (hover shows the whole card). The table is a 3D scene, as Arena's battlefields: the Academy, Glacier, Cathedral, Forge or Garden,
-for your deck's main color, or the one you pick (Settings → Table; *Plain* for a play mat).
+a different one each match, or the one for your deck's main color, or the one you pick (Settings → Table; *Plain* for a play mat).
 
 On the stack, abilities sit in Arena's ability frame (a planeswalker's with its loyalty cost), and
 a modal spell shows its modes with the ones not chosen dimmed. Targets are arcs of light: blue
@@ -109,6 +109,7 @@ rope crosses the table on their side and burns down with their time.
 | **?** or table menu → *Arena UI shortcuts* | The list of this board's keyboard shortcuts |
 | Waiting (not your move) | Who the game waits on and for what ("Opponent can respond to Lightning Bolt", "is declaring blockers"…); their picture glows |
 | Right-click the table → *Arena UI settings* | Animations on/off and their speed, card size, the table (your deck's color, one of five 3D scenes, or plain), sounds on/off and volume (kept for every game) |
+| **C** or *Chat* (top right) | The match chat: the conversation and a box to write in (Enter sends, Esc closes); a new message also shows for a moment in a bubble by its writer's picture, and the button counts the unread ones. See [docs/features/match-chat.md](docs/features/match-chat.md) |
 | Spectating (`/spectate/…`) | The game on the Arena board, with nothing to answer; *Leave* (top center) stops watching |
 
 ## Development

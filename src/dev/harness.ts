@@ -13,6 +13,7 @@ import { loadStops, saveStops } from "../game/endstep/phaseStops";
 import { cleanPrefs } from "../ui/board/prefs";
 import { StatePacer } from "../ui/StatePacer";
 import { EndstepAdapter } from "../game/endstep/EndstepAdapter";
+import { MatchChat } from "../game/endstep/chat";
 
 /** The matches in tests/fixtures, by name: their frames as ndjson (see build.mjs). */
 declare const __MATCHES__: Record<string, string>;
@@ -1033,6 +1034,24 @@ const scenarios: Record<string, Scenario> = {
     s.pendingAction = { type: "CHOOSE_CARDS", contextType: "sideboard", promptVersion: 20, message: "Sideboard for game 2", min: 60, max: 999, cardOptions,
       sideboardState: { mainCount: 60, mode: "SIDEBOARD", self: "EDITING", opponent: "SUBMITTED", deadlineMs: Date.now() + 154_000 } };
   },
+  // The match chat: a conversation so far (open it with C or the Chat button), then the opponent
+  // writes (a bubble by their picture), a spectator chimes in (a bubble under the Chat button),
+  // and the opponent starts typing again. With ?step=<ms> they come one by one.
+  chat: (s) => {
+    const old = Date.now() - 120_000;
+    const msg = (username: string, message: string, ts: number, extra: Raw = {}) =>
+      ({ type: "CHAT", matchId: "harness", timestamp: ts, payload: { message, messageId: `m${ts}${username}`, userId: username, username, senderRole: "player", ...extra } });
+    s.__chat = [msg("Opponent", "Hello! good luck", old), msg("Flavio", "glhf!", old + 4000), msg("Opponent", "nice opening", old + 60_000)];
+    return (t) => {
+      t.__chat = [...(t.__chat as Raw[]), msg("Opponent", "gg wp, that Tarmogoyf was huge", Date.now())];
+      return (u) => {
+        u.__chat = [...(u.__chat as Raw[]), msg("Watcher42", "what a game", Date.now(), { senderRole: "spectator" })];
+        return (v) => {
+          v.__chat = [...(v.__chat as Raw[]), { type: "CHAT_TYPING", matchId: "harness", payload: { scope: "match", id: "harness", userId: "Opponent", username: "Opponent", active: true } }];
+        };
+      };
+    };
+  },
   order: (s) => {
     s.pendingAction = { type: "ORDER_ABILITIES", promptVersion: 9, message: "Order your triggered abilities",
       cardOptions: [
@@ -1053,8 +1072,17 @@ let seq = 1;
 // The adapter adds reveals from game events; scenarios list those events in raw.__events.
 // Scenarios mark what the adapter would add: a replay's position (raw.__replay), a player who
 // lost connection (raw.__disconnected: their index, with 83 s left).
+// The chat, as the adapter keeps it: the frames a scenario lists in raw.__chat, each taken once.
+const chat = new MatchChat();
+const chatTaken = new Set<unknown>();
 const build = (meta: { viewerSeat?: number; seq: number }) => {
   const s = normalize(raw, { matchId: "harness", viewerSeat: meta.viewerSeat ?? 0, seq: meta.seq, desynced: false });
+  for (const frame of (raw.__chat as Raw[] | undefined) ?? []) {
+    if (chatTaken.has(frame)) continue;
+    chatTaken.add(frame);
+    chat.handle(frame, "Flavio");
+  }
+  const chatView = chat.view();
   const gone = raw.__disconnected as number | undefined;
   return {
     ...s,
@@ -1063,6 +1091,7 @@ const build = (meta: { viewerSeat?: number; seq: number }) => {
     log: ((raw.__events as Raw[] | undefined) ?? []).map((e, i) => toLogEntry(e, i + 1)).filter((e): e is LogEntry => !!e),
     ...(raw.__spectating ? { spectating: true } : {}),
     ...(raw.__replay ? { replay: raw.__replay as ReplayStatus } : {}),
+    ...(chatView ? { chat: chatView } : {}),
   };
 };
 let state: GameState = build({ seq: 1 });
@@ -1080,6 +1109,21 @@ const controller = new GameController(() => state, (matchId, action) => {
     state = build({ seq: ++seq });
     setTimeout(() => pacer.push(state), 150);
   }
+}, {
+  // Stand in for the server: a message shows at once, and comes back confirmed a moment later.
+  send: (_matchId, message, clientMessageId) => {
+    console.log("CHAT", JSON.stringify(message));
+    chat.addSent(clientMessageId, message, "Flavio", false);
+    state = build({ seq: ++seq });
+    pacer.push(state);
+    setTimeout(() => {
+      raw.__chat = [...((raw.__chat as Raw[] | undefined) ?? []), { type: "CHAT", matchId: "harness", timestamp: Date.now(),
+        payload: { message, messageId: clientMessageId, userId: "Flavio", username: "Flavio", senderRole: "player", clientMessageId } }];
+      state = build({ seq: ++seq });
+      pacer.push(state);
+    }, 300);
+  },
+  typing: (_matchId, active) => console.log("CHAT TYPING", active),
 });
 (window as unknown as { __actions: unknown[] }).__actions = [];
 const stops = loadStops();
