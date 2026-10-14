@@ -14,13 +14,17 @@ export interface BoardPrefs {
   /** The game log panel is open. */
   logOpen: boolean;
   /** The table: a 3D scene picked at random for each match ("random"), the one for the deck's
-      main color ("auto"), one chosen, or the plain mat. */
+      main color ("auto"), one chosen, the plain mat, no background at all ("none"), or a picture
+      of the player's own ("custom", `tableImage`). */
   table: TableChoice;
+  /** The picture for a "custom" table: an image file the player picked (as a data: URL, made
+      smaller) or a link to one. */
+  tableImage: string;
   /** A new chat message shows for a moment in a bubble by its writer's picture. */
   chatBubbles: boolean;
 }
 
-export type TableChoice = "random" | "auto" | "academy" | "glacier" | "cathedral" | "forge" | "garden" | "plain";
+export type TableChoice = "random" | "auto" | "academy" | "glacier" | "cathedral" | "forge" | "garden" | "plain" | "none" | "custom";
 
 export const TABLES: { value: TableChoice; label: string }[] = [
   { value: "random", label: "Random" },
@@ -31,7 +35,14 @@ export const TABLES: { value: TableChoice; label: string }[] = [
   { value: "forge", label: "Forge" },
   { value: "garden", label: "Garden" },
   { value: "plain", label: "Plain" },
+  { value: "none", label: "None" },
+  { value: "custom", label: "Custom" },
 ];
+
+/** A picture the table can show: an image file read in, or a web link. */
+export function validTableImage(v: unknown): v is string {
+  return typeof v === "string" && (/^data:image\/[\w.+-]+;base64,/.test(v) || /^https?:\/\/\S+$/i.test(v));
+}
 
 export const DEFAULT_PREFS: BoardPrefs = {
   animations: true,
@@ -41,6 +52,7 @@ export const DEFAULT_PREFS: BoardPrefs = {
   volume: 0.6,
   logOpen: false,
   table: "random",
+  tableImage: "",
   chatBubbles: true,
 };
 
@@ -72,6 +84,7 @@ export function cleanPrefs(stored: Partial<Record<keyof BoardPrefs, unknown>> | 
   if (typeof stored.chatBubbles === "boolean") p.chatBubbles = stored.chatBubbles;
   const table = (stored as { table?: unknown }).table;
   if (TABLES.some((t) => t.value === table)) p.table = table as TableChoice;
+  if (validTableImage(stored.tableImage)) p.tableImage = stored.tableImage;
   // Before the scenes, the table was the deck's land art or plain.
   else if ((stored as { tableArt?: unknown }).tableArt === false) p.table = "plain";
   return p;

@@ -87,9 +87,20 @@ test("spectating: the route names the match, the state says so, and nothing is s
 test("stored settings: missing or out-of-range values fall back to the defaults", () => {
   assert.deepEqual(cleanPrefs(undefined), DEFAULT_PREFS);
   assert.deepEqual(cleanPrefs({ animations: false, animSpeed: 2.5, cardScale: 1.3, sound: false, volume: 0.2, logOpen: true, table: "forge", chatBubbles: false }),
-    { animations: false, animSpeed: 2.5, cardScale: 1.3, sound: false, volume: 0.2, logOpen: true, table: "forge", chatBubbles: false });
+    { animations: false, animSpeed: 2.5, cardScale: 1.3, sound: false, volume: 0.2, logOpen: true, table: "forge", tableImage: "", chatBubbles: false });
   const bad = cleanPrefs({ animations: "no", animSpeed: 99, cardScale: -1, volume: 3, logOpen: 1, table: "moon", chatBubbles: "no" });
   // The old setting: the plain table stays plain.
   assert.equal(cleanPrefs({ tableArt: false } as never).table, "plain");
   assert.deepEqual(bad, DEFAULT_PREFS);
+});
+
+test("settings: no table background, or a picture of your own", () => {
+  assert.equal(cleanPrefs({ table: "none" }).table, "none");
+  const own = cleanPrefs({ table: "custom", tableImage: "data:image/jpeg;base64,AAAA" });
+  assert.equal(own.table, "custom");
+  assert.equal(own.tableImage, "data:image/jpeg;base64,AAAA");
+  assert.equal(cleanPrefs({ tableImage: "https://i.imgur.com/x.png" }).tableImage, "https://i.imgur.com/x.png");
+  // Anything else isn't a picture the table can show.
+  assert.equal(cleanPrefs({ tableImage: "javascript:alert(1)" }).tableImage, "");
+  assert.equal(cleanPrefs({ tableImage: 3 }).tableImage, "");
 });

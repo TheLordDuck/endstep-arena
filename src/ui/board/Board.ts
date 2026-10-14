@@ -21,7 +21,7 @@ import { MULLIGAN_RULE, mulliganCost, mulliganHint, mulliganStatus } from "./mul
 import { handLimitWarning } from "./handLimit";
 import { lifeGainSource } from "./lifeGain";
 import { bestLine, chosenModes, frameColor, loyaltyCost, loyaltyLines, loyaltyNeeded, modeLines, withoutCost } from "./abilityText";
-import { ANIM_SPEEDS, CARD_SCALES, TABLES, type BoardPrefs } from "./prefs";
+import { ANIM_SPEEDS, CARD_SCALES, TABLES, validTableImage, type BoardPrefs, type TableChoice } from "./prefs";
 import { Battlefield3D, type SceneLayout } from "./scene/Battlefield3D";
 import { THEME_FOR_LAND, THEMES, type ThemeName } from "./scene/themes";
 import { deckLand } from "./tableArt";
@@ -582,7 +582,12 @@ export class Board {
         <div class="set-row"><span>Animations</span>${seg("animations", onOff)}</div>
         <div class="set-row"><span>Animation speed</span>${seg("animSpeed", ANIM_SPEEDS, !p.animations)}</div>
         <div class="set-row"><span>Card size</span>${seg("cardScale", CARD_SCALES)}</div>
-        <div class="set-row"><span>Table</span>${seg("table", TABLES)}</div>
+        <div class="set-row"><span>Table</span><select class="set-select" data-pref-select="table">${TABLES.map((t) =>
+          `<option value="${t.value}"${p.table === t.value ? " selected" : ""}>${esc(t.label)}</option>`).join("")}</select></div>
+        ${p.table === "custom" ? `<div class="set-row"><span>Table image</span><div class="set-image">
+          <label class="set-file">Choose image…<input type="file" accept="image/*" data-pref-file="tableImage" hidden></label>
+          <input type="url" class="set-url" placeholder="…or paste an image link" data-pref-url="tableImage" value="${esc(p.tableImage.startsWith("data:") ? "" : p.tableImage)}">
+        </div></div>` : ""}
         <div class="set-row"><span>Chat bubbles</span>${seg("chatBubbles", onOff)}</div>
         <div class="set-row"><span>Sounds</span>${seg("sound", onOff)}</div>
         <div class="set-row"><span>Volume</span><input type="range" class="vol" min="0" max="100" step="5" value="${Math.round(p.volume * 100)}" data-pref-range="volume"${p.sound ? "" : " disabled"}></div>
@@ -2866,11 +2871,23 @@ export class Board {
     if (this.feltLand?.matchId !== state.matchId || !this.feltLand.land) this.feltLand = { matchId: state.matchId, land: deckLand(me) };
     const land = this.feltLand.land;
     const choice = this.prefs.table;
-    const theme: ThemeName | null = choice === "plain" ? null
+    // No background (a plain dark color), or the player's own picture: no scene, no mat.
+    const own = choice === "none" ? "none" : choice === "custom" && this.prefs.tableImage ? "custom" : null;
+    const felt = this.q(".felt");
+    felt.classList.toggle("bare", own === "none");
+    felt.classList.toggle("custom", own === "custom");
+    const img = own === "custom" ? `url("${this.prefs.tableImage.replace(/["\\]/g, "\\$&")}")` : "none";
+    if (felt.style.getPropertyValue("--table-img") !== img) felt.style.setProperty("--table-img", img);
+    if (own) {
+      felt.classList.remove("three", "art");
+      felt.dataset.land = "";
+      this.scene3d?.stop();
+      return;
+    }
+    const theme: ThemeName | null = choice === "plain" || choice === "none" || choice === "custom" ? null
       : choice === "random" ? this.randomScene(state.matchId)
       : choice === "auto" ? (land ? THEME_FOR_LAND[land] ?? "garden" : "garden")
       : choice;
-    const felt = this.q(".felt");
     if (theme && !this.scene3d && !this.scene3dFailed) {
       this.scene3d = Battlefield3D.create();
       if (this.scene3d) felt.prepend(this.scene3d.canvas);
@@ -4691,12 +4708,38 @@ export class Board {
     el.addEventListener("change", (e) => {
       const t = e.target as HTMLElement;
       if (t.dataset.prefRange === "volume") this.setPref({ volume: Number((t as HTMLInputElement).value) / 100 });
+      if (t.dataset.prefSelect === "table") this.setPref({ table: (t as HTMLSelectElement).value as TableChoice });
+      // The table's own picture: a file (made smaller, so it keeps in the settings) or a link.
+      if (t.dataset.prefFile === "tableImage") {
+        const file = (t as HTMLInputElement).files?.[0];
+        if (file) void shrinkImage(file).then((url) => url ? this.setPref({ tableImage: url }) : this.toast("That file isn't an image the browser can read"));
+      }
+      // Endstep's page only shows pictures from its own site and Scryfall: a link elsewhere is
+      // fetched and kept as a file would be (if its site lets it be fetched).
+      if (t.dataset.prefUrl === "tableImage") {
+        const url = (t as HTMLInputElement).value.trim();
+        if (!url) return;
+        if (!validTableImage(url)) return this.toast("Paste a link starting with https://");
+        void fetch(url).then((r) => (r.ok ? r.blob() : null)).catch(() => null)
+          .then((blob) => (blob ? shrinkImage(blob) : null))
+          .then((image) => image ? this.setPref({ tableImage: image })
+            : this.toast("That site doesn't let its picture be used: save it and use Choose image… instead"));
+      }
     });
     el.addEventListener("pointerdown", (e) => {
       if (!(e.target as HTMLElement).matches(".rb-track")) return;
       this.replayScrubbing = true;
       window.addEventListener("pointerup", () => (this.replayScrubbing = false), { once: true });
     });
+    // The table image's link box: its keys are the text's (Enter takes the link).
+    for (const type of ["keydown", "keyup", "keypress"]) {
+      el.addEventListener(type, (e) => {
+        const t = e.target as HTMLElement;
+        if (!t.matches(".set-url")) return;
+        e.stopPropagation();
+        if (type === "keydown" && (e as KeyboardEvent).key === "Enter") (t as HTMLInputElement).blur();
+      });
+    }
     el.addEventListener("keydown", (e) => {
       const t = e.target as HTMLElement;
       if (!t.matches(".name-q")) return;
@@ -5922,7 +5965,7 @@ const ZC_ICONS = {
     board's shadow root the event's target is the host, so the first element of its path counts. */
 function typingIn(e: KeyboardEvent): boolean {
   const t = e.composedPath()[0];
-  return t instanceof HTMLElement && (t.matches("input, textarea") || t.isContentEditable);
+  return t instanceof HTMLElement && (t.matches("input, textarea, select") || t.isContentEditable);
 }
 
 /** The element's CSS translate in px ("none" → 0 0), as it is with no animation running. */
@@ -6136,6 +6179,23 @@ function yesNoLabels(p: PendingActionView): [string, string] {
 function quickNumbers(p: PendingActionView): number[] {
   if (p.allowedNumbers.length) return p.allowedNumbers.length <= 12 ? p.allowedNumbers : [];
   return p.numberMax - p.numberMin <= 10 ? Array.from({ length: p.numberMax - p.numberMin + 1 }, (_, i) => p.numberMin + i) : [];
+}
+
+/** An image (a file, or one fetched) as a JPEG data: URL no wider or taller than 2560 px (null if
+    it can't be read), small enough to keep with the settings. */
+async function shrinkImage(file: Blob): Promise<string | null> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 2560 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    return canvas.toDataURL("image/jpeg", 0.85);
+  } catch {
+    return null;
+  }
 }
 
 /** Mana and tap symbols ({T}, {G}, {2}, {W/U}…) in already-escaped text, as symbol images. */
