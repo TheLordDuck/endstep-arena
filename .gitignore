@@ -9,3 +9,5 @@ dist-harness/
 releases/
 # Sound files are your own (Arena's, say): never committed. See public/sounds/README.md.
 !public/sounds/README.md
+# Notes and conversation logs kept beside the project.
+/*.txt
