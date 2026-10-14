@@ -64,6 +64,7 @@ export class Overlay {
   private boardState: GameState | null | undefined = undefined;
   /** Whether Endstep's damage sound is being held back for the board's hits (as last told). */
   private damageHold = false;
+  private endHold = false;
 
   constructor(
     private readonly adapter: EndstepAdapter,
@@ -127,6 +128,7 @@ export class Overlay {
         this.syncDamageHold();
       },
       damageLanded: () => this.damageSound({ hit: true }),
+      endShown: (shown) => this.damageSound({ ended: shown }),
     });
     this.layer.prepend(this.board.el);
     document.documentElement.appendChild(this.host);
@@ -195,13 +197,19 @@ export class Overlay {
   /** While the board is shown with its animations, Endstep's damage sound waits for the board's
       hits to land (each lets one go) instead of playing as the event comes in. */
   private syncDamageHold(): void {
-    const hold = this.settings.enabled && !!this.pacer?.current && !!this.board && this.board.dwellMs() > 0;
+    const shown = this.settings.enabled && !!this.pacer?.current && !!this.board;
+    // The match's win/loss sound waits for the board's result screen whenever the board is up.
+    if (shown !== this.endHold) {
+      this.endHold = shown;
+      this.damageSound({ holdEnd: shown });
+    }
+    const hold = shown && this.board!.dwellMs() > 0;
     if (hold === this.damageHold) return;
     this.damageHold = hold;
     this.damageSound({ hold });
   }
 
-  private damageSound(cmd: Pick<DamageSoundCommand, "hold" | "hit">): void {
+  private damageSound(cmd: Pick<DamageSoundCommand, "hold" | "hit" | "holdEnd" | "ended">): void {
     const command: DamageSoundCommand = { tag: COMMAND_TAG, kind: "damage-sound", ...cmd };
     window.postMessage(command, location.origin);
   }

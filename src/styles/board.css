@@ -823,6 +823,29 @@ button { font: inherit; color: inherit; cursor: pointer; }
   pointer-events: none;
 }
 .side-hand .card .face { filter: saturate(0.85); }
+/* "Discard 2 at the end of your turn": a pill on the top edge of your hand, over its cards. */
+.hand-warn {
+  grid-row: 7;
+  grid-column: 2;
+  justify-self: center;
+  align-self: start;
+  z-index: 61;
+  translate: 0 -15%;
+  padding: 4px 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--gold) 60%, transparent);
+  background: rgba(20, 16, 10, 0.88);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+  font: 600 12px/1.3 var(--font);
+  white-space: nowrap;
+  color: var(--gold-hi);
+  pointer-events: none;
+  animation: hand-warn-in 0.3s ease;
+}
+.hand-warn[hidden] { display: none; }
+/* Out of the way of a raised card. */
+.board:has(.my-hand .card.hover) .hand-warn { opacity: 0; transition: opacity 0.12s; }
+@keyframes hand-warn-in { from { opacity: 0; translate: 0 calc(-15% + 6px); } }
 .board.drop-ready .side.me {
   background: radial-gradient(ellipse at 50% 60%, rgba(79, 195, 255, 0.12), transparent 70%);
   border-radius: 24px;
@@ -1781,6 +1804,8 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   border-image: linear-gradient(90deg, transparent, rgba(232, 198, 120, 0.85), transparent) 1;
 }
 .phead p { margin: 0; font-size: clamp(13px, 1.1vw, 17px); color: #e6dcc8; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9); }
+/* What the opponent is doing meanwhile (their mulligan), smaller and quieter. */
+.phead p.pnote { font-size: clamp(12px, 0.95vw, 15px); color: var(--muted); font-style: italic; }
 .prompt.arena .pwrap { gap: 32px; }
 .prompt.arena .pcard { width: min(260px, 36vh); border-radius: 12px; box-shadow: 0 0 0 2px rgba(232, 198, 120, 0.7), 0 0 40px rgba(232, 198, 120, 0.3), 0 20px 50px rgba(0, 0, 0, 0.7); }
 /* Big pills: orange for the main answer, blue for the other, as in Arena. */
@@ -2319,6 +2344,8 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
 }
 .dock .skip:hover:not(:disabled) { filter: brightness(1.12); }
+/* In the opponent's turn it's blue, and passes until yours. */
+.dock .skip.theirs { font-size: 13px; background: linear-gradient(180deg, #8cc2ff, #4a7ff0 55%, #2f55c4); }
 .dock .secondary {
   padding: 7px 16px;
   border-radius: 999px;
@@ -3719,3 +3746,22 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .board.proliferating .card.selected .face { box-shadow: 0 0 0 3px var(--picked), 0 0 26px 8px rgba(255, 138, 42, 0.8); filter: brightness(1.1); }
 .board.proliferating .life-orb.selectable .avatar { box-shadow: 0 0 0 3px #7ee8ff, 0 0 26px 8px rgba(110, 220, 255, 0.75); }
 .board.proliferating .life-orb.selected .avatar { box-shadow: 0 0 0 3px var(--picked), 0 0 26px 8px rgba(255, 138, 42, 0.8); }
+
+/* Life gained (see gainOrbs): golden orbs fly from what gave it into the life total, which
+   glows gold as they land. */
+.gain-orb {
+  position: absolute;
+  z-index: 44;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(circle at 38% 36%, #fffbe6 0, #ffe28a 30%, #f2b53a 62%, rgba(214, 140, 30, 0) 72%);
+  box-shadow: 0 0 12px 4px rgba(255, 214, 110, 0.8), 0 0 32px 10px rgba(255, 186, 60, 0.45);
+}
+.life-orb.orbs-in .avatar { animation: orbs-in 0.7s ease-out; }
+@keyframes orbs-in {
+  0% { box-shadow: 0 0 0 3px rgba(255, 226, 140, 0.9), 0 0 40px 14px rgba(255, 200, 80, 0.85); filter: brightness(1.35); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 226, 140, 0), 0 0 0 0 rgba(255, 200, 80, 0); filter: none; }
+}

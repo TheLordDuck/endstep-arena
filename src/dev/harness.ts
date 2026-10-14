@@ -427,6 +427,19 @@ const scenarios: Record<string, Scenario> = {
     s.pendingAction = { type: "DECLARE_BLOCKERS", promptVersion: 6, cardOptions: [{ id: byName(me!, "Grizzly Bears").id }],
       blockerEligibility: { [String(byName(me!, "Grizzly Bears").id)]: [angel.id, hawk.id] } };
   },
+  // Two identical attackers (piled ×2): blocking one with the Bears takes it out of the pile, so
+  // the other can be blocked by the Tarmogoyf.
+  block2: (s) => {
+    const [me, opp] = players(s);
+    s.phase = "DECLARE_BLOCKERS";
+    s.activePlayerId = "1";
+    const angel = creature("Goblin Guide", 2, 2, { isAttacking: true, attackingDefenderId: -1, tapped: true });
+    const angel2 = { ...angel, id: nextId++ };
+    bf(opp!).push(angel, angel2);
+    const bears = byName(me!, "Grizzly Bears"), goyf = byName(me!, "Tarmogoyf");
+    s.pendingAction = { type: "DECLARE_BLOCKERS", promptVersion: 6, cardOptions: [{ id: bears.id }, { id: goyf.id }],
+      blockerEligibility: { [String(bears.id)]: [angel.id, angel2.id], [String(goyf.id)]: [angel.id, angel2.id] } };
+  },
   // Combat damage: the opponent's Angel is unblocked, our Tarmogoyf blocks their Nighthawk.
   // The board shows blockers declared, then the game reaches combat damage: we take 4, and the
   // Nighthawk (deathtouch) and Tarmogoyf kill each other.
@@ -552,6 +565,26 @@ const scenarios: Record<string, Scenario> = {
       ];
     };
   },
+  // Life gained: Tarmogoyf (as if it had lifelink) hits the opponent and you gain 3, the orbs flying
+  // from it into your total; the opponent's Healing Salve (gone from the table) gains them 5, the
+  // orbs gathering around their total.
+  lifegain: (s) => {
+    const [me] = players(s);
+    s.pendingAction = null;
+    const goyf = byName(me!, "Tarmogoyf");
+    return (n) => {
+      const [me2, opp2] = players(n);
+      me2!.life = (me2!.life as number) + 3;
+      opp2!.life = (opp2!.life as number) - 3 + 5;
+      n.__events = [
+        { type: "PLAYER_DAMAGED", message: "Tarmogoyf deals 3 damage to Opponent.", sequenceNumber: 70, playerIndex: "1", cardId: goyf.id, cardName: "Tarmogoyf", amount: 3 },
+        { type: "PLAYER_LIFE_CHANGED", message: "Opponent's life: 12 -> 9", sequenceNumber: 71, playerIndex: "1", oldValue: 12, newValue: 9 },
+        { type: "PLAYER_LIFE_CHANGED", message: "Flavio's life: 17 -> 20", sequenceNumber: 72, playerIndex: "0", oldValue: 17, newValue: 20 },
+        { type: "SPELL_RESOLVED", message: "Healing Salve - Opponent gains 5 life.", sequenceNumber: 73, cardId: 991, cardName: "Healing Salve" },
+        { type: "PLAYER_LIFE_CHANGED", message: "Opponent's life: 9 -> 14", sequenceNumber: 74, playerIndex: "1", oldValue: 9, newValue: 14 },
+      ];
+    };
+  },
   // Several attackers at once, all unblocked: Tarmogoyf, Grizzly Bears and three Soldier tokens
   // (a pile of identical cards). Each strikes the opponent in turn.
   "strike-many": (s) => {
@@ -596,6 +629,15 @@ const scenarios: Record<string, Scenario> = {
       { type: "MULLIGAN", sequenceNumber: 30, message: "Flavio mulliganed to 6.", amount: 6, playerIndex: "0", playerName: "Flavio" },
       { type: "MULLIGAN", sequenceNumber: 31, message: "Flavio has mulliganed down to 6 cards.", playerIndex: "0", playerName: "Flavio" },
       { type: "MULLIGAN", sequenceNumber: 32, message: "Flavio mulliganed to 5.", amount: 5, playerIndex: "0", playerName: "Flavio" },
+      { type: "HAND_KEPT", sequenceNumber: 33, message: "Opponent kept 7.", amount: 7, playerIndex: "1", playerName: "Opponent" },
+    ];
+  },
+  // The opponent mulliganed once and is choosing again (the line under the heading).
+  mulligan3: (s) => {
+    s.turnNumber = 0; s.phase = "UPKEEP";
+    s.pendingAction = { type: "MULLIGAN", promptVersion: 3, message: "Keep this 7-card hand, or mulligan?", stringOptions: ["Keep 7", "Mulligan"] };
+    s.__events = [
+      { type: "MULLIGAN", sequenceNumber: 30, message: "Opponent mulliganed to 6.", amount: 6, playerIndex: "1", playerName: "Opponent" },
     ];
   },
   mode: (s) => {
@@ -857,6 +899,18 @@ const scenarios: Record<string, Scenario> = {
     me!.hand = Array.from({ length: 40 }, (_, i) => card(names[i % names.length]!));
     me!.handSize = 40;
     s.pendingAction = { type: "PRIORITY", promptVersion: 21, cardOptions: (me!.hand as Raw[]).filter((_, i) => i % 3 === 0).map((c) => ({ id: c.id, zone: "HAND" })) };
+  },
+  // Priority in the opponent's turn: the blue ⏩ under Pass passes until yours.
+  oppturn: (s) => {
+    s.activePlayerId = "1"; s.phase = "MAIN2"; s.turnNumber = 7;
+    s.pendingAction = { type: "PRIORITY", promptVersion: 23, cardOptions: [] };
+  },
+  // Nine cards in hand on your turn: you'll discard two at the end of it.
+  handlimit: (s) => {
+    const [me] = players(s);
+    const names = ["Lightning Bolt", "Counterspell", "Island", "Serra Angel", "Llanowar Elves", "Brainstorm", "Opt", "Mountain", "Tarmogoyf"];
+    me!.hand = names.map((n) => card(n));
+    me!.handSize = names.length;
   },
   // A full graveyard, a dozen of its cards castable from there (the side hand).
   bigyard: (s) => {
@@ -1172,6 +1226,7 @@ const board = new Board(controller, {
   leaveReplay: () => console.log("LEAVE REPLAY"),
   leaveSpectate: () => console.log("LEAVE SPECTATE"),
   damageLanded: () => console.log("DAMAGE LANDED", pacer.current?.turnNumber ?? ""),
+  endShown: (shown) => console.log("END SHOWN", shown),
   // `?prefs={"cardScale":1.3}` starts with other settings.
   prefs: () => prefs,
   setPrefs: (patch) => { prefs = { ...prefs, ...patch }; console.log("PREFS", JSON.stringify(prefs)); },

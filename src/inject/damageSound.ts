@@ -2,7 +2,9 @@
 // (the board shows the state a moment later, then the bolt or the blow flies). Endstep plays its
 // sounds through Howler (window.Howl): while the board asks for it, the damage sound is paused the
 // moment it starts and resumed as a hit lands. Its file, volume and pitch stay Endstep's, as set in
-// Endstep's audio settings. Nothing else Endstep plays is touched.
+// Endstep's audio settings. Its match win/loss sound likewise waits for the board's Victory or
+// Defeat screen, which comes up only once the last fight has played out. Nothing else Endstep
+// plays is touched.
 
 import { isDamageSoundCommand } from "../shared/protocol";
 
@@ -14,6 +16,10 @@ const NO_SOUND = "__none__";
 const MAX_HOLD_MS = 3000;
 /** A damage sound starting this soon after a hit (ms) was for that hit: it plays at once. */
 const LATE_MS = 1000;
+/** Endstep's match win/loss sounds, as its audio settings name them, and their defaults. */
+const END_SOUNDS: [string, string][] = [["match.win", "match-win-light"], ["match.loss", "match-loss-woosh"]];
+/** A held win/loss sound with no result screen to go with it plays anyway after this long (ms). */
+const MAX_END_HOLD_MS = 15000;
 
 interface HowlLike {
   _src?: string | string[];
@@ -34,19 +40,32 @@ export function installDamageSound(): void {
   let held: Held[] = [];
   let lastHit = Number.NEGATIVE_INFINITY;
 
-  const damageSound = (): string | null => {
+  let holdingEnd = false;
+  let ended = false;
+  let heldEnd: Held[] = [];
+
+  /** The sound Endstep's audio settings give a game moment (null: none). */
+  const assigned = (key: string, fallback: string): string | null => {
     try {
-      const chosen = (JSON.parse(localStorage.getItem(ASSIGNMENTS) ?? "{}") as Record<string, unknown>)["game.damage"];
+      const chosen = (JSON.parse(localStorage.getItem(ASSIGNMENTS) ?? "{}") as Record<string, unknown>)[key];
       if (chosen === NO_SOUND) return null;
-      return typeof chosen === "string" && chosen ? chosen : DEFAULT_SOUND;
+      return typeof chosen === "string" && chosen ? chosen : fallback;
     } catch {
-      return DEFAULT_SOUND;
+      return fallback;
     }
   };
-  const isDamage = (howl: HowlLike) => {
-    const sound = damageSound();
+  const plays = (howl: HowlLike, sound: string | null) => {
     const src = typeof howl._src === "string" ? [howl._src] : howl._src ?? [];
     return !!sound && src.some((s) => s.includes(`/audio/${sound}.`));
+  };
+  const isDamage = (howl: HowlLike) => plays(howl, assigned("game.damage", DEFAULT_SOUND));
+  const isEnd = (howl: HowlLike) => END_SOUNDS.some(([key, fallback]) => plays(howl, assigned(key, fallback)));
+  const releaseEnd = () => {
+    for (const h of heldEnd) {
+      window.clearTimeout(h.timer);
+      h.howl.play(h.id);
+    }
+    heldEnd = [];
   };
 
   const resume = (h: Held) => {
@@ -63,6 +82,15 @@ export function installDamageSound(): void {
     proto.play = function (this: HowlLike, sprite?: string | number, internal?: boolean) {
       const id = play.call(this, sprite, internal);
       try {
+        const fresh = !internal && typeof sprite !== "number" && typeof id === "number";
+        // The match's result, before the board shows it: it waits for the result screen.
+        if (fresh && holdingEnd && !ended && isEnd(this)) {
+          this.pause(id);
+          const h: Held = { howl: this, id, at: performance.now(), timer: 0 };
+          h.timer = window.setTimeout(releaseEnd, MAX_END_HOLD_MS);
+          heldEnd.push(h);
+          return id;
+        }
         // A new sound (not a paused one resumed, not Howler's own replay of a queued play).
         if (holding && !internal && typeof sprite !== "number" && typeof id === "number" && isDamage(this) &&
           performance.now() - lastHit > LATE_MS) {
@@ -109,6 +137,14 @@ export function installDamageSound(): void {
     if (ev.data.hold !== undefined) {
       holding = ev.data.hold;
       if (!holding) for (const h of [...held]) resume(h);
+    }
+    if (ev.data.holdEnd !== undefined) {
+      holdingEnd = ev.data.holdEnd;
+      if (!holdingEnd) releaseEnd();
+    }
+    if (ev.data.ended !== undefined) {
+      ended = ev.data.ended;
+      if (ended) releaseEnd();
     }
     if (ev.data.hit) {
       lastHit = performance.now();

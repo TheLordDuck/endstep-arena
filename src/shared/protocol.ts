@@ -65,12 +65,16 @@ export function isChatCommand(v: unknown): v is ChatCommand {
 }
 
 /** Endstep's damage sound, timed to the board's hits: held back while `hold` is on (the board is
-    shown with its animations), and let go as a `hit` lands there. See src/inject/damageSound.ts. */
+    shown with its animations), and let go as a `hit` lands there. Its match win/loss sound waits
+    for the board's result screen while `holdEnd` is on (the board is shown), and plays once
+    `ended` says the screen is up. See src/inject/damageSound.ts. */
 export interface DamageSoundCommand {
   tag: typeof COMMAND_TAG;
   kind: "damage-sound";
   hold?: boolean;
   hit?: boolean;
+  holdEnd?: boolean;
+  ended?: boolean;
 }
 
 export function isDamageSoundCommand(v: unknown): v is DamageSoundCommand {

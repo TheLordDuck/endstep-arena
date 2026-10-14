@@ -17,7 +17,9 @@ import { avatarPicture } from "../../game/endstep/avatars";
 import { ExileLinks } from "../../game/exileLinks";
 import { HandKnowledge } from "../../game/handKnowledge";
 import { counterNotes, keywordNotes, type KeywordNote } from "./keywords";
-import { MULLIGAN_RULE, mulliganCost, mulliganHint } from "./mulligan";
+import { MULLIGAN_RULE, mulliganCost, mulliganHint, mulliganStatus } from "./mulligan";
+import { handLimitWarning } from "./handLimit";
+import { lifeGainSource } from "./lifeGain";
 import { bestLine, chosenModes, frameColor, loyaltyCost, loyaltyLines, loyaltyNeeded, modeLines, withoutCost } from "./abilityText";
 import { ANIM_SPEEDS, CARD_SCALES, TABLES, type BoardPrefs } from "./prefs";
 import { Battlefield3D, type SceneLayout } from "./scene/Battlefield3D";
@@ -122,6 +124,9 @@ export interface BoardHooks {
   /** A damaging hit landed on the board (a spell's bolt, a combat blow): Endstep's damage sound
       plays now. */
   damageLanded(): void;
+  /** The Victory/Defeat screen came up (true) or went away (false): Endstep's match win/loss
+      sound plays as it comes up. */
+  endShown(shown: boolean): void;
 }
 
 export class Board {
@@ -217,6 +222,8 @@ export class Board {
   /** Shown as they were until the animation that changes them lands: a player's life, a
       permanent's damage (see hold and release). */
   private heldLife = new Map<string, number>();
+  /** Players whose gain orbs just landed: their new life shows without flying again. */
+  private orbsLanded = new Set<string>();
   /** Until when (performance.now() ms) this board's animations are playing, for the pace states
       are shown at (see StatePacer). */
   private busy = 0;
@@ -337,6 +344,7 @@ export class Board {
       <div class="rope opp-rope" aria-hidden="true"><i></i></div>
       <div class="hand mine my-hand"></div>
       <div class="hand mine side-hand"></div>
+      <div class="hand-warn" hidden></div>
       <div class="piles opp-piles"></div>
       <div class="piles me-piles"></div>
       <div class="stack-dock"><button class="stack-toggle" data-ui="stack-toggle" title="Hide the stack"></button><div class="stack-col">
@@ -705,12 +713,16 @@ export class Board {
     this.situation.clear();
     const note = (id: string, what: string) => this.situation.set(id, `${this.situation.get(id) ?? ""}${what};`);
     for (const c of onBattlefield.values()) for (const a of c.blockingIds) note(a, `blocked:${c.id}`);
+    // The blocks you're still choosing count too: their attackers come apart as soon as you
+    // pick, as your blockers do, so the next copy of the same creature can be blocked on its own.
+    if (this.mode.kind === "blockers") for (const [b, a] of this.mode.assignments) note(a, `blocked:${b}`);
     for (const s of state.stack) for (const t of s.targets) note(t, `target:${s.id}`);
     this.renderBattlefield(this.q(".side.me"), this.withLingering(z.me), attachedTo);
     this.renderBattlefield(this.q(".side.opp"), this.withLingering(z.opp), attachedTo);
     this.renderEmblems(this.q(".side.me .emblems"), z.me);
     this.renderEmblems(this.q(".side.opp .emblems"), z.opp);
     this.renderHand(z.me);
+    this.renderHandWarning(state, z.me);
     this.renderSideHand(state);
     this.renderOppHand(z.opp);
     const casting = this.pendingStackItem(state, z.me);
@@ -1164,6 +1176,9 @@ export class Board {
   private showLife(orb: HTMLElement, p: PlayerView): void {
     const shown = this.heldLife.get(p.id) ?? p.life;
     const prev = this.prevLife.get(p.id);
+    // A gain flies in as golden orbs from what gave it, and shows as they land.
+    const gain = prev !== undefined && shown !== undefined && shown > prev && !this.heldLife.has(p.id);
+    if (gain && !this.orbsLanded.delete(p.id) && this.gainOrbs(orb, p, prev, shown)) return;
     if (shown !== undefined) this.prevLife.set(p.id, shown);
     const life = String(shown ?? "–");
     if (orb.dataset.life !== life) {
@@ -1172,6 +1187,58 @@ export class Board {
       orb.insertAdjacentHTML("beforeend", `<span class="lnum" title="${esc(p.name)}'s life">${life}</span>`);
     }
     if (prev !== undefined && shown !== undefined && prev !== shown) this.lifeFloat(orb, shown - prev);
+  }
+
+  /** Golden orbs fly from the card that gave a player life (the lifelink creature, the spell, the
+      trigger; else they gather around the total) into their life total, which shows the new
+      value as the last one lands. False when there's nothing to show it on. */
+  private gainOrbs(orb: HTMLElement, p: PlayerView, was: number, now: number): boolean {
+    const avatar = orb.querySelector<HTMLElement>(".avatar") ?? orb;
+    if (reducedMotion() || !avatar.getClientRects().length) return false;
+    const box = this.el.getBoundingClientRect();
+    const to = avatar.getBoundingClientRect();
+    const bx = to.left + to.width / 2 - box.left;
+    const by = to.top + to.height / 2 - box.top;
+    const sourceId = lifeGainSource(this.state?.log, p.seat);
+    const source = sourceId ? this.cardEls.get(sourceId) : undefined;
+    const from = source?.isConnected && source.getClientRects().length ? source.getBoundingClientRect() : null;
+    this.hold("life", p.id, was);
+    const n = Math.min(8, Math.max(3, now - was));
+    let left = n;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + Math.random() * 0.6;
+      const ax = from ? from.left + from.width * (0.3 + Math.random() * 0.4) - box.left : bx + Math.cos(a) * 120;
+      const ay = from ? from.top + from.height * (0.3 + Math.random() * 0.4) - box.top : by + Math.sin(a) * 90;
+      // A gentle arc: out to one side of the straight line, then into the total.
+      const dx = bx - ax;
+      const dy = by - ay;
+      const bend = (i % 2 ? 1 : -1) * (0.12 + Math.random() * 0.12);
+      const mx = dx * 0.5 - dy * bend;
+      const my = dy * 0.5 + dx * bend;
+      const dot = document.createElement("div");
+      dot.className = "gain-orb";
+      Object.assign(dot.style, { left: `${ax}px`, top: `${ay}px`, opacity: "0" });
+      this.el.appendChild(dot);
+      const anim = dot.animate([
+        { translate: "0px 0px", scale: "0.3", opacity: 0 },
+        { translate: "0px 0px", scale: "1.15", opacity: 1, offset: 0.18 },
+        { translate: `${mx}px ${my}px`, scale: "1", opacity: 1, offset: 0.55 },
+        { translate: `${dx}px ${dy}px`, scale: "0.6", opacity: 0.9 },
+      ], { duration: 900, delay: i * 80, easing: "cubic-bezier(.45,0,.55,1)" });
+      if (this.speed !== 1) anim.playbackRate = this.speed;
+      void anim.finished.catch(() => {}).then(() => {
+        dot.remove();
+        if (--left > 0 || !this.el.isConnected) return;
+        // The total takes it: the orbs' glow, then the new number with its +N.
+        orb.classList.remove("orbs-in");
+        void orb.offsetWidth;
+        orb.classList.add("orbs-in");
+        this.later(() => orb.classList.remove("orbs-in"), 700);
+        if (this.heldLife.has(p.id)) this.orbsLanded.add(p.id);
+        this.release(p.id);
+      });
+    }
+    return true;
   }
 
   /**
@@ -1869,12 +1936,26 @@ export class Board {
       reconcile(this.q(".my-hand"), backs);
       return;
     }
+    // While you decide on your opening hand (and pick the cards for the bottom after keeping it),
+    // it's shown on the mulligan screen only: it joins the hand strip once kept.
+    if (this.state?.pending?.type === "MULLIGAN" || (this.mode.kind === "arrange" && this.mode.context === "mulligan")) {
+      reconcile(this.q(".my-hand"), []);
+      return;
+    }
     const hand = me?.hand ?? [];
     // The player's own order (cards dragged sideways within the hand); new cards join on the right.
     const byId = new Map(hand.map((c) => [c.id, c]));
     this.handOrder = [...this.handOrder.filter((id) => byId.has(id)), ...hand.map((c) => c.id).filter((id) => !this.handOrder.includes(id))];
     const els = this.handOrder.map((id) => this.card(byId.get(id)!, false));
     reconcile(this.q(".my-hand"), els);
+  }
+
+  /** "You will need to discard…" above your hand, on your turn with more than seven cards. */
+  private renderHandWarning(state: GameState, me: PlayerView | null): void {
+    const el = this.q(".hand-warn");
+    const text = handLimitWarning(state, me) ?? "";
+    if (el.textContent !== text) el.textContent = text;
+    el.hidden = !text;
   }
 
   /** Cards playable from outside the hand (flashback, escape, exile, top of library…). */
@@ -3117,6 +3198,7 @@ export class Board {
       box.innerHTML = html;
     }
     if (over && !box.classList.contains("show") && state.winnerId !== undefined && !state.spectating) this.sfx(won ? "win" : "lose");
+    if (over !== box.classList.contains("show")) this.hooks.endShown(over);
     const outcome = won ? " won" : state.winnerId === undefined || state.spectating ? "" : " lost";
     box.className = `endgame${over ? " show" : ""}${outcome}${this.endPeek ? " peek" : ""}`;
   }
@@ -3176,7 +3258,7 @@ export class Board {
         html = this.boardDivide() ? this.divideBanner(p)
           : `<div class="pline">${pic}<div class="msg">${pic ? "" : source}${withSymbols(esc(msg))}</div></div>` + controls;
       } else {
-        const { title, sub } = promptTitle(state, m);
+        const { title, sub, notes } = promptTitle(state, m);
         // A question from a card (a trigger's yes/no, a color, a number…) shows that card beside
         // the options. Modes, orders and pickers show their own cards.
         const own = m.kind === "order" || m.kind === "divide" || m.kind === "sideboard" || m.kind === "piles" || p.type === "MULLIGAN" || p.type === "CHOOSE_MODE" || p.type === "CHOOSE_ABILITY";
@@ -3186,7 +3268,7 @@ export class Board {
         const body = srcCard && url
           ? `<div class="pwrap${m.kind === "arrange" || controls.startsWith('<div class="fan') ? " src-right" : ""}"><div class="pcard" data-zoom="${esc(srcCard.id)}"><img src="${esc(url)}" alt="${esc(srcCard.name)}" draggable="false"></div><div class="pbody">${controls}</div></div>`
           : controls;
-        html = `<div class="phead"><h2>${esc(title)}</h2>${sub ? `<p>${esc(sub)}</p>` : ""}</div>${body}
+        html = `<div class="phead"><h2>${esc(title)}</h2>${sub ? `<p>${esc(sub)}</p>` : ""}${(notes ?? []).map((n) => `<p class="pnote">${esc(n)}</p>`).join("")}</div>${body}
           <button class="peek-btn" data-ui="peek"><span class="p-view">View battlefield</span><span class="p-back">Back to choice</span></button>`;
       }
     } else if (!p && this.waiting) {
@@ -3939,6 +4021,7 @@ export class Board {
     } else if (!p) {
       main = { id: "wait", label: myTurn ? this.waiting?.short ?? "Waiting…" : "Opponent's Turn", disabled: true, tone: "wait" };
       extras.push({ id: "pass-until", label: "Pass until…" });
+      if (!myTurn) skip = MY_TURN_SKIP;
     } else if (p.type === "PRIORITY") {
       extras.push({ id: "pass-until", label: "Pass until…" });
       extras.push({ id: "hold", label: this.holdPriority ? "Holding priority (H)" : "Hold priority (H)", on: this.holdPriority });
@@ -3953,6 +4036,8 @@ export class Board {
         if (next) sub = `To ${STOP_NAMES[next.key] ?? next.label}`;
         // Skip what's left of your turn, as Endstep's own button does.
         if (myTurn && !endTurn && state.turnNumber !== undefined) skip = { id: "end-turn", label: "»", title: "End turn: pass priority for the rest of your turn" };
+        // In theirs, the blue one passes until your turn (Arena's "My Turn").
+        if (!myTurn) skip = MY_TURN_SKIP;
       }
     } else if (p.type === "YES_NO" && !fullScreenYesNo(p, state)) {
       // The answers replace the action buttons, as in Arena: Decline (blue) on top, Take action
@@ -4008,7 +4093,7 @@ export class Board {
       ...extras.map((b) => button(b, "secondary")),
       ...alts.map((b) => button(b, b.look === "alt" ? "primary alt" : "secondary outline")),
       main ? button(main, `primary${main.tone ? ` ${main.tone}` : ""}`) : "",
-      main ? `<div class="dock-foot"><span class="dock-sub">${esc(sub)}</span>${skip ? button(skip, "skip") : ""}</div>` : "",
+      main ? `<div class="dock-foot"><span class="dock-sub">${esc(sub)}</span>${skip ? button(skip, skip.id === "my-turn" ? "skip theirs" : "skip") : ""}</div>` : "",
     ].join("");
     const dock = this.q(".dock");
     if (dock.dataset.sig !== html) {
@@ -4465,8 +4550,12 @@ export class Board {
       if (s === top || elId === this.hoverStack) for (const t of s.targets) if (t !== elId) links.push({ from: elId, to: t, kind: "tgt", amount: s.divided?.[t] });
     }
     // A defender is a card id, or "player:<seat>" (the key the arrows find a player by).
-    for (const a of state.combat.attacks) links.push({ from: a.fromId, to: a.toId, kind: "atk" });
-    for (const b of state.combat.blocks) links.push({ from: b.fromId, to: b.toId, kind: "blk" });
+    // Only until the blocks are decided: from then on the chevrons and golden edges say who
+    // fights whom, and the arrows across the table would only get in the way.
+    if (!blocksDecided(state)) {
+      for (const a of state.combat.attacks) links.push({ from: a.fromId, to: a.toId, kind: "atk" });
+      for (const b of state.combat.blocks) links.push({ from: b.fromId, to: b.toId, kind: "blk" });
+    }
     const m = this.mode;
     if (m.kind === "blockers") m.assignments.forEach((att, blk) => links.push({ from: blk, to: att, kind: "blk", pending: true }));
     if (m.kind === "attackers" && m.defenders) {
@@ -5042,6 +5131,9 @@ export class Board {
         return;
       case "end-turn":
         this.startPassing("endTurn");
+        break;
+      case "my-turn":
+        this.startPassing("myTurn");
         break;
       case "pass-until": {
         const box = this.el.getBoundingClientRect();
@@ -6052,10 +6144,28 @@ function withSymbols(html: string): string {
     `<img class="sym" src="${MANA_SYMBOL_URL}/${sym.toUpperCase().replace(/\//g, "")}.svg" alt="${all}" draggable="false">`);
 }
 
+/** This combat's blockers have been declared: a damage step or the end of combat, or the declare
+    blockers step once someone blocked or the log says the blocks are in. */
+function blocksDecided(state: GameState): boolean {
+  const step = currentStep(state.phase, state.step);
+  if (step === "FIRST_STRIKE_DAMAGE" || step === "COMBAT_DAMAGE" || step === "END_COMBAT") return true;
+  if (step !== "DECLARE_BLOCKERS" || state.pending?.type === "DECLARE_BLOCKERS") return false;
+  if (state.combat.blocks.length) return true;
+  const log = state.log ?? [];
+  for (let i = log.length - 1; i >= 0; i--) {
+    if (log[i]!.type === "BLOCKERS_DECLARED") return true;
+    if (log[i]!.type === "ATTACKERS_DECLARED" || log[i]!.type === "TURN_BEGAN") return false;
+  }
+  return false;
+}
+
+/** The dock's small blue button in the opponent's turn. */
+const MY_TURN_SKIP = { id: "my-turn", label: "⏩", title: "My turn: pass priority until your turn (stops if they cast something or you're asked anything)" };
+
 const NUMBER_WORDS =["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten"];
 
 /** Heading and subtitle of a full-screen choice, as Arena words them. */
-function promptTitle(state: GameState, m: Mode): { title: string; sub: string } {
+function promptTitle(state: GameState, m: Mode): { title: string; sub: string; notes?: string[] } {
   const p = state.pending!;
   const msg = p.message ?? "";
   // A message that only repeats the heading isn't worth a second line.
@@ -6076,7 +6186,10 @@ function promptTitle(state: GameState, m: Mode): { title: string; sub: string } 
     case "MULLIGAN": {
       const first = state.players.find((pl) => pl.id === state.activePlayerId);
       const title = !first ? "Opening Hand" : first.isViewer ? "You Go First" : `${first.name} Goes First`;
-      return pick(title, "Keep this hand, or shuffle it away and draw a new one.");
+      // Where each opponent is with their own hand, under the question.
+      const opps = state.players.filter((pl) => !pl.isViewer);
+      const notes = opps.map((pl) => mulliganStatus(state.log, pl.seat, opps.length === 1 ? "Your opponent" : pl.name));
+      return { ...pick(title, "Keep this hand, or shuffle it away and draw a new one."), notes };
     }
     case "CHOOSE_MODE":
     case "CHOOSE_ABILITY":

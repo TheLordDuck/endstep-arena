@@ -41,3 +41,24 @@ export function mulliganHint(cost: MulliganCost, handSize: number): string {
 
 export const MULLIGAN_RULE = "London mulligan: each mulligan shuffles your hand into your library and draws a new hand of the same size. "
   + "When you keep, you put one card on the bottom of your library for each mulligan you took (a free mulligan doesn't count).";
+
+/** Where the player in `seat` is with their opening hand, for the line under the mulligan's heading
+    (as Arena tells it): still deciding, mulliganed down to N, or kept N cards. `who` names them. */
+export function mulliganStatus(log: LogEntry[] | undefined, seat: number | undefined, who: string): string {
+  const entries = log ?? [];
+  let since = -1;
+  entries.forEach((e, i) => { if (e.type === "HAND_SETTLED" && e.seat === seat) since = i; });
+  const theirs = entries.slice(since + 1).filter((e) => e.seat === seat);
+  const number = (e: LogEntry, re: RegExp) => re.exec(e.lines.join(" "))?.[1];
+  const kept = [...theirs].reverse().find((e) => e.type === "HAND_KEPT");
+  if (kept) {
+    const n = number(kept, /\bkept (\d+)\b/);
+    return n ? `${who} kept a hand of ${n} card${n === "1" ? "" : "s"}.` : `${who} kept their hand.`;
+  }
+  const down = theirs.filter((e) => e.type === "MULLIGAN").map((e) => number(e, /\bmulliganed to (\d+)\b/)).filter((n) => n !== undefined);
+  if (down.length) {
+    const n = down.length;
+    return `${who} took ${n === 1 ? "a mulligan" : `${n} mulligans`} (to ${down.at(-1)}) and is choosing again.`;
+  }
+  return `${who} is still choosing whether to keep their opening hand.`;
+}

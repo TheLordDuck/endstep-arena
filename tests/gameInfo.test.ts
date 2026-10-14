@@ -152,3 +152,16 @@ test("keywords given by an effect are explained too, and landwalk by its land", 
 test("every keyword has its text", () => {
   for (const k of keywordNotes({ oracleText: "Deathtouch, lifelink, haste. Scry 2." })) assert.ok(k.text.length > 10, k.name);
 });
+
+test("passing until my turn stops at the start of it", () => {
+  const theirs = { activePlayerId: "1", turnNumber: 5 };
+  const pu = startPassUntil("myTurn", game(theirs));
+  assert.equal(passUntilStep(pu, game({ ...theirs, phase: "COMBAT_DAMAGE" })), "pass");
+  assert.equal(passUntilStep(pu, game({ ...theirs, phase: "END_STEP" })), "pass");
+  assert.equal(passUntilStep(pu, game({ phase: "UPKEEP", turnNumber: 6 })), "stop");
+  // Started in your own turn, it waits for the next one.
+  const mine = startPassUntil("myTurn", game());
+  assert.equal(passUntilStep(mine, game({ ...theirs })), "pass");
+  assert.equal(passUntilStep(mine, game({ phase: "MAIN1", turnNumber: 6 })), "stop");
+  assert.deepEqual(passUntilStops(pu), {});
+});

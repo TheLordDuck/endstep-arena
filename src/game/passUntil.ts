@@ -7,13 +7,14 @@ import type { GameState } from "./GameState";
 import type { StopSide } from "./endstep/phaseStops";
 import { currentStep } from "../ui/board/phases";
 
-export type PassTarget = "endTurn" | "combat" | "endStep" | "oppEndStep";
+export type PassTarget = "endTurn" | "combat" | "endStep" | "oppEndStep" | "myTurn";
 
 /** The menu's choices, in turn order ("endTurn" is the dock's own End turn button). */
 export const PASS_TARGETS: { target: PassTarget; label: string; hint: string }[] = [
   { target: "combat", label: "Combat", hint: "The next combat" },
   { target: "endStep", label: "End step", hint: "This turn's end step" },
   { target: "oppEndStep", label: "End of opponent's turn", hint: "The end step before your turn" },
+  { target: "myTurn", label: "My turn", hint: "Your next turn's first stop" },
 ];
 
 export interface PassUntil {
@@ -63,6 +64,9 @@ function arrived(pu: PassUntil, state: GameState): boolean {
     case "oppEndStep":
       if (myTurn) return newTurn;
       return ENDING.has(step) && (newTurn || !ENDING.has(pu.step ?? "") || pu.myTurn);
+    case "myTurn":
+      // From the opponent's turn, the first of yours; from yours, the next one.
+      return myTurn && (newTurn || !pu.myTurn);
   }
 }
 
@@ -88,7 +92,8 @@ export function passUntilStops(pu: PassUntil): Partial<Record<StopSide, string[]
     case "combat": return { [side]: ["BEGIN_COMBAT"] };
     case "endStep": return { [side]: ["END_STEP"] };
     case "oppEndStep": return { oppTurn: ["END_STEP"] };
-    case "endTurn": return {};
+    case "endTurn":
+    case "myTurn": return {};
   }
 }
 

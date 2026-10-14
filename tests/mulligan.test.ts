@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mulliganCost, mulliganHint } from "../src/ui/board/mulligan";
+import { mulliganCost, mulliganHint, mulliganStatus } from "../src/ui/board/mulligan";
 import type { LogEntry } from "../src/game/GameState";
 
 const entry = (seq: number, type: string, seat: number, line: string): LogEntry => ({ seq, type, lines: [line], seat, cards: [] });
@@ -30,4 +30,19 @@ test("mulligan hint", () => {
   assert.equal(mulliganHint({ keep: 7, bottom: 0, taken: false }, 7), "A mulligan draws a new hand of 7, then you put 1 card on the bottom of your library.");
   assert.equal(mulliganHint({ keep: 6, bottom: 1, taken: true }, 7), "You will put 1 card on the bottom of your library. Mulligan again: 2 cards.");
   assert.equal(mulliganHint({ keep: 7, bottom: 0, taken: true }, 7), "That mulligan was free: you keep all 7. Mulligan again: 1 card to the bottom.");
+});
+
+test("the opponent's mulligan: deciding, mulliganed, kept, and a new game", () => {
+  assert.equal(mulliganStatus([], 1, "Your opponent"), "Your opponent is still choosing whether to keep their opening hand.");
+  const log = [
+    entry(1, "MULLIGAN", 1, "Forge AI mulliganed to 6."),
+    entry(2, "MULLIGAN", 1, "Forge AI has mulliganed down to 6 cards."),
+  ];
+  assert.equal(mulliganStatus(log, 1, "Your opponent"), "Your opponent took a mulligan (to 6) and is choosing again.");
+  log.push(entry(3, "HAND_KEPT", 1, "Forge AI kept 6."));
+  assert.equal(mulliganStatus(log, 1, "Your opponent"), "Your opponent kept a hand of 6 cards.");
+  // Your own choices aren't theirs.
+  assert.equal(mulliganStatus(log, 0, "You"), "You is still choosing whether to keep their opening hand.");
+  log.push(entry(4, "HAND_SETTLED", 1, "Forge AI keeps 6 cards after 1 mulligan."));
+  assert.equal(mulliganStatus(log, 1, "Your opponent"), "Your opponent is still choosing whether to keep their opening hand.");
 });
