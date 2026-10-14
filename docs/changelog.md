@@ -1,5 +1,48 @@
 # Changelog
 
+## Session of 2026-10-14
+
+On top of `675f033`. All 133 tests pass (8 new, in `tests/arenaFrames.test.ts`). Checked in the
+harness with Scryfall's images and on the recorded match (`#match:bot-combats`), not yet in a live
+match. Eight roadmap features from the LegenVD videos, all approved and done today.
+
+1. **Tokens in Arena's token frame** (t2-17), as in a screenshot of Arena: a dark body, the art in a
+   window arched on top edged in the token's color, power/toughness in a pale box; no name. (The
+   art frame was tried on every permanent; the old look was preferred for the rest.) A card that changes
+   picture keeps the old one until the new one has loaded.
+2. **Printed keywords as icons** (t2-15). Read from the card's keyword lines only (not keywords
+   its text mentions or grants), as icons along the bottom of the frame; gained and lost ones keep
+   their green and red labels.
+3. **Abilities in Arena's ability frame** (t2-23), on the stack, in the magnifier and in the trigger
+   order box: the source's art and name, "Ability" and the text on a plate of the card's color
+   ending in an arch. The text is the ability as printed when Endstep sends it (its `yieldKey`, now
+   kept as `abilityText`), else its description without ids and notes.
+4. **Loyalty costs** (t2-19). A loyalty ability on the stack carries its cost under its frame, from
+   its printed text or, when Endstep only says what it does, from the planeswalker's matching line.
+   A planeswalker's Choose One lists all its loyalty abilities, the ones it can't use (not offered,
+   or more loyalty than it has) in grey and not clickable.
+5. **Modal spells on the stack** (t2-20). The card's modes over its text box, the ones not chosen at
+   40 %. Endstep sends no chosen modes, but a spell's description on the stack (now kept as
+   `description`) spells out only what the chosen modes do; the modes you pick yourself are
+   remembered and used first.
+6. **Target arrows as Arena's arcs of light** (t2-22): a high arc with a glow, sparks running to the
+   target and a ring of light where it lands. Blue for a spell or ability, violet when it exiles,
+   gold while choosing or dividing damage. Attack, block and source arrows are unchanged.
+7. **The rope** (t2-18). In the last stretch of a player's idle timer (Endstep's `graceMs`), a
+   burning line across the table on their side, in their color, burning down with their time.
+8. **3D tables** (t2-24), after Arena's battlefields (studied in frames of the videos): a scene seen
+   almost from above with three.js (`src/ui/board/scene/`), all modelled and drawn in code: a floor
+   with a large pattern, a band on the midline, a dais under each picture, tall scenery along the
+   edges, shadows, lights and particles. Five, one per color: Academy, Glacier, Cathedral, Forge
+   and Garden. Settings → Table: the deck's color (default), any of the five, or Plain (the play
+   mat on wood dyed in the deck's color; also without WebGL). New pref `table` (an old
+   `tableArt: false` becomes Plain). It pauses while hidden and runs at 30 fps at most. The
+   content script grows from 0.6 to 1.6 MB (three.js, not minified).
+9. **Harness:** scenarios `pw` (now Garruk Wildspeaker on the table), `pw-click`, `pw-stack`,
+   `modal` and `ability-frames`; `?play=<card id>`; how to see card art there (docs/testing.md).
+10. **Roadmap:** the eight above done; the docs of t2-21, t3-10 to t3-17, t4-6 and t4-7 (added to the
+    tracker on 2026-10-13, awaiting approval) written.
+
 ## Session of 2026-10-13
 
 On top of `9927172`. All 125 tests pass (2 new). Compared against MTG Arena gameplay videos

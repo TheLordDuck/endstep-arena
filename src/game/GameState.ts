@@ -122,6 +122,13 @@ export interface StackItemView {
   divided?: Record<string, number>;
   /** The value chosen for X, when Endstep sends it with the item. */
   x?: number;
+  /** A spell's description as Endstep words it on the stack ("Name (id) - what it does"): it
+      spells out only the modes chosen. */
+  description?: string;
+  /** The ability as printed, cost included ("+1: Draw a card."), from Endstep's yieldKey. */
+  abilityText?: string;
+  /** The modes chosen (indexes into the card's "•" lines), when Endstep sends them. */
+  modes?: number[];
 }
 
 export interface AbilityOption {

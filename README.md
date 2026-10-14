@@ -71,6 +71,15 @@ reload icon on the extension card and refresh the endstep.cc tab.
 | Choosing X (or any number): − / +, a quick pick, ↑/↓ (Shift: 5), digit keys, Enter | Set the number, then **Choose X = n**; **Undo** takes the cast back when Endstep allows it |
 | ◂ ▸ beside a crowded zone | Page through lands or artifacts/enchantments (two rows) or planeswalkers/Sagas (3×2 grid); creatures shrink to fit their line instead |
 
+Permanents show their printed keywords as icons along the bottom; tokens show in Arena's token
+frame: their art in a window arched on top, edged in their color (hover shows the whole card). The table is a 3D scene, as Arena's battlefields: the Academy, Glacier, Cathedral, Forge or Garden,
+for your deck's main color, or the one you pick (Settings → Table; *Plain* for a play mat).
+
+On the stack, abilities sit in Arena's ability frame (a planeswalker's with its loyalty cost), and
+a modal spell shows its modes with the ones not chosen dimmed. Targets are arcs of light: blue
+from a spell or ability, violet when it exiles, gold while you choose. A planeswalker's Choose One
+shows all its loyalty abilities, the ones it can't use now in grey.
+
 Identical permanents pile together, all of them in one pile as in Arena: its ×N counts every copy
 (×18 tokens) and only the top four are drawn. Clicking a card of the pile uses just that one (it
 moves to a pile of its own, attacking or picked); clicking the ×N uses them all at once (they all
@@ -87,7 +96,8 @@ face up there, with an eye mark, while it's still in that hand; face-down cards 
 to see (your morphs, cards you exiled face down) show their front the same way. Keywords an effect gave a permanent show in green on it, lost ones in red.
 
 In a timed match each player's clock sits by their picture (gold while running, red under 30 s), and a
-player taking too long to act gets a countdown to when they forfeit.
+player taking too long to act gets a countdown to when they forfeit; in its last stretch a burning
+rope crosses the table on their side and burns down with their time.
 | **H** or *Hold priority* | Keep priority after what you cast or activate, until switched off |
 | **»** (under the big button) | Pass priority for the rest of your turn |
 | *Pass until…* (by the action buttons) | Pass priority until combat, the end step or the opponent's end step; it stops early if the opponent casts something or you're asked anything. *Stop passing* ends it |
@@ -98,7 +108,7 @@ player taking too long to act gets a countdown to when they forfeit.
 | **L**, *Log* (top right) or the table menu | The game log: what happened, a line per event and one per turn; point at a line to light up its cards, at a card name to see it |
 | **?** or table menu → *Arena UI shortcuts* | The list of this board's keyboard shortcuts |
 | Waiting (not your move) | Who the game waits on and for what ("Opponent can respond to Lightning Bolt", "is declaring blockers"…); their picture glows |
-| Right-click the table → *Arena UI settings* | Animations on/off and their speed, card size, sounds on/off and volume (kept for every game) |
+| Right-click the table → *Arena UI settings* | Animations on/off and their speed, card size, the table (your deck's color, one of five 3D scenes, or plain), sounds on/off and volume (kept for every game) |
 | Spectating (`/spectate/…`) | The game on the Arena board, with nothing to answer; *Leave* (top center) stops watching |
 
 ## Development
@@ -108,7 +118,7 @@ player taking too long to act gets a countdown to when they forfeit.
   the match as a test fixture, which the harness replays on the board (`#match:<name>`); see
   [docs/testing.md](docs/testing.md).
 * `node build.mjs --harness` builds `dist-harness/harness.html#<scenario>`
-  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`, `strike`, `damage`, `damage-split`, `win`, `discard`, `tks`, `clock`, `clock-opp`, `keywords`, `piles`, `split`, `sideboard`, `copies`, `phyrexian`, `fireball`, `divided`, `self-discard`, `discard-cost`, `looting`, `proliferate`, `horde`, `bot-cast`, `murder`, `wrath`, `strike-next-turn`, `strike-many`, `strike-unseen`, `surgical`, `surgical-target`, `surgical-grave`, `surgical-hand`, `surgical-hand-t`, `surgical-library`, `resolve`, `resolve-bolt`, `spell-damage`, `tokens`, `pump`, `exile-creature`, `log`, `spectate`, `wait-respond`, `wait-blockers`, `wait-deciding`, `replay`): the board
+  (`priority`, `stack`, `attack`, `block`, `target`, `mulligan`, `mode`, `pw`, `pw-click`, `pw-stack`, `modal`, `ability-frames`, `stack7`, `stack-resolve`, `order`, `pay`, `exile`, `surveil`, `scry`, `mana`, `abilities`, `search`, `learn`, `graveyard`, `crowded`, `reveal`, `x`, `strike`, `damage`, `damage-split`, `win`, `discard`, `tks`, `clock`, `clock-opp`, `keywords`, `piles`, `split`, `sideboard`, `copies`, `phyrexian`, `fireball`, `divided`, `self-discard`, `discard-cost`, `looting`, `proliferate`, `horde`, `bot-cast`, `murder`, `wrath`, `strike-next-turn`, `strike-many`, `strike-unseen`, `surgical`, `surgical-target`, `surgical-grave`, `surgical-hand`, `surgical-hand-t`, `surgical-library`, `resolve`, `resolve-bolt`, `spell-damage`, `tokens`, `pump`, `exile-creature`, `log`, `spectate`, `wait-respond`, `wait-blockers`, `wait-deciding`, `replay`): the board
   rendered from fixture states, with no live match needed. See [docs/testing.md](docs/testing.md).
 * Sounds: drop audio files named after each sound into `public/sounds/` (Arena's own, say) and
   rebuild; see [public/sounds/README.md](public/sounds/README.md). Without them you hear only

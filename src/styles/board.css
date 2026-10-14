@@ -46,17 +46,143 @@
 }
 .layer.board-on .board.live { display: grid; }
 
+/* The table (see renderFelt): a play mat lying on dark wood, as on a real table. The wood shows as a
+   rim around the board; the mat is dyed in the deck's main color with its basic land's art printed
+   on it, lit from above, with stitched edges and a cloth grain. */
 .felt {
   position: absolute;
   inset: 0;
+  /* Its layers stay under everything on the board. */
+  z-index: 0;
+  isolation: isolate;
+  overflow: hidden;
   background:
-    radial-gradient(ellipse 70% 55% at 50% 50%, rgba(92, 70, 40, 0.35), transparent 70%),
-    radial-gradient(ellipse 120% 80% at 50% 110%, rgba(40, 60, 70, 0.35), transparent 60%),
-    radial-gradient(ellipse 120% 80% at 50% -10%, rgba(70, 40, 40, 0.3), transparent 60%),
-    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.012) 0 2px, transparent 2px 6px),
-    linear-gradient(180deg, #14100c, #0e0c0a 50%, #12100d);
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='600'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.003 0.09' numOctaves='3' seed='4' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.05 0 0 0 0 0.03 0 0 0 0 0.01 0 0 0 0.9 -0.2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E"),
+    radial-gradient(ellipse 80% 70% at 50% 45%, #3a2615, #1d130b 70%, #0f0a06),
+    #1d130b;
   pointer-events: none;
 }
+.mat {
+  --mat-c: #2b2620;
+  position: absolute;
+  inset: 12px;
+  overflow: hidden;
+  border-radius: 26px;
+  background:
+    radial-gradient(ellipse 62% 52% at 50% 46%, rgba(255, 236, 200, 0.16), transparent 72%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.28), transparent 30%, transparent 62%, rgba(0, 0, 0, 0.32)),
+    var(--mat-c);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    inset 0 0 90px rgba(0, 0, 0, 0.75),
+    0 0 0 1px rgba(0, 0, 0, 0.8),
+    0 14px 40px rgba(0, 0, 0, 0.75);
+  transition: background-color 0.6s ease;
+}
+/* The stitching along the mat's edge. */
+.mat::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  z-index: 3;
+  border-radius: 20px;
+  border: 2px dashed color-mix(in srgb, var(--mat-c) 45%, #d8c49a);
+  opacity: 0.45;
+}
+/* The land's art printed on the mat: muted, so the cards stand out on it. */
+.mat-art {
+  position: absolute;
+  inset: 0;
+  background: var(--felt-art, none) 50% 35% / cover no-repeat;
+  filter: saturate(0.75) brightness(0.62) contrast(1.05) blur(0.6px);
+  opacity: 0;
+  mix-blend-mode: luminosity;
+  transition: opacity 0.6s ease;
+}
+.felt.art .mat-art { opacity: 0.75; }
+/* Over it, the mat's own color, and the light from above. */
+.mat-grain {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background:
+    radial-gradient(ellipse 62% 52% at 50% 46%, rgba(255, 236, 200, 0.12), transparent 72%),
+    radial-gradient(ellipse 110% 95% at 50% 46%, transparent 55%, rgba(0, 0, 0, 0.55)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.35 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.felt.art .mat-grain::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--mat-c);
+  mix-blend-mode: color;
+  opacity: 0.55;
+}
+/* The table in 3D (see scene/Battlefield3D.ts): it takes the place of the mat, with the edges and
+   the corners darkened a little so what sits there (names, piles, buttons) stays readable. */
+.scene3d { position: absolute; inset: 0; width: 100%; height: 100%; display: none; }
+.felt.three .scene3d { display: block; }
+.felt.three .mat { display: none; }
+.felt.three::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 85% 80% at 50% 48%, transparent 55%, rgba(4, 3, 2, 0.55)),
+    linear-gradient(90deg, rgba(4, 3, 2, 0.35), transparent 14%, transparent 86%, rgba(4, 3, 2, 0.35));
+}
+/* The mat's dye: the deck's main color. */
+.felt[data-land="Plains"] .mat { --mat-c: #5e5034; }
+.felt[data-land="Island"] .mat { --mat-c: #1c3e52; }
+.felt[data-land="Swamp"] .mat { --mat-c: #2f2338; }
+.felt[data-land="Mountain"] .mat { --mat-c: #57281c; }
+.felt[data-land="Forest"] .mat { --mat-c: #213d29; }
+
+/* The rope: a player running out of time to act gets a burning line across the table on their
+   side (yours above your hand, theirs below their hand), burning down to nothing as their time
+   runs out. --left is the share of the time left. */
+.rope {
+  --rc: #ff9a2a;
+  grid-column: 1 / -1;
+  position: relative;
+  z-index: 26;
+  height: 4px;
+  margin: 0 var(--gutter);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+/* Between the player's cards and their life total. */
+.me-rope { grid-row: 6; align-self: start; translate: 0 -6px; }
+.opp-rope { grid-row: 2; align-self: end; translate: 0 6px; --rc: #ff5a3c; }
+.rope.on.lit { opacity: 1; }
+.rope::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--left, 1) * 100%);
+  border-radius: 2px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--rc) 45%, #2a0e04), var(--rc) 70%, #ffd9a0);
+  box-shadow: 0 0 6px var(--rc), 0 0 14px color-mix(in srgb, var(--rc) 60%, transparent);
+  transition: width 0.25s linear;
+}
+/* Its burning end. */
+.rope i {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--left, 1) * 100%);
+  width: 16px;
+  height: 16px;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0 18%, #ffe0a0 32%, var(--rc) 55%, transparent 72%);
+  filter: drop-shadow(0 0 6px var(--rc)) drop-shadow(0 0 12px var(--rc));
+  animation: ember 0.16s ease-in-out infinite alternate;
+  transition: left 0.25s linear;
+}
+@keyframes ember { to { scale: 1.35; opacity: 0.8; } }
+.board.still .rope i { animation: none; }
 
 button { font: inherit; color: inherit; cursor: pointer; }
 .ghost {
@@ -383,6 +509,71 @@ button { font: inherit; color: inherit; cursor: pointer; }
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.7);
 }
 .side .card .b.loy { background: linear-gradient(180deg, #4a3d6a, #1f1830); }
+
+/* Tokens in Arena's token frame: a dark card body with its top corners well rounded; in it a window
+   arched on top with the token's art (its art crop), edged in a bright line of the token's color
+   (silvery white, blue, green…); power/toughness in a pale box at the bottom right. No name: the
+   whole card shows on hover and right-click. */
+.side .card.arch .face {
+  border: 1px solid #050505;
+  outline: none;
+  border-radius: 28% 28% calc(var(--cw) * 0.06) calc(var(--cw) * 0.06) / 34% 34% calc(var(--cw) * 0.06) calc(var(--cw) * 0.06);
+  background: linear-gradient(180deg, #34343a, #1b1b1f 40%, #111114);
+}
+.side .card.arch .img {
+  top: 8%;
+  left: 6.5%;
+  width: 87%;
+  height: 79%;
+  object-position: 50% 30%;
+  border-radius: 27% 27% calc(var(--cw) * 0.015) calc(var(--cw) * 0.015) / 38% 38% calc(var(--cw) * 0.015) calc(var(--cw) * 0.015);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--fc, #a39d93) 45%, #fff),
+    0 0 0 calc(var(--cw) * 0.022) var(--fc, #a39d93),
+    0 0 0 calc(var(--cw) * 0.022 + 1px) rgba(0, 0, 0, 0.7);
+}
+.side .card.arch .b.pt {
+  color: #16161a;
+  background: linear-gradient(180deg, #f1f3f6, #c4cad3);
+  border: 2px solid #2a2a2e;
+  border-radius: calc(var(--cw) * 0.06);
+  text-shadow: none;
+}
+.side .card.arch .badges { inset: auto 3% 3% 0; }
+.side .card.arch .b.pt { font-size: calc(var(--cw) * 0.16); padding: 0 7px; }
+.side .card.arch .b.pt i.mod { color: #1f5fd0; }
+.side .card.arch .b.pt i.hurt { color: #c8261a; }
+.side .card.arch.sick .face::after { border-radius: inherit; }
+
+/* The keywords it prints, as icons along the bottom of the frame (hover one for its name; the
+   enlarged card explains them). */
+.kicons { display: none; }
+.side .card.has-kicons .kicons {
+  position: absolute;
+  z-index: 3;
+  left: calc(var(--cw) * 0.05);
+  bottom: calc(var(--cw) * 0.05);
+  max-width: 58%;
+  display: flex;
+  flex-wrap: wrap-reverse;
+  gap: calc(var(--cw) * 0.015);
+  pointer-events: auto;
+}
+.ki {
+  display: grid;
+  place-items: center;
+  width: max(14px, calc(var(--cw) * 0.15));
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 35%, #2c241a, #0c0a08);
+  border: 1px solid rgba(232, 198, 120, 0.75);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+  color: var(--gold-hi);
+  cursor: help;
+}
+.ki svg { width: 70%; height: 70%; fill: currentColor; fill-rule: evenodd; }
+/* The keywords an effect gave it or took away sit above the icons. */
+.side .card.has-kicons.modified .kws { bottom: calc(var(--cw) * 0.24); }
 
 /* Sagas, Classes and planeswalkers: the whole card, full size. It sits in the back row but
    rises into the space above it (below it for the opponent), so the row keeps its height. */
@@ -1175,38 +1366,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .stack .card.selectable { filter: none; }
 .stack .card.selectable .face { outline-color: var(--target); box-shadow: 0 0 0 3px var(--target), 0 0 22px 5px rgba(255, 194, 74, 0.65); animation: pulse 1.4s ease-in-out infinite; }
 .stack .card.selected .face { outline-color: var(--picked); box-shadow: 0 0 0 3px var(--picked), 0 0 22px 5px rgba(255, 138, 42, 0.7); animation: none; }
-/* Abilities: the source card with a ribbon and the ability text on a parchment plate. */
-.stack .card.ability.trigger .face::before { background: linear-gradient(90deg, transparent, #c9b6ff 12%, #8f74e8 88%, transparent); color: #1a1238; }
-.stack .card.ability .face::before {
-  content: attr(data-kind-long);
-  position: absolute;
-  z-index: 2;
-  top: 44%;
-  left: -2px;
-  right: -2px;
-  padding: 2px 0;
-  text-align: center;
-  font: 700 calc(var(--cw) * 0.07) / 1.3 "Cinzel", Georgia, serif;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #231a0c;
-  background: linear-gradient(90deg, transparent, var(--gold-hi) 12%, var(--gold) 88%, transparent);
-}
-.stack .card.ability::after {
-  content: attr(data-stack-text);
-  position: absolute;
-  z-index: 2;
-  inset: auto 5% 5% 5%;
-  max-height: 44%;
-  overflow: hidden;
-  padding: 6% 7%;
-  border-radius: calc(var(--cw) * 0.03);
-  font: 500 calc(var(--cw) * 0.072) / 1.3 Georgia, serif;
-  color: #2a2016;
-  background: linear-gradient(180deg, #efe3c4, #d9c8a0);
-  border: 1px solid rgba(90, 68, 40, 0.6);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-}
+/* Abilities: Arena's ability frame instead of the source card (see .abf). */
+.stack .card.ability .img, .stack .card.ability .fallback { visibility: hidden; }
+.overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.overlay:empty { display: none; }
 /* What was paid for X, on a tab under the card's mana cost. */
 .stack .card .face[data-x]::after {
   content: attr(data-x);
@@ -1224,6 +1387,125 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border-right: 0;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
 }
+
+/* Arena's ability frame (on the stack, in the magnifier, ordering triggers): the source card's art
+   on top with its name, then a plate of the card's color whose bottom ends in an arch like a
+   shield, with "Ability" and the text; a planeswalker's loyalty cost in a badge under it. Sized
+   from the card it sits in (--cw on the stack, --fw in the magnifier). */
+.abf {
+  --u: var(--cw, var(--fw, 200px));
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--u) * 0.04);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fc) 55%, #120e0a), #120e0a 92%);
+  border-radius: inherit;
+}
+.abf-art {
+  position: relative;
+  flex: none;
+  height: 44%;
+  overflow: hidden;
+  border-radius: calc(var(--u) * 0.035) calc(var(--u) * 0.035) 0 0;
+  background: #1b1712;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+.abf-art img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%; display: block; }
+.abf-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  padding: calc(var(--u) * 0.02) 6% calc(var(--u) * 0.03);
+  overflow: hidden;
+  font: 700 calc(var(--u) * 0.068) / 1.2 var(--font);
+  color: #fff;
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+  background: linear-gradient(180deg, rgba(8, 6, 4, 0.85), transparent);
+}
+/* The plate: the card's color around a parchment, its bottom an arch. */
+.abf-plate {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: calc(var(--u) * -0.02);
+  padding: calc(var(--u) * 0.03);
+  border-radius: calc(var(--u) * 0.02) calc(var(--u) * 0.02) 50% 50% / calc(var(--u) * 0.02) calc(var(--u) * 0.02) 28% 28%;
+  background: var(--fc);
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+.abf-kind {
+  flex: none;
+  padding: calc(var(--u) * 0.01) 0;
+  text-align: center;
+  font: 700 calc(var(--u) * 0.062) / 1.3 "Cinzel", Georgia, serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #231a0c;
+  background: linear-gradient(90deg, #d9c8a0, #f3ead3 50%, #d9c8a0);
+  border-radius: calc(var(--u) * 0.015);
+}
+.abf-text {
+  flex: 1;
+  min-height: 0;
+  margin-top: calc(var(--u) * 0.02);
+  padding: 5% 8% 14%;
+  overflow: hidden;
+  border-radius: calc(var(--u) * 0.015) calc(var(--u) * 0.015) 50% 50% / calc(var(--u) * 0.015) calc(var(--u) * 0.015) 26% 26%;
+  font: 500 calc(var(--u) * 0.068) / 1.3 Georgia, serif;
+  color: #2a2016;
+  text-align: center;
+  background: linear-gradient(180deg, #f3ead3, #dccdab);
+}
+.abf-text .sym { width: 1em; height: 1em; vertical-align: -0.14em; }
+/* In the magnifier the next item covers each one's right half: its name and text start on the left. */
+.viewer .abf-name, .viewer .abf-text, .viewer .abf-kind { text-align: left; padding-left: 7%; }
+/* Clear of the loyalty badge. */
+.abf:has(.abf-cost) .abf-text { padding-bottom: 24%; font-size: calc(var(--u) * 0.062); }
+/* The loyalty cost, as on a planeswalker: up for +, down for −. */
+.abf-cost {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--u) * 0.01);
+  translate: -50% 0;
+  min-width: calc(var(--u) * 0.26);
+  padding: calc(var(--u) * 0.025) calc(var(--u) * 0.04) calc(var(--u) * 0.04);
+  font: 800 calc(var(--u) * 0.11) / 1 "Cinzel", Georgia, serif;
+  text-align: center;
+  color: #fff;
+  background: linear-gradient(180deg, #3a3a3a, #111);
+  border: 2px solid #d8d2c4;
+  clip-path: polygon(0 0, 100% 0, 100% 70%, 50% 100%, 0 70%);
+}
+.abf-cost.up { clip-path: polygon(50% 0, 100% 30%, 100% 100%, 0 100%, 0 30%); padding: calc(var(--u) * 0.04) calc(var(--u) * 0.04) calc(var(--u) * 0.025); }
+
+/* A modal spell on the stack: its text over the card's text box, each mode on its line, the ones
+   not chosen dimmed (as Arena shows Rankle's Prank). */
+.mtext {
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  top: 55%;
+  bottom: 6%;
+  overflow: hidden;
+  padding: 2.5% 4.5%;
+  border-radius: calc(var(--cw, var(--fw, 200px)) * 0.02);
+  font: 500 calc(var(--cw, var(--fw, 200px)) * 0.045) / 1.22 Georgia, serif;
+  color: #1e170f;
+  background: linear-gradient(180deg, rgba(243, 234, 211, 0.97), rgba(226, 213, 180, 0.97));
+  box-shadow: 0 0 0 1px rgba(90, 68, 40, 0.5);
+  text-align: left;
+}
+.mtext p { margin: 0 0 0.2em; }
+.mtext .mode.off { opacity: 0.4; font-size: 0.92em; }
+.mtext .mode.on { font-weight: 700; }
+.mtext .sym { width: 1em; height: 1em; vertical-align: -0.14em; }
 
 /* ---------- Turn tracks ---------- */
 /* Each player's turn runs along their life total, Arena style: beginning and
@@ -1591,6 +1873,9 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 }
 .acard:hover { transform: translateY(-8px); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), 0 0 36px rgba(120, 200, 255, 0.9), 0 22px 40px rgba(0, 0, 0, 0.7); }
 .acard.on { border-color: var(--picked); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), 0 0 36px rgba(255, 138, 42, 0.85); }
+/* One it can't use now (not enough loyalty, or not offered): grey, no glow, not clickable. */
+.acard.off { cursor: not-allowed; border-color: #6f6a62; filter: grayscale(1) brightness(0.6); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), 0 16px 34px rgba(0, 0, 0, 0.7); }
+.acard.off:hover { transform: none; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), 0 16px 34px rgba(0, 0, 0, 0.7); }
 /* The art: the top of the source card's image (name bar and picture). */
 .aart { flex: none; height: 40%; overflow: hidden; border-radius: calc(var(--w) * 0.025); background: #1b1712; }
 .aart img { width: 100%; display: block; }
@@ -1803,6 +2088,28 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 }
 .otile .oname { padding: 6px 4px 0; font: 700 12px/1.25 "Cinzel", Georgia, serif; color: var(--gold-hi); }
 .otile .otext { margin: 4px 0; padding: 6px 7px; max-height: 96px; overflow-y: auto; border-radius: 5px; font: 11px/1.3 Georgia, serif; color: #2a2016; background: linear-gradient(180deg, #efe3c4, #d9c8a0); }
+/* A trigger: its ability frame (as on the stack), "Optional" over it when it may be skipped. */
+.otile.ab .oframe {
+  --cw: calc(var(--w) - 12px);
+  position: relative;
+  height: calc(var(--w) * 1.16);
+  overflow: hidden;
+  border-radius: 8px;
+}
+.otile.ab .oopt {
+  position: absolute;
+  top: 10px;
+  right: calc(var(--overlap) + 12px);
+  padding: 1px 8px;
+  border-radius: 999px;
+  font: 700 10px/1.5 var(--font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #231a0c;
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+}
+.otile.ab:last-child .oopt { right: 12px; }
 .otile .omove { display: flex; justify-content: space-between; gap: 2px; margin-top: auto; padding: 4px 0 0; }
 .otile .omove button { padding: 1px 8px; font-size: 11px; }
 .otile .omove button:disabled { opacity: 0.3; cursor: default; }
@@ -2042,14 +2349,34 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .board.aiming-attack .side.opp .card.selectable:not(.attacking) .face { box-shadow: 0 0 0 3px var(--atk), 0 0 22px 5px rgba(255, 90, 60, 0.7); animation: none; }
 .ah.atk { fill: var(--atk); }
 .ah.blk { fill: var(--blk); }
-/* Stack arrows: the source card of an ability (violet), and a spell or ability's targets (orange). */
+/* Stack arrows: the source card of an ability (violet, dotted). */
 .arrow.src { stroke: #b58cff; stroke-width: 4; stroke-dasharray: 2 9; }
-.arrow.tgt { stroke: var(--picked); stroke-width: 4; }
-/* A spell dividing its damage: each target's share near its arrow's head. */
+/* Targets: an arc of light (see drawArrows). Blue and white for a spell or ability on the stack,
+   violet when it exiles, gold while you choose. */
+.beam { --glow: #4fb4ff; --tail: #8fd3ff; --head: #ffffff; }
+.beam.exile { --glow: #a368ff; --tail: #c9a6ff; --head: #f4eaff; }
+.beam.choosing { --glow: #ffb52e; --tail: #ffd27a; --head: #fff6dc; }
+.beam .b0 { stop-color: var(--tail); stop-opacity: 0.35; }
+.beam .b1 { stop-color: var(--head); stop-opacity: 1; }
+.beam path { fill: none; stroke-linecap: round; }
+.beam-glow { stroke: var(--glow); stroke-width: 11; opacity: 0.45; filter: blur(4px); }
+.beam-core { stroke-width: 3; filter: drop-shadow(0 0 3px var(--glow)); }
+/* Sparks running toward the target. */
+.beam-flow { stroke: #fff; stroke-width: 4; stroke-dasharray: 0.1 24; opacity: 0.9; animation: beam-flow 1s linear infinite; animation-delay: var(--flow, 0s); }
+@keyframes beam-flow { to { stroke-dashoffset: -24.1; } }
+/* Where it lands: a bright point and a ring of light that keeps opening. */
+.beam-dot { fill: var(--head); filter: drop-shadow(0 0 5px var(--glow)) drop-shadow(0 0 10px var(--glow)); }
+.beam-hit { fill: none; stroke: var(--glow); stroke-width: 3; transform-box: fill-box; transform-origin: center; animation: beam-hit 1.2s ease-out infinite; animation-delay: var(--flow, 0s); }
+@keyframes beam-hit { from { transform: scale(0.4); opacity: 0.95; } to { transform: scale(2.2); opacity: 0; } }
+/* Aiming: faint until it locks onto something it can target. */
+.beam.aim { opacity: 0.7; }
+.beam.aim.locked { opacity: 1; }
+.board.still .beam-flow, .board.still .beam-hit { animation: none; }
+.board.still .beam-hit { opacity: 0; }
+/* A spell dividing its damage: each target's share on its beam, near where it lands. */
 .arrow-amt circle { fill: #1a120b; stroke: var(--picked); stroke-width: 2.5; }
 .arrow-amt text { fill: #fff; font: 700 14px/1 system-ui, sans-serif; text-anchor: middle; }
 .ah.src { fill: #b58cff; }
-.ah.tgt { fill: var(--picked); }
 @keyframes dash { to { stroke-dashoffset: -18; } }
 
 /* ---------- Corner, zoom, menu, viewer, banners ---------- */
@@ -2405,7 +2732,7 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   pointer-events: none;
 }
 /* The stack in the magnifier: each item rimmed in its controller's color, the next to resolve
-   lit; an ability carries its kind and text over its source card. */
+   lit; an ability in its ability frame, a modal spell with its modes. */
 /* One straight row as wide as the screen allows, the cards big enough to read. */
 .viewer[data-zone="stack"] .fan { --fw: min(250px, 17vw, 36vh); width: min(1500px, 92vw); }
 .viewer[data-zone="stack"] .fan-cards { height: calc(var(--fw) * 88 / 63 + 24px); }
@@ -2416,29 +2743,6 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .viewer[data-zone="stack"] .fcard.next.mine .fimg { box-shadow: 0 0 0 3px var(--gold-hi), 0 0 30px 8px rgba(255, 214, 90, 0.55); }
 .viewer[data-zone="stack"] .fcard.next.theirs .fimg { box-shadow: 0 0 0 3px var(--atk), 0 0 30px 8px rgba(255, 90, 60, 0.45); }
 .fimg { position: relative; }
-.fability {
-  position: absolute;
-  inset: auto 5% 5% 5%;
-  max-height: 52%;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  border-radius: calc(var(--fw) * 0.03);
-  background: linear-gradient(180deg, #efe3c4, #d9c8a0);
-  border: 1px solid rgba(90, 68, 40, 0.6);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-  text-align: left;
-}
-.fability b {
-  padding: 2px 0;
-  text-align: center;
-  font: 700 calc(var(--fw) * 0.06) / 1.3 "Cinzel", Georgia, serif;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: #231a0c;
-  background: linear-gradient(90deg, var(--gold-hi), var(--gold));
-}
-.fability span { padding: 5% 7%; font: 500 calc(var(--fw) * 0.068) / 1.3 Georgia, serif; color: #2a2016; }
 .fan-slider { position: relative; width: min(340px, 40%); height: 4px; border-radius: 999px; background: rgba(255, 255, 255, 0.28); cursor: pointer; }
 .fan.static .fan-slider { visibility: hidden; }
 .fan-thumb {

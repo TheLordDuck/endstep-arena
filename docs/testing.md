@@ -76,6 +76,32 @@ Added on 2026-10-08:
 | `stack-resolve` | Three items on the stack and the top one resolves; with `?step=2000` the two states come 2 s apart, so the remaining pile can be watched sliding |
 | `wait-respond`, `wait-blockers`, `wait-deciding` | Not your move: the opponent can respond to your Lightning Bolt / is declaring blockers / is making a choice |
 
+Added on 2026-10-14:
+
+| Scenario | Shows |
+| --- | --- |
+| `pw` | Garruk Wildspeaker's Choose One at 3 loyalty: its −4 in grey |
+| `pw-click` | The same Garruk clicked on the table (open it with `?play=970`): Endstep offers +1 and −1, the −4 shows in grey |
+| `pw-stack` | Loyalty abilities on the stack in the ability frame, with their cost: Garruk's −1 (named by its printed text) and Jace's 0 (named by what it does) |
+| `modal` | Kolaghan's Command on the stack, two of its four modes chosen (the other two dimmed), told from Endstep's description |
+| `ability-frames` | An activated ability (as printed, cost included) and a trigger in Arena's ability frame |
+
+Every scenario now shows permanents in Arena's frame with their keyword icons and the table's
+land art; `keywords`, `clock` (the rope), `stack7` (the magnifier), `order`, `divided` and
+`fireball` (the target beams) show the rest of the 2026-10-14 changes.
+
+`?play=<card id>` clicks that card as if to play it (a permanent with several abilities opens its
+Choose One).
+
+Card images come from Endstep's `/api/cards/image`, which a harness opened from disk doesn't have:
+cards show their text instead. To see the art, serve `dist-harness/` with something that sends
+`/api/cards/image?name=…&version=…` (and `set`/`cn`) on to Scryfall's
+`https://api.scryfall.com/cards/named?exact=…&format=image&version=…`.
+
+The 3D table needs WebGL: in headless Chrome, start it with `--use-angle=swiftshader
+--enable-unsafe-swiftshader` (not `--disable-gpu`). `?prefs={"table":"forge"}` (or `academy`,
+`glacier`, `cathedral`, `garden`, `plain`) picks the scene; `window.__board.scene3d` is the scene.
+
 Settings: `?prefs={"cardScale":1.3,"animSpeed":2.5}` (URL-encoded) starts the harness with other
 board settings; `window.__board.renderSettings()` and `renderShortcuts()` open those panels from a script.
 
@@ -126,4 +152,4 @@ Only the frames Endstep sent are kept (brotli; a 13-turn match is 26 KB). Then:
 pnpm test
 ```
 
-123 tests at the end of the 2026-10-11 session.
+133 tests at the end of the 2026-10-14 session.

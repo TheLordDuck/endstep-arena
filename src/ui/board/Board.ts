@@ -17,7 +17,11 @@ import { avatarPicture } from "../../game/endstep/avatars";
 import { ExileLinks } from "../../game/exileLinks";
 import { HandKnowledge } from "../../game/handKnowledge";
 import { keywordNotes } from "./keywords";
-import { ANIM_SPEEDS, CARD_SCALES, type BoardPrefs } from "./prefs";
+import { bestLine, chosenModes, frameColor, loyaltyCost, loyaltyLines, loyaltyNeeded, modeLines, withoutCost } from "./abilityText";
+import { ANIM_SPEEDS, CARD_SCALES, TABLES, type BoardPrefs } from "./prefs";
+import { Battlefield3D, type SceneLayout } from "./scene/Battlefield3D";
+import { THEME_FOR_LAND, type ThemeName } from "./scene/themes";
+import { deckLand } from "./tableArt";
 import { Sounds, type Sfx } from "./sounds";
 import { damageDealt } from "../../game/spellDamage";
 import { blowsOf, toldFight, turnLog, type ToldFight } from "../../game/combatEvents";
@@ -185,7 +189,10 @@ export class Board {
   /** The stack tray is tucked away (the player asked for a clear view of the battlefield). */
   private stackHidden = false;
   /** The stack as drawn, top (resolves next) first: what the magnifier lays out in a fan. */
-  private stackShown: { card: CardView; kind: string; text: string; mine: boolean; x?: number }[] = [];
+  private stackShown: { card: CardView; kind: string; text: string; cost: string | null; modes: StackModes | null; mine: boolean; x?: number }[] = [];
+  /** The modes you picked for what you're casting (their texts), by source card id and by
+      "name:<card name>": the spell on the stack shows them. */
+  private pickedModes = new Map<string, string[]>();
   /** Reordering in the order box: the tile being dragged along the row. */
   private orderDrag: {
     id: string; startX: number; active: boolean;
@@ -274,12 +281,17 @@ export class Board {
   private waiting: Waiting | null = null;
   /** Backs for the hand of the player watched from, when it isn't shown (see renderHand). */
   private spectateBacks: HTMLElement[] = [];
+  /** The land of your deck's main color this game (see renderFelt). */
+  private feltLand: { matchId: string; land: string | null } | null = null;
+  /** The table in 3D (see renderFelt); null until wanted, or where WebGL isn't available. */
+  private scene3d: Battlefield3D | null = null;
+  private scene3dFailed = false;
 
   constructor(private readonly controller: GameController, private readonly hooks: BoardHooks) {
     this.el = document.createElement("div");
     this.el.className = "board";
     this.el.innerHTML = `
-      <div class="felt"></div>
+      <div class="felt"><div class="mat"><div class="mat-art"></div><div class="mat-grain"></div></div></div>
       <div class="opp-tiles"></div>
       <div class="hand opp-hand"></div>
       <div class="plate opp-plate" data-player=""></div>
@@ -301,6 +313,8 @@ export class Board {
       <div class="plate me-plate" data-player=""></div>
       <div class="lifebar me-bar"><div class="track-half left"></div><div class="life-orb me-life"></div><div class="track-half right"></div></div>
       <div class="mana-pool me-mana"></div>
+      <div class="rope me-rope" aria-hidden="true"><i></i></div>
+      <div class="rope opp-rope" aria-hidden="true"><i></i></div>
       <div class="hand mine my-hand"></div>
       <div class="hand mine side-hand"></div>
       <div class="piles opp-piles"></div>
@@ -316,7 +330,6 @@ export class Board {
           <marker id="ah-atk" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah atk"/></marker>
           <marker id="ah-blk" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah blk"/></marker>
           <marker id="ah-src" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah src"/></marker>
-          <marker id="ah-tgt" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="ah tgt"/></marker>
         </defs>
         <g class="lines"></g>
       </svg>
@@ -350,6 +363,7 @@ export class Board {
     this.bindLog();
     new ResizeObserver(() => {
       this.layout();
+      this.placeScene();
       // A moved replay bar stays whole on the board.
       if (this.replayBarAt) this.placeReplayBar(this.q(".replay-bar"));
     }).observe(this.el);
@@ -363,6 +377,7 @@ export class Board {
     if (!state) {
       this.el.classList.remove("live");
       this.stopPassing();
+      this.scene3d?.stop();
       return;
     }
     this.el.classList.add("live");
@@ -462,6 +477,7 @@ export class Board {
     this.sounds.setVolume(p.sound ? p.volume : 0);
     this.el.classList.toggle("log-open", p.logOpen);
     if (this.state) {
+      this.renderFelt(this.state, this.zones(this.state).me);
       this.renderLog(this.state);
       this.layout();
     }
@@ -518,7 +534,7 @@ export class Board {
   /** The board's settings, from the table menu: animations, their speed, card size, sounds. */
   private renderSettings(): void {
     const p = this.prefs;
-    const seg = (key: keyof BoardPrefs, options: { value: number | boolean; label: string }[], disabled = false) =>
+    const seg = (key: keyof BoardPrefs, options: { value: number | boolean | string; label: string }[], disabled = false) =>
       `<div class="seg${disabled ? " off" : ""}">${options.map((o) =>
         `<button class="${p[key] === o.value ? "on" : ""}" data-pref="${key}:${String(o.value)}"${disabled ? " disabled" : ""}>${esc(o.label)}</button>`).join("")}</div>`;
     const onOff = [{ value: true, label: "On" }, { value: false, label: "Off" }];
@@ -529,6 +545,7 @@ export class Board {
         <div class="set-row"><span>Animations</span>${seg("animations", onOff)}</div>
         <div class="set-row"><span>Animation speed</span>${seg("animSpeed", ANIM_SPEEDS, !p.animations)}</div>
         <div class="set-row"><span>Card size</span>${seg("cardScale", CARD_SCALES)}</div>
+        <div class="set-row"><span>Table</span>${seg("table", TABLES)}</div>
         <div class="set-row"><span>Sounds</span>${seg("sound", onOff)}</div>
         <div class="set-row"><span>Volume</span><input type="range" class="vol" min="0" max="100" step="5" value="${Math.round(p.volume * 100)}" data-pref-range="volume"${p.sound ? "" : " disabled"}></div>
       </div>
@@ -578,7 +595,7 @@ export class Board {
 
   private onPrefButton(btn: HTMLElement): void {
     const [key, raw] = btn.dataset.pref!.split(":") as [keyof BoardPrefs, string];
-    const value = raw === "true" ? true : raw === "false" ? false : Number(raw);
+    const value = raw === "true" ? true : raw === "false" ? false : /^-?[\d.]+$/.test(raw) ? Number(raw) : raw;
     this.setPref({ [key]: value } as Partial<BoardPrefs>);
   }
 
@@ -670,6 +687,9 @@ export class Board {
     for (const [id, el] of this.slotEls) if (!this.used.has(`slot:${id}`)) { el.remove(); this.slotEls.delete(id); }
 
     this.waiting = waitingFor(state, z.me);
+    this.renderRope(this.q(".me-rope"), z.me, state);
+    this.renderRope(this.q(".opp-rope"), z.opp, state);
+    this.renderFelt(state, z.me);
     this.renderPlate(this.q(".me-plate"), this.q(".me-life"), z.me, state);
     this.renderPlate(this.q(".opp-plate"), this.q(".opp-life"), z.opp, state);
     this.renderManaPool(this.q(".me-mana"), z.me);
@@ -682,6 +702,7 @@ export class Board {
     this.renderReveals(state);
     this.renderLog(state);
     this.layout();
+    this.placeScene();
     this.renderManaWheel(state);
 
     // FLIP "last/invert/play" for cards that moved.
@@ -2084,11 +2105,26 @@ export class Board {
       const el = this.card(card, false);
       el.classList.toggle("ability", s.isAbility);
       el.dataset.stackText = s.isAbility ? s.name : "";
-      // A triggered ability ("When…", "Whenever…", "At…") or an activated one: the ribbon says which.
+      // A triggered ability ("When…", "Whenever…", "At…") or an activated one.
       const triggered = s.isAbility && /^\s*(when|whenever|at)\b/i.test(s.name);
       const face = el.querySelector<HTMLElement>(".face");
       const kind = !s.isAbility ? "" : s.id.startsWith("pending:") ? "Ability" : triggered ? "Triggered ability" : "Activated ability";
-      if (face) face.dataset.kindLong = kind;
+      // An ability in Arena's ability frame; a modal spell with the modes not chosen dimmed.
+      const ability = s.isAbility ? this.stackAbility(s, source) : null;
+      const modes = s.isAbility ? null : this.stackModes(s, source);
+      const overlay = ability ? abilityFrameHtml(source, ability.text, ability.cost)
+        : modes ? modesHtml(modes) : "";
+      let extra = face?.querySelector<HTMLElement>(".overlay");
+      if (overlay && face && !extra) {
+        extra = document.createElement("div");
+        extra.className = "overlay";
+        face.appendChild(extra);
+      }
+      if (extra && extra.dataset.sig !== overlay) {
+        extra.dataset.sig = overlay;
+        extra.innerHTML = overlay;
+      }
+      el.classList.toggle("modal", !!modes);
       // What was paid for X: Endstep's value, else the one you chose when casting it.
       const mine = !!meId && s.controllerId === meId;
       let x = s.x;
@@ -2101,7 +2137,7 @@ export class Board {
         if (x === undefined) delete face.dataset.x;
         else face.dataset.x = `X = ${x}`;
       }
-      shown.push({ card, kind, text: s.isAbility ? s.name : "", mine, x });
+      shown.push({ card, kind, text: ability?.text ?? "", cost: ability?.cost ?? null, modes, mine, x });
       el.classList.toggle("trigger", triggered);
       el.dataset.controller = s.controllerId ?? "";
       el.style.setProperty("--si", String(i));
@@ -2119,6 +2155,8 @@ export class Board {
       for (const key of this.xShown) if (!xKeys.has(key)) this.chosenX.delete(key);
       this.xShown = xKeys;
     } else for (const key of xKeys) this.xShown.add(key);
+    // The modes picked are spent once the stack is empty (and nothing is being cast).
+    if (!stack.length && (!pending || pending.type === "PRIORITY")) this.pickedModes.clear();
     this.stackShown = shown.reverse();
     const box = this.q(".stack");
     reconcile(box, els);
@@ -2135,6 +2173,42 @@ export class Board {
     const toggle = this.q(".stack-toggle");
     toggle.textContent = this.stackHidden ? `◂ Stack · ${stack.length}` : "▸";
     toggle.title = this.stackHidden ? "Show the stack" : "Hide the stack";
+  }
+
+  /** The modes picked for a modal spell, so the spell on the stack shows them. */
+  private rememberModes(p: PendingActionView, indexes: number[]): void {
+    if (p.type !== "CHOOSE_MODE") return;
+    const texts = p.modeOptions.filter((o) => indexes.includes(o.index)).map((o) => o.description);
+    const name = p.sourceCardName ?? (p.sourceCardId ? this.cardData.get(p.sourceCardId)?.name : undefined);
+    for (const key of [p.sourceCardId, name ? `name:${name}` : undefined]) if (key) this.pickedModes.set(key, texts);
+  }
+
+  /** An ability on the stack as its frame shows it: its text as printed when Endstep sends it
+      (else its description, without ids), and a planeswalker's loyalty cost. */
+  private stackAbility(s: StackItemView, src: CardView | undefined): { text: string; cost: string | null } {
+    const printed = s.abilityText?.trim() || undefined;
+    const described = cleanStackText(s.name);
+    let text = printed ?? described;
+    let cost = loyaltyCost(text);
+    // Endstep words a loyalty ability by what it does: the planeswalker's line that says it.
+    if (cost === null && src && /planeswalker/i.test(`${src.types.join(" ")} ${src.typeLine ?? ""}`)) {
+      const line = bestLine(loyaltyLines(src.oracleText), described);
+      if (line) {
+        cost = line.cost;
+        text = line.text;
+      }
+    }
+    return { text: cost === null ? text : withoutCost(text), cost };
+  }
+
+  /** A modal spell on the stack: its modes, and which were chosen (null when it has none, or it
+      can't be told which). */
+  private stackModes(s: StackItemView, src: CardView | undefined): StackModes | null {
+    const lines = modeLines(src?.oracleText);
+    if (!lines) return null;
+    const picked = [s.sourceCardId, s.card?.id, `name:${src?.name ?? s.name}`].map((k) => (k ? this.pickedModes.get(k) : undefined)).find(Boolean);
+    const chosen = s.modes?.length ? s.modes : chosenModes(lines.modes, s.description, picked, src?.name);
+    return chosen ? { ...lines, chosen } : null;
   }
 
   private renderPiles(box: HTMLElement, player: PlayerView | null): void {
@@ -2512,6 +2586,74 @@ export class Board {
     }
   }
 
+  /** Arena's rope: while a player is running out of time to act (the last stretch of their idle
+      timer), a burning line across the table on their side, in their color, that burns down to
+      nothing as their time runs out. The countdown by their picture stays. */
+  private renderRope(el: HTMLElement, p: PlayerView | null, state: GameState): void {
+    const idle = p && state.idle?.playerId === p.id && !p.hasLost && !p.hasConceded ? state.idle : undefined;
+    el.classList.toggle("on", !!idle);
+    if (!idle) {
+      el.classList.remove("lit");
+      return;
+    }
+    el.dataset.deadline = String(idle.deadline);
+    el.dataset.span = String(idle.graceMs || 30_000);
+    updateTimer(el);
+  }
+
+  /** The table: a 3D scene, the one for your deck's main color (picked once a game, from what
+      your deck has shown) or the one chosen in the settings. Without WebGL, or set to Plain: a play
+      mat on a wooden table, dyed in your deck's color with its basic land's art printed on it. */
+  private renderFelt(state: GameState, me: PlayerView | null): void {
+    if (this.feltLand?.matchId !== state.matchId || !this.feltLand.land) this.feltLand = { matchId: state.matchId, land: deckLand(me) };
+    const land = this.feltLand.land;
+    const choice = this.prefs.table;
+    const theme: ThemeName | null = choice === "plain" ? null : choice === "auto" ? (land ? THEME_FOR_LAND[land] ?? "garden" : "garden") : choice;
+    const felt = this.q(".felt");
+    if (theme && !this.scene3d && !this.scene3dFailed) {
+      this.scene3d = Battlefield3D.create();
+      if (this.scene3d) felt.prepend(this.scene3d.canvas);
+      else this.scene3dFailed = true;
+    }
+    const three = !!theme && !!this.scene3d;
+    felt.classList.toggle("three", three);
+    if (three) {
+      this.scene3d!.setTheme(theme);
+      this.scene3d!.setAnimated(!reducedMotion());
+      this.scene3d!.start();
+      this.placeScene();
+    } else this.scene3d?.stop();
+    // The mat (Plain, or no WebGL).
+    const print = choice !== "plain" ? land : null;
+    const url = !three && print ? imageUrl(blankCard(`felt:${print}`, print), "art_crop") : null;
+    felt.classList.toggle("art", !!url);
+    felt.dataset.land = three ? "" : print ?? "";
+    const value = url ? `url("${url}")` : "none";
+    if (felt.style.getPropertyValue("--felt-art") !== value) felt.style.setProperty("--felt-art", value);
+  }
+
+  /** Lines the 3D table up with the board: its middle band on the midline, a dais under each
+      player's picture, scenery out by the side columns. */
+  private placeScene(): void {
+    const scene = this.scene3d;
+    if (!scene || !this.q(".felt").classList.contains("three")) return;
+    const box = this.el.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    scene.resize(box.width, box.height);
+    const at = (sel: string, fallback: { u: number; v: number }) => {
+      const r = this.el.querySelector<HTMLElement>(sel)?.getBoundingClientRect();
+      return r && r.width ? { u: (r.left + r.width / 2 - box.left) / box.width, v: (r.top + r.height / 2 - box.top) / box.height } : fallback;
+    };
+    const cols = getComputedStyle(this.el).gridTemplateColumns.split(" ").map(parseFloat);
+    scene.setLayout({
+      mid: at(".midline", { u: 0.5, v: 0.47 }).v,
+      opp: at(".opp-life .avatar", at(".opp-life", { u: 0.5, v: 0.12 })),
+      me: at(".me-life .avatar", at(".me-life", { u: 0.5, v: 0.82 })),
+      left: (cols[0] || box.width * 0.17) / box.width,
+      right: (cols.at(-1) || box.width * 0.17) / box.width,
+    } satisfies SceneLayout);
+  }
+
   private lifeFloat(plate: HTMLElement, delta: number): void {
     const f = document.createElement("div");
     f.className = `life-float ${delta < 0 ? "loss" : "gain"}`;
@@ -2783,10 +2925,13 @@ export class Board {
     if (pick && (!p || p.type === "PRIORITY")) {
       // A permanent's abilities, one card each (Arena's Choose One); picking one activates it.
       const src = this.cardData.get(pick.cardId);
-      controls = `<div class="acards" style="--n: ${pick.abilities.length}">${pick.abilities.map((a) => {
-        const text = a.cost && !a.description.includes(a.cost) ? `${a.cost}: ${a.description}` : a.description;
-        return this.abilityCard(src, src?.name ?? "", text, `data-ability="${a.index}"`, false);
-      }).join("")}</div>
+      const options: AbilityChoice[] = pick.abilities.map((a) => ({
+        text: a.cost && !a.description.includes(a.cost) ? `${a.cost}: ${a.description}` : a.description,
+        attrs: `data-ability="${a.index}"`,
+      }));
+      const cards = this.withLoyaltyLines(src, options);
+      controls = `<div class="acards" style="--n: ${cards.length}">${cards.map((o) =>
+        this.abilityCard(src, src?.name ?? "", o.text, o.attrs, false, o.off)).join("")}</div>
         <div class="choices big"><button class="opt primary" data-ui="ability-cancel">Cancel</button></div>`;
       arena = true;
       html = `<div class="phead"><h2>Choose One</h2><p>Click an option below to select it.</p></div>${controls}
@@ -2864,17 +3009,43 @@ export class Board {
 
   /** One option as an Arena ability card: the source card's art, an "Ability" band, the text (mana
       symbols drawn), and a loyalty cost in a shield at the bottom, as on a planeswalker. */
-  private abilityCard(src: CardView | undefined, name: string, description: string, attrs: string, on: boolean): string {
+  private abilityCard(src: CardView | undefined, name: string, description: string, attrs: string, on: boolean, off?: string): string {
     const url = src ? imageUrl(src, "large") : null;
     const cost = /^\s*([+−–-]?\s*(?:\d+|X))\s*:\s*/.exec(description);
     const text = cost ? description.slice(cost[0].length) : description;
-    return `<button class="acard${on ? " on" : ""}" ${attrs}>
+    // One it can't use now: grey, and it can't be clicked.
+    return `<button class="acard${on ? " on" : ""}${off ? " off" : ""}" ${attrs}${off ? ` disabled title="${esc(off)}"` : ""}>
       <div class="aart">${url ? `<img src="${esc(url)}" alt="" draggable="false">` : ""}</div>
       <div class="aname">${esc(name)}</div>
       <div class="aband">Ability</div>
       <div class="atext">${withSymbols(esc(text))}</div>
       ${cost ? `<b class="acost">${esc(cost[1]!.replace(/\s|−|–/g, (ch) => (ch.trim() ? "-" : "")))}</b>` : ""}
     </button>`;
+  }
+
+  /** A planeswalker's Choose One, as Arena's: each of its loyalty abilities in printed order, the
+      ones Endstep offers as it offers them, the rest (and any costing more loyalty than it has)
+      in grey. Anything that isn't a planeswalker's keeps its options as they are. */
+  private withLoyaltyLines(src: CardView | undefined, options: AbilityChoice[]): AbilityChoice[] {
+    const lines = src && /planeswalker/i.test(`${src.types.join(" ")} ${src.typeLine ?? ""}`) ? loyaltyLines(src.oracleText) : [];
+    // Its loyalty (0 means Endstep didn't say: a planeswalker with none is gone).
+    const counter = Object.entries(src?.counters ?? {}).find(([k]) => k.toLowerCase() === "loyalty")?.[1];
+    const loyalty = Number(src?.loyalty) || counter || 0;
+    const short = (cost: string | null) => cost !== null && loyalty > 0 && loyaltyNeeded(cost) > loyalty;
+    const mark = (o: AbilityChoice): AbilityChoice => (short(loyaltyCost(o.text)) ? { ...o, off: "Not enough loyalty" } : o);
+    if (!lines.length) return options.map(mark);
+    const left = [...options];
+    const out = lines.map((line): AbilityChoice => {
+      // The option for this line: the same cost, else the closest text.
+      const same = left.find((o) => loyaltyCost(o.text) === line.cost);
+      const close = same ?? bestLine(left.filter((o) => loyaltyCost(o.text) === null).map((o) => ({ ...o, text: withoutCost(o.text), o })), line.text)?.o;
+      if (close) {
+        left.splice(left.indexOf(close), 1);
+        return mark(loyaltyCost(close.text) === null ? { ...close, text: `${line.cost}: ${close.text}` } : close);
+      }
+      return { text: `${line.cost}: ${line.text}`, attrs: "", off: short(line.cost) ? "Not enough loyalty" : "Can't be activated now" };
+    });
+    return [...out, ...left.map(mark)];
   }
 
   /** Fact or Fiction and the like: the piles side by side, each with its cards (face down where
@@ -3219,12 +3390,16 @@ export class Board {
       // The art comes from the card that triggered (or the attacker/blocker itself).
       const card = this.cardData.get(o?.sourceCardId ?? id) ?? (o ? blankCard(`src:${o.name}`, o.name) : undefined);
       const url = card ? imageUrl(card, "large") : null;
-      return `<div class="otile${declined ? " declined" : ""}" data-order-id="${esc(id)}">
-        <div class="oart">${url ? `<img src="${esc(url)}" alt="" draggable="false">` : ""}</div>
-        <b class="onum">${declined ? "–" : i + 1}</b>
+      // A trigger in Arena's ability frame (as it will sit on the stack); an attacker or blocker as its card.
+      const text = o?.description ?? "";
+      const body = abilities
+        ? `<div class="oframe">${abilityFrameHtml(card, withoutCost(text), loyaltyCost(text))}</div>${o?.declinable ? '<span class="oopt">Optional</span>' : ""}`
+        : `<div class="oart">${url ? `<img src="${esc(url)}" alt="" draggable="false">` : ""}</div>
         <div class="oname">${esc(o?.name ?? card?.name ?? id)}</div>
-        ${abilities ? `<div class="aband">${o?.declinable ? "Optional" : "Ability"}</div>` : ""}
-        ${o?.description ? `<div class="otext">${esc(o.description)}</div>` : ""}
+        ${text ? `<div class="otext">${esc(text)}</div>` : ""}`;
+      return `<div class="otile${abilities ? " ab" : ""}${declined ? " declined" : ""}" data-order-id="${esc(id)}">
+        ${body}
+        <b class="onum">${declined ? "–" : i + 1}</b>
         <div class="omove">
           <button class="ghost" data-order-move="-1" data-order-for="${esc(id)}" ${i === 0 ? "disabled" : ""} title="Earlier">◂</button>
           ${o?.declinable ? `<button class="ghost" data-order-decline="${esc(id)}">${declined ? "Use" : "Skip"}</button>` : ""}
@@ -3450,11 +3625,16 @@ export class Board {
         // One ability card per option: the source card's art and name, then the option's text
         // (a loyalty cost goes in a shield at the bottom, as on a planeswalker).
         const multi = p.max > 1;
-        const tiles = p.modeOptions.map((o) => {
-          const src = (o.cardId ? this.cardData.get(o.cardId) : undefined) ?? this.sourceCard(p);
-          return this.abilityCard(src, src?.name ?? p.sourceCardName ?? "", o.description, `data-mode="${o.index}"`, m.selectedModes.includes(o.index));
+        const source = this.sourceCard(p);
+        // A planeswalker's: every loyalty ability, the ones it can't use now in grey.
+        const options: AbilityChoice[] = p.modeOptions.map((o) => ({ text: o.description, attrs: `data-mode="${o.index}"`, index: o.index, cardId: o.cardId }));
+        const cards = p.type === "CHOOSE_ABILITY" && !options.some((o) => o.cardId) ? this.withLoyaltyLines(source, options) : options;
+        const tiles = cards.map((o) => {
+          const src = (o.cardId ? this.cardData.get(o.cardId) : undefined) ?? source;
+          const on = o.index !== undefined && m.selectedModes.includes(o.index);
+          return this.abilityCard(src, src?.name ?? p.sourceCardName ?? "", o.text, o.attrs, on, o.off);
         }).join("");
-        return `<div class="acards" style="--n: ${p.modeOptions.length}">${tiles}</div>
+        return `<div class="acards" style="--n: ${cards.length}">${tiles}</div>
           <div class="choices big">${multi ? `<button class="opt primary" data-mode-confirm ${m.selectedModes.length < p.min ? "disabled" : ""}>Confirm ${m.selectedModes.length}/${p.max}</button>` : ""}
           ${!p.mandatory ? `<button class="opt ${multi ? "alt" : "primary"}" data-mode-cancel>Cancel</button>` : ""}</div>`;
       }
@@ -4076,16 +4256,46 @@ export class Board {
       const my = (y1 + y2) / 2 - Math.abs(x2 - x1) * 0.1;
       return `<path class="${cls}" d="M${x1},${y1} Q${mx},${my} ${x2},${y2}" marker-end="url(#ah-${kind})"/>`;
     };
+    // Targets, as Arena draws them: a thin arc of light from the spell to what it targets, with
+    // sparks running along it and a flash where it lands. Blue for a spell or ability on the
+    // stack (violet when it exiles), gold while you choose. Every beam's sparks keep one rhythm
+    // however often the arrows are redrawn.
+    let beams = 0;
+    const flow = `${(-(performance.now() % 1000) / 1000).toFixed(3)}s`;
+    type Pt = { x: number; y: number };
+    // Bowed up, away from the table's middle: higher the longer it is.
+    const bend = (a: Pt, b: Pt): Pt => {
+      const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      let nx = -(b.y - a.y) / len;
+      let ny = (b.x - a.x) / len;
+      if (ny > 0) { nx = -nx; ny = -ny; }
+      const bow = Math.min(170, len * 0.26);
+      return { x: (a.x + b.x) / 2 + nx * bow, y: (a.y + b.y) / 2 + ny * bow };
+    };
+    const beam = (a: Pt, b: Pt, cls: string) => {
+      const c = bend(a, b);
+      const f = (n: number) => n.toFixed(1);
+      const d = `M${f(a.x)},${f(a.y)} Q${f(c.x)},${f(c.y)} ${f(b.x)},${f(b.y)}`;
+      const id = `beam-${beams++}`;
+      return `<g class="beam ${cls}" style="--flow: ${flow}">
+        <linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(b.x)}" y2="${f(b.y)}"><stop offset="0" class="b0"/><stop offset="1" class="b1"/></linearGradient>
+        <path class="beam-glow" d="${d}"/><path class="beam-core" d="${d}" stroke="url(#${id})"/><path class="beam-flow" d="${d}"/>
+        <circle class="beam-hit" cx="${f(b.x)}" cy="${f(b.y)}" r="10"/><circle class="beam-dot" cx="${f(b.x)}" cy="${f(b.y)}" r="4.5"/>
+      </g>`;
+    };
+    // A spell or ability that exiles what it targets.
+    const exiles = (id: string) => /\bexile\b/i.test(`${this.stackEls.get(id)?.name ?? ""} ${this.cardData.get(id)?.oracleText ?? ""}`);
     let html = links.map((l) => {
       const a = this.point(l.from, origin);
       const b = this.point(l.to, origin);
       if (!a || !b) return "";
-      const line = path(a, b, `arrow ${l.kind}${l.pending ? " pending" : ""}`, l.kind);
+      const line = l.kind === "tgt" ? beam(a, b, exiles(l.from) ? "exile" : "") : path(a, b, `arrow ${l.kind}${l.pending ? " pending" : ""}`, l.kind);
       if (l.amount === undefined) return line;
-      // Just short of the head, on the way in.
-      const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
-      const x = b.x - ((b.x - a.x) / len) * 30;
-      const y = b.y - ((b.y - a.y) / len) * 30;
+      // On the beam, near where it lands.
+      const c = bend(a, b);
+      const t = Math.max(0.6, 1 - 34 / (Math.hypot(b.x - a.x, b.y - a.y) || 1));
+      const x = (1 - t) ** 2 * a.x + 2 * (1 - t) * t * c.x + t * t * b.x;
+      const y = (1 - t) ** 2 * a.y + 2 * (1 - t) * t * c.y + t * t * b.y;
       return `${line}<g class="arrow-amt" transform="translate(${x.toFixed(1)},${y.toFixed(1)})"><circle r="13"/><text dy="0.35em">${l.amount}</text></g>`;
     }).join("");
     // A spell's damage divided on the table: the spell points at each target given some.
@@ -4094,7 +4304,7 @@ export class Board {
         if (!(m.amounts[i]! > 0)) return;
         const a = this.point(PROMPT_KEY, origin);
         const b = this.point(divideKey(o.id), origin);
-        if (a && b) html += path(a, b, "arrow tgt", "tgt");
+        if (a && b) html += beam(a, b, "choosing");
       });
     }
     this.placeDivideBadges(origin);
@@ -4104,7 +4314,7 @@ export class Board {
       for (const t of m.selected) {
         const a = this.point(PROMPT_KEY, origin);
         const b = this.point(t, origin);
-        if (a && b) html += path(a, b, "arrow tgt pending", "tgt");
+        if (a && b) html += beam(a, b, "choosing");
       }
     }
     // An attacker being aimed, or a spell/ability choosing targets: an arrow from it to the
@@ -4115,7 +4325,9 @@ export class Board {
       const overKey = under instanceof HTMLElement ? this.keyFromTarget(under) : null;
       const snap = overKey && overKey !== aim.from && aim.accepts(overKey) ? this.point(overKey, origin) : null;
       const b = snap ?? { x: this.aimPoint.x - origin.left, y: this.aimPoint.y - origin.top };
-      if (a && Math.hypot(b.x - a.x, b.y - a.y) > 12) html += path(a, b, `arrow ${aim.kind} aim${snap ? " locked" : ""}`, aim.kind);
+      if (a && Math.hypot(b.x - a.x, b.y - a.y) > 12) {
+        html += aim.kind === "tgt" ? beam(a, b, `choosing aim${snap ? " locked" : ""}`) : path(a, b, `arrow ${aim.kind} aim${snap ? " locked" : ""}`, aim.kind);
+      }
     }
     g.innerHTML = html;
   }
@@ -4671,8 +4883,10 @@ export class Board {
         this.setMode({ ...m, selectedModes });
         return true;
       }
+      this.rememberModes(p, [index]);
       c.chooseModes([index]);
     } else if (d.modeConfirm !== undefined && m.kind === "choice") {
+      this.rememberModes(p, m.selectedModes);
       c.chooseModes(m.selectedModes);
     } else if (d.modeCancel !== undefined) {
       c.no();
@@ -5286,7 +5500,12 @@ export class Board {
       ${this.fanHtml("view:stack", items.map((it) => it.card), () => "",
         (c) => `${at.get(c.id) === next ? "next " : ""}${item(c).mine ? "mine" : "theirs"}`,
         (c) => (item(c).x === undefined ? "" : `X = ${item(c).x}`),
-        (c) => (item(c).kind ? `<div class="fability"><b>${esc(item(c).kind)}</b><span>${esc(item(c).text)}</span></div>` : ""))}
+        (c) => {
+          const it = item(c);
+          // An ability in its frame over the source card; a modal spell with its modes.
+          if (it.kind) return `<div class="overlay">${abilityFrameHtml(c, it.text, it.cost)}</div>`;
+          return it.modes ? `<div class="overlay">${modesHtml(it.modes)}</div>` : "";
+        })}
       <div class="choices big"><button class="opt primary" data-ui="close-viewer" title="Esc">Done</button></div>`;
     if (box.dataset.sig !== html) {
       box.dataset.sig = html;
@@ -5330,7 +5549,7 @@ function sessionStore(): Storage | undefined {
 
 /** "Lost connection · concedes in 1:23", or "· waiting to reconnect" with no deadline (as Endstep says it). */
 /** The countdowns the timer ticker keeps up to date. */
-const TIMERS = ".conn, .timers .mclock:not([hidden]), .timers .idle:not([hidden]), .sb-timer";
+const TIMERS = ".conn, .timers .mclock:not([hidden]), .timers .idle:not([hidden]), .sb-timer, .rope.on";
 
 /** m:ss (h:mm:ss from an hour), rounded down as Endstep's clock shows it. */
 export function clockText(ms: number): string {
@@ -5345,6 +5564,7 @@ export function clockText(ms: number): string {
     a lost connection's countdown. */
 function updateTimer(el: HTMLElement): void {
   if (el.classList.contains("conn")) return updateConn(el);
+  if (el.classList.contains("rope")) return updateRope(el);
   const now = Date.now();
   const deadline = el.dataset.deadline ? Number(el.dataset.deadline) : NaN;
   if (el.classList.contains("mclock")) {
@@ -5360,6 +5580,14 @@ function updateTimer(el: HTMLElement): void {
   if (el.textContent !== text) el.textContent = text;
   el.classList.toggle("urgent", ms <= grace);
   el.classList.toggle("low", ms <= grace * 2);
+}
+
+/** The rope: lit in the timer's last stretch, as long as the share of it left. */
+function updateRope(el: HTMLElement): void {
+  const ms = Math.max(0, Number(el.dataset.deadline) - Date.now());
+  const span = Number(el.dataset.span) || 30_000;
+  el.style.setProperty("--left", Math.min(1, ms / span).toFixed(4));
+  el.classList.toggle("lit", ms > 0 && ms <= span);
 }
 
 function updateConn(el: HTMLElement): void {
@@ -5394,6 +5622,47 @@ function groupKey(c: CardView, local: string, effects: number): string | null {
   return JSON.stringify([c.name, c.power, c.toughness, c.loyalty, c.tapped, c.summoningSick, c.isToken, c.setCode, c.collectorNumber,
     c.types, c.controllerId, c.keywordsGranted, c.keywordsLost, c.chosen, counters, c.damage ?? 0,
     c.isAttacking, c.attackingDefenderId, c.isBlocking, [...c.blockingIds].sort(), local, effects]);
+}
+
+/** An option in a Choose One: its text, the attributes its button answers with (none for one that
+    can't be picked), and why it's greyed out. */
+interface AbilityChoice {
+  text: string;
+  attrs: string;
+  index?: number;
+  cardId?: string;
+  off?: string;
+}
+
+/** A modal spell's text, split into its modes, and the ones chosen. */
+interface StackModes {
+  head: string;
+  modes: string[];
+  tail: string;
+  chosen: number[];
+}
+
+/** Endstep's description of a stack item without its bookkeeping: the "Name (id) - " it starts
+    with, card ids, and the "[Player: …, Amount: …]" notes at the end. */
+function cleanStackText(text: string): string {
+  return text.replace(/\s*\[[^\]]*\]\s*$/, "").replace(/^[^\n]*?\(\d+\)\s+-\s+/, "").replace(/\s\(\d+\)/g, "").trim();
+}
+
+/** Arena's ability frame, over its source card: the art on top, "Ability" and the text on a plate
+    of the card's color whose bottom is an arch, and a loyalty cost in a shield under it. */
+function abilityFrameHtml(src: CardView | undefined, text: string, cost: string | null): string {
+  const url = src ? imageUrl(src, "art_crop") : null;
+  return `<div class="abf" style="--fc: ${frameColor(src?.color)}">
+    <div class="abf-art">${url ? `<img src="${esc(url)}" alt="" draggable="false">` : ""}<span class="abf-name">${esc(src?.name ?? "")}</span></div>
+    <div class="abf-plate"><b class="abf-kind">Ability</b><div class="abf-text">${withSymbols(esc(text))}</div></div>
+    ${cost === null ? "" : `<b class="abf-cost${cost.startsWith("+") ? " up" : cost.startsWith("-") ? " down" : ""}">${esc(cost)}</b>`}
+  </div>`;
+}
+
+/** A modal spell's text over its card: each mode on its line, the ones not chosen dimmed. */
+function modesHtml(m: StackModes): string {
+  const p = (text: string, cls: string) => (text ? `<p class="${cls}">${withSymbols(esc(text))}</p>` : "");
+  return `<div class="mtext">${p(m.head, "mhead")}${m.modes.map((t, i) => p(`• ${t}`, m.chosen.includes(i) ? "mode on" : "mode off")).join("")}${p(m.tail, "mtail")}</div>`;
 }
 
 const PAY_LIFE_TITLE = "Pay 2 life for Phyrexian mana";

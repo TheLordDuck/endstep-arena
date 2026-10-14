@@ -159,3 +159,29 @@ export function keywordNotes(c: Pick<CardView, "oracleText" | "keywordsGranted">
   }
   return found.map((name) => ({ name, text: GLOSSARY[name]! }));
 }
+
+/** The keywords a card prints on its own lines ("Flying, vigilance", "Ward {2}", "Protection
+    from red"), in order: not the ones its abilities only mention or give to others. */
+export function printedKeywords(oracleText: string | undefined): string[] {
+  const found: string[] = [];
+  const lead = new RegExp(`^(?:${PATTERN.source})`, "i");
+  for (const raw of (oracleText ?? "").split("\n")) {
+    const line = raw.replace(/\([^)]*\)/g, "").trim();
+    if (!line) continue;
+    // A keyword line is keywords and nothing else, each maybe with its cost or quality.
+    const names = line.split(/[,;]\s*/).map((part) => {
+      const p = part.trim().replace(/\.$/, "");
+      if (/^[\w\s]*walk$/i.test(p) && LANDWALK.test(p)) return "Landwalk";
+      const m = lead.exec(p);
+      if (!m) return undefined;
+      // What may follow: a cost, a number, "from …" (protection), "—…", or what an Aura enchants.
+      // Anything else is a sentence that starts with a keyword ("Flying creatures you control…").
+      const rest = p.slice(m[0].length).trim();
+      const ok = !rest || /^(\{|\d|X\b|—|–|-|from\b|for\b)/i.test(rest) || (/^enchant$/i.test(m[1]!) && rest.split(/\s+/).length <= 3);
+      return ok ? BY_LOWER.get(m[1]!.toLowerCase()) : undefined;
+    });
+    if (names.some((n) => !n)) continue;
+    for (const n of names) if (!found.includes(n!)) found.push(n!);
+  }
+  return found;
+}

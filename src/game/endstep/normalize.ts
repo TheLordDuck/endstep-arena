@@ -208,7 +208,19 @@ function toStackItem(v: unknown, index: number): StackItemView | null {
     ...(Object.keys(divided).length ? { divided } : {}),
     // Not confirmed in the bundle: the likely names, on the item or on its card.
     x: num(v.xValue ?? v.x ?? v.chosenX ?? (isObj(v.sourceCard) ? v.sourceCard.xValue ?? v.sourceCard.x ?? v.sourceCard.chosenX : undefined)),
+    ...optional("description", isAbility ? undefined : str(v.abilityDescription ?? v.description)),
+    // "Name (id): {T}, Pay 1 life, Sacrifice …: Search …": the ability after its source's name.
+    ...optional("abilityText", typeof v.yieldKey === "string" ? str(v.yieldKey.replace(/^[^:]*?\(\d+\):\s*/, "")) : undefined),
+    ...modesOf(v.chosenModes ?? v.selectedModes ?? v.modeIndices),
   };
+}
+
+const optional = <K extends string, V>(key: K, value: V | undefined) => (value === undefined ? {} : { [key]: value } as Record<K, V>);
+
+/** Chosen modes as a list of indexes (not confirmed in the bundle: the likely names). */
+function modesOf(v: unknown): { modes?: number[] } {
+  const out = arr(v).map((m) => num(isObj(m) ? m.index : m)).filter((n): n is number => n !== undefined);
+  return out.length ? { modes: out } : {};
 }
 
 /** Endstep target { id, zone }: players are zone "Player" with id -(seat + 1); anything else is a card id. */

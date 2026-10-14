@@ -13,7 +13,21 @@ export interface BoardPrefs {
   volume: number;
   /** The game log panel is open. */
   logOpen: boolean;
+  /** The table: a 3D scene for the deck's main color ("auto"), one chosen, or the plain mat. */
+  table: TableChoice;
 }
+
+export type TableChoice = "auto" | "academy" | "glacier" | "cathedral" | "forge" | "garden" | "plain";
+
+export const TABLES: { value: TableChoice; label: string }[] = [
+  { value: "auto", label: "Deck's color" },
+  { value: "academy", label: "Academy" },
+  { value: "glacier", label: "Glacier" },
+  { value: "cathedral", label: "Cathedral" },
+  { value: "forge", label: "Forge" },
+  { value: "garden", label: "Garden" },
+  { value: "plain", label: "Plain" },
+];
 
 export const DEFAULT_PREFS: BoardPrefs = {
   animations: true,
@@ -22,6 +36,7 @@ export const DEFAULT_PREFS: BoardPrefs = {
   sound: true,
   volume: 0.6,
   logOpen: false,
+  table: "auto",
 };
 
 export const ANIM_SPEEDS: { value: number; label: string }[] = [
@@ -49,5 +64,9 @@ export function cleanPrefs(stored: Partial<Record<keyof BoardPrefs, unknown>> | 
   if (typeof stored.sound === "boolean") p.sound = stored.sound;
   p.volume = num(stored.volume, 0, 1) ?? p.volume;
   if (typeof stored.logOpen === "boolean") p.logOpen = stored.logOpen;
+  const table = (stored as { table?: unknown }).table;
+  if (TABLES.some((t) => t.value === table)) p.table = table as TableChoice;
+  // Before the scenes, the table was the deck's land art or plain.
+  else if ((stored as { tableArt?: unknown }).tableArt === false) p.table = "plain";
   return p;
 }

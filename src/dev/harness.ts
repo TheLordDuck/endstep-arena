@@ -101,6 +101,8 @@ function baseState(): Raw {
     sending states in a row). */
 type Step = (s: Raw) => void | Step;
 type Scenario = Step;
+const GARRUK: Raw = { typeLine: "Legendary Planeswalker — Garruk", types: ["Planeswalker"], color: "G",
+  oracleText: "+1: Untap two target lands.\n−1: Create a 3/3 green Beast creature token.\n−4: Creatures you control get +3/+3 and gain trample until end of turn." };
 const players = (s: Raw) => s.players as Raw[];
 const bf = (p: Raw) => p.battlefield as Raw[];
 const byName = (p: Raw, n: string) => bf(p).find((c) => c.name === n)!;
@@ -866,13 +868,68 @@ const scenarios: Record<string, Scenario> = {
     s.pendingAction = { type: "CHOOSE_NUMBER", promptVersion: 18, sourceCardName: "Indomitable Creativity", message: "Choose a value for X",
       minValue: 0, maxValue: 4, canUndo: true };
   },
+  // A planeswalker's Choose One: Garruk Wildspeaker at 3 loyalty can't use its −4 (grey).
   pw: (s) => {
-    s.pendingAction = { type: "CHOOSE_ABILITY", promptVersion: 11, sourceCardName: "Garruk, Curse Breaker", min: 1, max: 1,
+    const garruk = card("Garruk Wildspeaker", { ...GARRUK, loyalty: 3, counters: { LOYALTY: 3 } });
+    bf(players(s)[0]!).push(garruk);
+    s.pendingAction = { type: "CHOOSE_ABILITY", promptVersion: 11, sourceCardId: garruk.id, sourceCardName: "Garruk Wildspeaker", min: 1, max: 1,
       modeOptions: [
-        { index: 0, description: "+2: Untap up to two target lands." },
-        { index: 1, description: "−3: Create a 4/4 green Beast creature token with trample." },
-        { index: 2, description: "−4: Until your next turn, whenever one or more creatures attack one of your opponents, those creatures get +2/+2 and gain trample until end of turn." },
+        { index: 0, description: "+1: Untap two target lands." },
+        { index: 1, description: "−1: Create a 3/3 green Beast creature token." },
+        { index: 2, description: "−4: Creatures you control get +3/+3 and gain trample until end of turn." },
       ] };
+  },
+  // The same, clicked on the table during your turn: Endstep offers only the abilities it can use
+  // now (+1 and −1); the −4 shows in grey all the same. Open it with ?play=970.
+  "pw-click": (s) => {
+    const garruk = card("Garruk Wildspeaker", { ...GARRUK, id: 970, loyalty: 3, counters: { LOYALTY: 3 } });
+    bf(players(s)[0]!).push(garruk);
+    s.pendingAction = { type: "PRIORITY", promptVersion: 11, cardOptions: [{ id: garruk.id, zone: "BATTLEFIELD", playableAbilities: [
+      { index: 0, description: "Untap two target lands.", cost: "+1" },
+      { index: 1, description: "Create a 3/3 green Beast creature token.", cost: "-1" },
+    ] }] };
+  },
+  // Loyalty abilities on the stack, with their cost under the frame: one Endstep names by its
+  // printed text (yieldKey), one only by what it does.
+  "pw-stack": (s) => {
+    const garruk = card("Garruk Wildspeaker", { ...GARRUK, loyalty: 2, controllerId: "0" });
+    bf(players(s)[0]!).push(garruk);
+    const jace = { id: 930, name: "Jace, the Mind Sculptor", controllerId: "1", types: ["Planeswalker"], typeLine: "Legendary Planeswalker — Jace", color: "U",
+      oracleText: "+2: Look at the top card of target player's library. You may put that card on the bottom of that player's library.\n0: Draw three cards, then put two cards from your hand on top of your library in any order.\n−1: Return target creature to its owner's hand.\n−12: Exile all cards from target player's library, then that player shuffles their hand into their library." };
+    s.stack = [
+      { stackTargetId: 931, isAbility: true, abilityDescription: "Jace, the Mind Sculptor (930) - Opponent draws three cards, then puts two cards from their hand on top of their library in any order.", sourceCard: jace },
+      { stackTargetId: 932, isAbility: true, abilityDescription: `Garruk Wildspeaker (${garruk.id}) - Create a 3/3 green Beast creature token.`,
+        yieldKey: `Garruk Wildspeaker (${garruk.id}): −1: Create a 3/3 green Beast creature token.`, sourceCard: { ...garruk, types: ["Planeswalker"] } },
+    ];
+    s.priorityPlayerId = "0";
+    s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
+  },
+  // A modal spell on the stack: the modes not chosen dimmed, told by what Endstep's description
+  // says it does.
+  modal: (s) => {
+    const command = { id: 940, name: "Kolaghan's Command", controllerId: "1", types: ["Instant"], typeLine: "Instant", color: "BR",
+      oracleText: "Choose two —\n• Return target creature card from your graveyard to your hand.\n• Target player discards a card.\n• Destroy target artifact.\n• Kolaghan's Command deals 2 damage to any target." };
+    const angel = byName(players(s)[1]!, "Serra Angel");
+    s.stack = [{ stackTargetId: 941, isAbility: false, sourceCard: command, targets: [{ id: -1, zone: "Player" }, { id: angel.id, zone: "Battlefield" }],
+      abilityDescription: `Kolaghan's Command (940) - Flavio discards a card. Kolaghan's Command deals 2 damage to Serra Angel (${angel.id}).` }];
+    s.priorityPlayerId = "0";
+    s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
+  },
+  // Arena's ability frames on the stack: an activated ability (as printed, cost included) and a trigger.
+  "ability-frames": (s) => {
+    const [me, opp] = players(s);
+    const mesa = { id: 960, name: "Arid Mesa", controllerId: "0", types: ["Land"], typeLine: "Land", color: "C",
+      oracleText: "{T}, Pay 1 life, Sacrifice Arid Mesa: Search your library for a Mountain or Plains card, put it onto the battlefield, then shuffle." };
+    const mako = { id: 961, name: "Marauding Mako", controllerId: "1", types: ["Creature"], typeLine: "Creature — Shark", color: "UR",
+      oracleText: "Whenever you discard one or more cards, put that many +1/+1 counters on this creature.\nCycling {2}" };
+    s.stack = [
+      { stackTargetId: 962, isAbility: true, isTrigger: true, abilityDescription: "Whenever you discard one or more cards, put that many +1/+1 counters on this creature. [Player: Opponent, Amount: 3]", sourceCard: mako },
+      { stackTargetId: 963, isAbility: true, abilityDescription: "Arid Mesa (960) - Flavio searches their library for a Mountain or Plains card, puts it onto the battlefield, then shuffles.",
+        yieldKey: "Arid Mesa (960): {T}, Pay 1 life, Sacrifice Arid Mesa: Search your library for a Mountain or Plains card, put it onto the battlefield, then shuffle.", sourceCard: mesa },
+    ];
+    void me; void opp;
+    s.priorityPlayerId = "0";
+    s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
   },
   pay: (s) => {
     s.pendingAction = { type: "PAY_MANA", promptVersion: 10, message: "Pay {2}{R}{G} for Bloodbraid Elf", sourceCardName: "Bloodbraid Elf",
@@ -1134,6 +1191,11 @@ if (point?.length === 2) {
       new PointerEvent(type, { clientX: point[0], clientY: point[1], bubbles: true, composed: true }));
   }
 }
+
+// Dev hook: `?play=<card id>` clicks that card as if to play it (a permanent with several
+// abilities opens its Choose One).
+const play = new URLSearchParams(location.search).get("play");
+if (play) setTimeout(() => (board as unknown as { tryPlay(id: string): boolean }).tryPlay(play), 50);
 
 // Dev hook: the board itself, to open its panels from a test script.
 (window as unknown as { __board: Board }).__board = board;

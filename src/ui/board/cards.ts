@@ -3,6 +3,9 @@
 // visible changed.
 
 import type { CardView } from "../../game/GameState";
+import { frameColor } from "./abilityText";
+import { keywordIconsHtml } from "./keywordIcons";
+import { printedKeywords } from "./keywords";
 
 export type ImageVersion = "normal" | "large" | "art_crop";
 
@@ -43,6 +46,8 @@ export function imageUrl(c: Pick<CardView, "name" | "faceDown" | "isToken" | "se
 
 interface CardElement extends HTMLElement {
   _sig?: string;
+  /** The picture it should show (see setImage). */
+  _want?: string;
 }
 
 export function createCardEl(id: string): HTMLElement {
@@ -53,6 +58,7 @@ export function createCardEl(id: string): HTMLElement {
       <div class="fallback"><b class="fname"></b><span class="fcost"></span><span class="ftype"></span><span class="ftext"></span></div>
       <img class="img" alt="" draggable="false" decoding="async">
     </div>
+    <div class="kicons"></div>
     <div class="kws"></div>
     <div class="pins"></div>
     <div class="badges"></div>
@@ -61,6 +67,31 @@ export function createCardEl(id: string): HTMLElement {
   img.addEventListener("load", () => el.classList.add("has-img"));
   img.addEventListener("error", () => el.classList.remove("has-img"));
   return el;
+}
+
+/** Shows `url` in the card's picture. A card already showing one keeps it until the new one has
+    loaded (a spell landing on the battlefield swaps its card for its art without a blank). */
+function setImage(el: CardElement, img: HTMLImageElement, url: string | null): void {
+  el._want = url ?? undefined;
+  if (!url) {
+    img.removeAttribute("src");
+    el.classList.remove("has-img");
+    return;
+  }
+  if (img.getAttribute("src") === url) return;
+  if (!el.classList.contains("has-img")) {
+    img.src = url;
+    return;
+  }
+  const next = new Image();
+  next.decoding = "async";
+  // Loaded (or failed: the picture's own error shows the card's text instead).
+  const swap = () => {
+    if (el._want === url) img.src = url;
+  };
+  next.onload = swap;
+  next.onerror = swap;
+  next.src = url;
 }
 
 export function createBackEl(key: string): HTMLElement {
@@ -78,7 +109,8 @@ const escText = (el: Element, text: string) => {
 export function updateCardEl(el: HTMLElement, c: CardView, showStats: boolean): void {
   const sig = JSON.stringify([c.name, c.faceDown, c.peeked, c.isToken, c.setCode, c.collectorNumber, c.power, c.toughness,
     c.isCopyOfRealCard, c.backFace, c.tokenSetCode, c.tokenCollectorNumber, c.color, c.basePower, c.baseToughness,
-    c.loyalty, c.damage, c.classLevel, c.counters, c.types, c.typeLine, c.manaCost, c.keywordsGranted, c.keywordsLost, c.chosen, showStats]);
+    c.loyalty, c.damage, c.classLevel, c.counters, c.types, c.typeLine, c.manaCost, c.keywordsGranted, c.keywordsLost, c.chosen,
+    c.oracleText, showStats]);
   const ce = el as CardElement;
   if (ce._sig === sig) return;
   ce._sig = sig;
@@ -91,17 +123,14 @@ export function updateCardEl(el: HTMLElement, c: CardView, showStats: boolean): 
   el.classList.toggle("peeked", peeked);
   el.classList.toggle("token", c.isToken);
   // The whole card on the battlefield, so chapters, levels and loyalty abilities stay readable.
-  el.classList.toggle("full", isFullCard(c));
-  const img = el.querySelector<HTMLImageElement>("img.img")!;
-  // On the battlefield the board crops the full card to its top (name bar and art).
-  const url = imageUrl(c);
-  if (!url) {
-    img.removeAttribute("src");
-    el.classList.remove("has-img");
-  } else if (img.getAttribute("src") !== url) {
-    el.classList.remove("has-img");
-    img.src = url;
-  }
+  const full = isFullCard(c);
+  el.classList.toggle("full", full);
+  // A token on the battlefield in Arena's token frame: its art in an arch, rimmed in its color.
+  const arch = showStats && c.isToken && !full && !(c.faceDown && !peeked);
+  el.classList.toggle("arch", arch);
+  if (arch) el.style.setProperty("--fc", frameColor(c.color));
+  else el.style.removeProperty("--fc");
+  setImage(ce, el.querySelector<HTMLImageElement>("img.img")!, imageUrl(c, arch ? "art_crop" : "normal"));
   escText(el.querySelector(".fname")!, c.faceDown && !peeked ? "" : c.name);
   escText(el.querySelector(".fcost")!, c.manaCost ?? "");
   escText(el.querySelector(".ftype")!, c.typeLine ?? "");
@@ -150,6 +179,16 @@ export function updateCardEl(el: HTMLElement, c: CardView, showStats: boolean): 
   ] : [];
   el.querySelector(".kws")!.innerHTML = kws.join("");
   el.classList.toggle("modified", kws.length > 0);
+  // The keywords it prints, as icons along the bottom of the frame (the ones it gained or lost
+  // already show above, in green and red).
+  const lost = new Set(lostKeywords(c).map((k) => k.toLowerCase()));
+  const gained = new Set((c.keywordsGranted ?? []).map((k) => k.toLowerCase()));
+  const printed = showStats && !(c.faceDown && !peeked)
+    ? printedKeywords(c.oracleText).filter((k) => !lost.has(k.toLowerCase()) && !gained.has(k.toLowerCase()))
+    : [];
+  const icons = keywordIconsHtml(printed);
+  el.querySelector(".kicons")!.innerHTML = icons;
+  el.classList.toggle("has-kicons", icons !== "");
 }
 
 /** What was chosen for a permanent, as [label, values] (colors chosen together make one entry). */

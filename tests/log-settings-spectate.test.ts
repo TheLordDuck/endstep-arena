@@ -86,8 +86,10 @@ test("spectating: the route names the match, the state says so, and nothing is s
 
 test("stored settings: missing or out-of-range values fall back to the defaults", () => {
   assert.deepEqual(cleanPrefs(undefined), DEFAULT_PREFS);
-  assert.deepEqual(cleanPrefs({ animations: false, animSpeed: 2.5, cardScale: 1.3, sound: false, volume: 0.2, logOpen: true }),
-    { animations: false, animSpeed: 2.5, cardScale: 1.3, sound: false, volume: 0.2, logOpen: true });
-  const bad = cleanPrefs({ animations: "no", animSpeed: 99, cardScale: -1, volume: 3, logOpen: 1 });
+  assert.deepEqual(cleanPrefs({ animations: false, animSpeed: 2.5, cardScale: 1.3, sound: false, volume: 0.2, logOpen: true, table: "forge" }),
+    { animations: false, animSpeed: 2.5, cardScale: 1.3, sound: false, volume: 0.2, logOpen: true, table: "forge" });
+  const bad = cleanPrefs({ animations: "no", animSpeed: 99, cardScale: -1, volume: 3, logOpen: 1, table: "moon" });
+  // The old setting: the plain table stays plain.
+  assert.equal(cleanPrefs({ tableArt: false } as never).table, "plain");
   assert.deepEqual(bad, DEFAULT_PREFS);
 });
