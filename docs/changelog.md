@@ -1,5 +1,25 @@
 # Changelog
 
+## Release 0.8.0 (2026-10-16)
+
+On top of `cdeea12`. All 161 tests pass. `pnpm visual`: the changed scenarios are the expected
+ones (block groups' discs and colors, the opponent's commander at the top left), taken as the new
+baseline; `block` still differs from run to run in its prompt text and mana icons (flaky, not from
+this release). Everything in the session below (2026-10-16); `package.json` and
+`public/manifest.json` at 0.8.0.
+
+1. **Combat you can read:** each blocked attacker and its blockers share a color and a numbered
+   disc; trample hits the player too; fights that came without their events still play.
+2. **Arc Lightning and other divided spells** asked one number per target: divided on the table.
+3. **Best of three:** a pip by each name per game won, the match score under the result, and who
+   won at a replay's last frame (counted right after game 1).
+4. **Show decklist** on the board, with the cards' pictures as the sideboarding screen lays them
+   out; the game menu keeps the board's items, the decklist, Reload and Concede.
+5. **Endstep's keyboard shortcuts** (with your rebinds) in the board's shortcuts list.
+6. **The opponent's off-hand cards** (commander, flashback…) at the top left, covering nothing.
+7. **One attack declaration per prompt:** Space/Enter no longer reach Endstep's hidden combat
+   prompt while you choose attackers or blockers.
+
 ## Session of 2026-10-16
 
 On top of `5efb895`. All 159 tests pass (8 new, in `tests/botAttacks.test.ts`, `tests/prompts.test.ts` and `tests/gameInfo.test.ts`). Checked in the
