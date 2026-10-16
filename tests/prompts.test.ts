@@ -4,7 +4,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { GameController } from "../src/game/GameController";
 import { normalize, type Raw } from "../src/game/endstep/normalize";
-import { deriveMode, divideReady, divideShort, divideStart, promptKey } from "../src/ui/board/modes";
+import { deriveMode, divideReady, divideShort, divideStart, promptKey, splitAsk } from "../src/ui/board/modes";
+import { playMatch } from "./realMatch";
 import { ALLOWED_ACTIONS, type WireAction } from "../src/shared/protocol";
 import { UnsupportedLog } from "../src/game/unsupportedPrompts";
 
@@ -147,4 +148,21 @@ test("unsupported prompts: stored entries come back behind new ones; clear empti
   assert.deepEqual(log.list().map((e) => [e.type, e.count]), [["SOMETHING_NEW", 1], ["OLD", 3]]);
   log.clear();
   assert.deepEqual(log.list(), []);
+});
+
+test("spell damage as Endstep really asks it: the targets, then one number per target (arc-lightning match)", () => {
+  // Recorded 2026-10-16: our Arc Lightning on two targets, then the bot's, which the board never sees asked.
+  const asks = playMatch("arc-lightning").map((s) => s.state.pending).filter((p) => p?.type === "CHOOSE_NUMBER" || (p?.type === "CHOOSE_TARGETS" && /distribute/.test(p.message ?? "")));
+  const seen = [...new Map(asks.map((p) => [`${p!.type}:${p!.promptVersion}`, p!])).values()];
+  const targets = seen.find((p) => p.type === "CHOOSE_TARGETS")!;
+  assert.equal(targets.message, "Select any target to distribute damage to");
+  assert.equal(targets.sourceCardName, "Arc Lightning");
+  assert.equal(targets.max, 3);
+  // Each number names its target and what's left; the board reads them as one division.
+  const numbers = seen.filter((p) => p.type === "CHOOSE_NUMBER").map((p) => ({ ask: splitAsk(p.message), min: p.numberMin, max: p.numberMax, source: p.sourceCardId }));
+  assert.deepEqual(numbers.slice(0, 2), [
+    { ask: { left: 3, target: "Monastery Swiftspear", spell: "Arc Lightning" }, min: 1, max: 2, source: targets.sourceCardId },
+    { ask: { left: 1, target: "Forge AI", spell: "Arc Lightning" }, min: 1, max: 1, source: targets.sourceCardId },
+  ]);
+  assert.equal(splitAsk("Choose a number"), null);
 });

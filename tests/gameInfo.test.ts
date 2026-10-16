@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normalize, toClock, toIdle, type Raw } from "../src/game/endstep/normalize";
 import { EndstepAdapter } from "../src/game/endstep/EndstepAdapter";
-import { clockLeft, type GameState } from "../src/game/GameState";
+import { clockLeft, winsNeeded, type GameState } from "../src/game/GameState";
 import { passUntilStep, passUntilStops, startPassUntil } from "../src/game/passUntil";
 import { keywordNotes } from "../src/ui/board/keywords";
 
@@ -164,4 +164,16 @@ test("passing until my turn stops at the start of it", () => {
   assert.equal(passUntilStep(mine, game({ ...theirs })), "pass");
   assert.equal(passUntilStep(mine, game({ phase: "MAIN1", turnNumber: 6 })), "stop");
   assert.deepEqual(passUntilStops(pu), {});
+});
+
+test("the match score: Endstep's matchScore, wins by seat to each player; a best of one has no score to show", () => {
+  const at = (matchScore: Raw) => normalize({ players: [{ id: "0", name: "Me" }, { id: "1", name: "Bot" }], matchScore } as Raw, { matchId: "m", viewerSeat: 0, desynced: false }).match;
+  // As sent in game 2 of a best of three, 1–0 up (2026-10-16).
+  const bo3 = at({ winsBySeat: [1, 0], player0Wins: 1, player1Wins: 0, gameNumber: 2, gamesPlayed: 1, gamesPerMatch: 3, isMatchOver: false })!;
+  assert.deepEqual(bo3, { game: 2, gamesPerMatch: 3, wins: { "0": 1, "1": 0 }, over: false });
+  assert.equal(winsNeeded(bo3), 2);
+  // The match decided 0–2; and an older shape without winsBySeat or gameNumber.
+  assert.equal(at({ winsBySeat: [0, 2], gameNumber: 2, gamesPlayed: 2, gamesPerMatch: 3, isMatchOver: true })!.over, true);
+  assert.deepEqual(at({ gamesPlayed: 1, player0Wins: 0, player1Wins: 1 }), { game: 2, gamesPerMatch: 1, wins: { "0": 0, "1": 1 }, over: false });
+  assert.equal(normalize({ players: [] } as Raw, { matchId: "m", viewerSeat: 0, desynced: false }).match, undefined);
 });

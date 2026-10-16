@@ -2,7 +2,7 @@
 
 No decision in a game should force you off the Arena board.
 
-**Phase status: In progress** (9/10 done)
+**Phase status: Done** (9/9 done; t1-6 rejected)
 
 ## Progress
 
@@ -11,7 +11,7 @@ No decision in a game should force you off the Arena board.
 - [x] t1-3 · [Log the prompts that step aside](t1-3-log-prompts-that-step-aside.md) — Done
 - [x] t1-4 · [Choosing a pile, with two visible piles](t1-4-choose-pile.md) — Done
 - [x] t1-5 · [Dividing spell damage](t1-5-divide-spell-damage.md) — Done
-- [ ] t1-6 · [Check dividing shield counters](t1-6-check-divide-shield.md) — To do
+- [ ] t1-6 · [Check dividing shield counters](t1-6-check-divide-shield.md) — Rejected
 - [x] t1-7 · [Separating cards into two piles](t1-7-separate-piles.md) — Done
 - [x] t1-8 · [Choosing cards from your own hand in a fan](t1-8-own-hand-in-a-fan.md) — Done
 - [x] t1-9 · [Discarding from your hand, without a fan](t1-9-discard-in-hand.md) — Done
@@ -26,7 +26,7 @@ No decision in a game should force you off the Arena board.
 | t1-3 | [Log the prompts that step aside](t1-3-log-prompts-that-step-aside.md) | Technical | **Done** |
 | t1-4 | [Choosing a pile, with two visible piles](t1-4-choose-pile.md) | Feature | **Done** |
 | t1-5 | [Dividing spell damage](t1-5-divide-spell-damage.md) | Feature | **Done** |
-| t1-6 | [Check dividing shield counters](t1-6-check-divide-shield.md) | Fix | **To do** |
+| t1-6 | [Check dividing shield counters](t1-6-check-divide-shield.md) | Fix | **Rejected** |
 | t1-7 | [Separating cards into two piles](t1-7-separate-piles.md) | Feature | **Done** |
 | t1-8 | [Choosing cards from your own hand in a fan](t1-8-own-hand-in-a-fan.md) | Feature | **Done** |
 | t1-9 | [Discarding from your hand, without a fan](t1-9-discard-in-hand.md) | Feature | **Done** |

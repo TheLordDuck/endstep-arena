@@ -516,3 +516,11 @@ export function deckColumns(stacks: SideboardStack[]): { label: string; stacks: 
   }
   return cols.filter((c) => c.stacks.length);
 }
+
+/** Endstep asking a divided spell's share for one target, after its targets, one question per
+    target in the order they were chosen: "Assign 3 remaining to Monastery Swiftspear (Arc
+    Lightning)" — the damage left, the target, the spell. */
+export function splitAsk(message: string | undefined): { left: number; target: string; spell: string } | null {
+  const m = /^Assign (\d+) remaining to (.+) \(([^()]+)\)$/.exec(message ?? "");
+  return m ? { left: Number(m[1]), target: m[2]!, spell: m[3]! } : null;
+}

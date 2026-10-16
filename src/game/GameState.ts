@@ -211,6 +211,9 @@ export interface PendingActionView {
   /** ASSIGN_DAMAGE / DIVIDE_SHIELD: the amount to divide among the options, as Endstep's damage
       bar reads it (maxValue, cardOptions with lethalDamage, overrideOrder). */
   divide?: DivideView;
+  /** The board's own: a spell's division Endstep asks one CHOOSE_NUMBER per target, shown as a
+      division (`divide`) and answered one number at a time. */
+  numberSplit?: boolean;
   /** CHOOSE_PILE (Fact or Fiction…): the piles to take one of. */
   piles?: PileView[];
   /** CHOOSE_CARDS with contextType "sideboard": sideboarding between games. */
@@ -316,6 +319,19 @@ export function clockLeft(clock: ClockView, playerId: PlayerId, now: number): nu
   return clock.left[playerId];
 }
 
+export interface MatchView {
+  /** The game being played (1, 2, 3), and how many the match has at most (1, or 3 for a best of three). */
+  game: number;
+  gamesPerMatch: number;
+  /** Games won, by player id. */
+  wins: Record<PlayerId, number>;
+  /** The match is decided. */
+  over: boolean;
+}
+
+/** Games a player needs to win the match (2 of 3). */
+export const winsNeeded = (m: MatchView) => Math.floor(m.gamesPerMatch / 2) + 1;
+
 export interface GameState {
   matchId: string;
   viewerSeat: number;
@@ -347,6 +363,8 @@ export interface GameState {
   dayNight?: "day" | "night";
   /** Watching someone else's game (/spectate/:id): nothing can be answered. */
   spectating?: boolean;
+  /** The match's score (Endstep's matchScore), e.g. a best of three at 1–0 in game 2. */
+  match?: MatchView;
   /** The game log so far, oldest first (kept by the adapter; a replay's up to its frame). */
   log?: LogEntry[];
   /** The match's chat (kept by the adapter), when there's been any. */

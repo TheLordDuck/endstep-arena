@@ -28,3 +28,4 @@ How Endstep asks to divide a spell's damage (Fireball, Arc Lightning…) isn't k
 
 - 2026-10-07: added to the roadmap.
 - 2026-10-07: done.
+- 2026-10-16: seen in a real match: Endstep asks the targets, then one `CHOOSE_NUMBER` per target; the board shows them as one division on the table and answers each (see the feature note).

@@ -2,7 +2,7 @@
 
 Understand what happened and what you're waiting for without opening Endstep's panel.
 
-**Phase status: Done** (16/16 done; t3-9 and t3-14 rejected)
+**Phase status: In progress** (16/17 done; t3-9 and t3-14 rejected)
 
 ## Progress
 
@@ -24,6 +24,7 @@ Understand what happened and what you're waiting for without opening Endstep's p
 - [x] t3-16 · [The player's portrait and life as in Arena](t3-16-arena-player-portrait.md) — Done
 - [x] t3-17 · [Library and graveyard without labels, by the portrait](t3-17-piles-without-labels.md) — Done
 - [x] t3-18 · [The match chat on the board](t3-18-match-chat.md) — Done
+- [ ] t3-19 · [The opponent's off-hand cards, to one side](t3-19-opponent-side-hand-aside.md) — Approved
 
 ## Features
 
@@ -47,3 +48,4 @@ Understand what happened and what you're waiting for without opening Endstep's p
 | t3-16 | [The player's portrait and life as in Arena](t3-16-arena-player-portrait.md) | Feature | **Done** |
 | t3-17 | [Library and graveyard without labels, by the portrait](t3-17-piles-without-labels.md) | Feature | **Done** |
 | t3-18 | [The match chat on the board](t3-18-match-chat.md) | Feature | **Done** |
+| t3-19 | [The opponent's off-hand cards, to one side](t3-19-opponent-side-hand-aside.md) | Feature | **Approved** |

@@ -119,3 +119,21 @@ Both recordings have turns with no events (9 to 13, and 4 to 11): Endstep leaves
 the turns that pass while its tab is hidden, and sends just the state (an `ATTACH` holding a
 `GAME_STATE`) when it comes back. A combat right after that has no `ATTACKERS_DECLARED`, hence the
 fight above.
+
+## Change of 2026-10-16: the match score, and the result in replays
+
+- **The match score.** Endstep sends `matchScore` in every state: `{ winsBySeat, player0Wins,
+  player1Wins, gameNumber, gamesPlayed, gamesPerMatch, isMatchOver }` (seen in best of one and best
+  of three matches). `normalize.ts` reads it into `GameState.match` (`game`, `gamesPerMatch`,
+  `wins` by player id, `over`). In a best of three the board shows a pip by each player's name for
+  each game won, out of the two needed, and "Game 2 of 3 · 1–0" by the turn (the bottom player's
+  wins first; "Match over · 2–0" once decided). A best of one shows nothing.
+- **Under the result**, in a best of three: "Match 1–0 · game 2 next", "Match won 2–0" or "Match
+  lost 0–2" (a game just won that the score doesn't count yet is added).
+- **Replays.** A replay's last frame used to show no result. Now it shows who won ("Forge AI wins",
+  with their picture and the match score), smaller and lighter, with no sound and no "Back to
+  Endstep", the replay's controls staying over it; winding back takes it away. The winner is the
+  state's `winnerId`, else the player this game's `GAME_OUTCOME` event names ("Winner: Forge AI").
+  Not yet seen with a real replay file.
+
+Harness: `bo3`, `bo3-won`, `replay-won`. Tests: `tests/gameInfo.test.ts`.

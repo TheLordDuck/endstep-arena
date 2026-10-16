@@ -19,11 +19,11 @@ approved, rejected and marked done there. These files mirror its state as of
 
 ## Summary
 
-Awaiting approval: 0 · Approved: 0 · To do: 2 · Done: 61 · Rejected: 6
+Awaiting approval: 2 · Approved: 1 · To do: 2 · Done: 61 · Rejected: 7
 
-**Approved:** none right now.
+**Approved:** t3-19.
 
-**Still open:** t0-3 (to do), t1-6 (to do).
+**Still open:** t0-3 (to do), t2-25 (to do), t2-26 (awaiting approval), t2-27 (awaiting approval), t3-19 (approved).
 
 ## Phases
 
@@ -32,9 +32,9 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 | Phase | Phase status | Done | Features by status |
 | --- | --- | --- | --- |
 | [Phase 0 · Finish open work](phase-0-finish-open-work/README.md) | **In progress** | 4/5 | To do: 1 · Done: 4 |
-| [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md) | **In progress** | 9/10 | To do: 1 · Done: 9 |
-| [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **Done** | 23/23 | Done: 23 · Rejected: 1 |
-| [Phase 3 · Game information](phase-3-game-information/README.md) | **Done** | 16/16 | Done: 16 · Rejected: 2 |
+| [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md) | **Done** | 9/9 | Done: 9 · Rejected: 1 |
+| [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **In progress** | 23/26 | Awaiting approval: 2 · To do: 1 · Done: 23 · Rejected: 1 |
+| [Phase 3 · Game information](phase-3-game-information/README.md) | **In progress** | 16/17 | Approved: 1 · Done: 16 · Rejected: 2 |
 | [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md) | **Done** | 6/6 | Done: 6 · Rejected: 1 |
 | [Phase 5 · Modes and platform](phase-5-modes-and-platform/README.md) | **Done** | 3/3 | Done: 3 · Rejected: 2 |
 
@@ -48,20 +48,20 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t0-4 · [Update the README](phase-0-finish-open-work/t0-4-update-readme.md) — Done
 - [x] t0-5 · [Release 0.5.0](phase-0-finish-open-work/t0-5-release-0-5-0.md) — Done
 
-### [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md): In progress (9/10)
+### [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md): Done (9/9)
 
 - [x] t1-1 · [Sideboarding screen](phase-1-prompts-still-in-endstep/t1-1-sideboarding.md) — Done
 - [x] t1-2 · [Paying Phyrexian mana](phase-1-prompts-still-in-endstep/t1-2-phyrexian-mana.md) — Done
 - [x] t1-3 · [Log the prompts that step aside](phase-1-prompts-still-in-endstep/t1-3-log-prompts-that-step-aside.md) — Done
 - [x] t1-4 · [Choosing a pile, with two visible piles](phase-1-prompts-still-in-endstep/t1-4-choose-pile.md) — Done
 - [x] t1-5 · [Dividing spell damage](phase-1-prompts-still-in-endstep/t1-5-divide-spell-damage.md) — Done
-- [ ] t1-6 · [Check dividing shield counters](phase-1-prompts-still-in-endstep/t1-6-check-divide-shield.md) — To do
+- [ ] t1-6 · [Check dividing shield counters](phase-1-prompts-still-in-endstep/t1-6-check-divide-shield.md) — Rejected
 - [x] t1-7 · [Separating cards into two piles](phase-1-prompts-still-in-endstep/t1-7-separate-piles.md) — Done
 - [x] t1-8 · [Choosing cards from your own hand in a fan](phase-1-prompts-still-in-endstep/t1-8-own-hand-in-a-fan.md) — Done
 - [x] t1-9 · [Discarding from your hand, without a fan](phase-1-prompts-still-in-endstep/t1-9-discard-in-hand.md) — Done
 - [x] t1-10 · [Proliferate on the table](phase-1-prompts-still-in-endstep/t1-10-proliferate.md) — Done
 
-### [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md): Done (23/23)
+### [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md): In progress (23/26)
 
 - [x] t2-1 · [Spells travel when they resolve](phase-2-combat-and-effects/t2-1-spells-travel-on-resolve.md) — Done
 - [x] t2-2 · [Projectile to the target](phase-2-combat-and-effects/t2-2-projectile-to-target.md) — Done
@@ -87,8 +87,11 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t2-22 · [Target arrows as in Arena](phase-2-combat-and-effects/t2-22-arena-target-arrows.md) — Done
 - [x] t2-23 · [Abilities on the stack in Arena's ability frame](phase-2-combat-and-effects/t2-23-ability-frame-on-stack.md) — Done
 - [x] t2-24 · [An illustrated table](phase-2-combat-and-effects/t2-24-illustrated-table.md) — Done
+- [ ] t2-25 · [Two attack declarations at once](phase-2-combat-and-effects/t2-25-double-attack-declaration.md) — To do
+- [ ] t2-26 · [Show prevented damage](phase-2-combat-and-effects/t2-26-prevented-damage.md) — Awaiting approval
+- [ ] t2-27 · [Piles of more than four that read](phase-2-combat-and-effects/t2-27-readable-big-piles.md) — Awaiting approval
 
-### [Phase 3 · Game information](phase-3-game-information/README.md): Done (16/16)
+### [Phase 3 · Game information](phase-3-game-information/README.md): In progress (16/17)
 
 - [x] t3-1 · [Game log](phase-3-game-information/t3-1-game-log.md) — Done
 - [x] t3-2 · [Game and turn clocks](phase-3-game-information/t3-2-game-clocks.md) — Done
@@ -108,6 +111,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t3-16 · [The player's portrait and life as in Arena](phase-3-game-information/t3-16-arena-player-portrait.md) — Done
 - [x] t3-17 · [Library and graveyard without labels, by the portrait](phase-3-game-information/t3-17-piles-without-labels.md) — Done
 - [x] t3-18 · [The match chat on the board](phase-3-game-information/t3-18-match-chat.md) — Done
+- [ ] t3-19 · [The opponent's off-hand cards, to one side](phase-3-game-information/t3-19-opponent-side-hand-aside.md) — Approved
 
 ### [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md): Done (6/6)
 

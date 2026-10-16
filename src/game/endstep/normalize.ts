@@ -6,6 +6,7 @@ import type {
   CardView,
   ChosenMark,
   ClockView,
+  MatchView,
   ModeOption,
   CombatLink,
   DivideView,
@@ -564,6 +565,24 @@ export function toIdle(v: unknown, meta: Pick<FrameMeta, "serverSkew" | "frozen"
   return { playerId, deadline: deadline - skew, away: v.away === true, graceMs: num(v.graceMs) ?? 30_000 };
 }
 
+/** Endstep's matchScore: { winsBySeat, player0Wins, player1Wins, gameNumber, gamesPlayed,
+    gamesPerMatch, isMatchOver }, the wins by seat (a player's place in `players`). */
+function matchOf(v: unknown, players: PlayerView[]): { match?: MatchView } {
+  if (!isObj(v)) return {};
+  const bySeat = arr(v.winsBySeat).map((n) => num(n) ?? 0);
+  const wins: Record<string, number> = {};
+  players.forEach((p, seat) => { wins[p.id] = bySeat[seat] ?? num(v[`player${seat}Wins`]) ?? 0; });
+  const played = num(v.gamesPlayed);
+  return {
+    match: {
+      game: num(v.gameNumber) ?? (played !== undefined ? played + 1 : 1),
+      gamesPerMatch: num(v.gamesPerMatch) ?? 1,
+      wins,
+      over: v.isMatchOver === true,
+    },
+  };
+}
+
 export function normalize(raw: Raw, meta: FrameMeta): GameState {
   const peeks = peeksOf(arr(raw.players));
   const players = arr(raw.players).map((p, i) => toPlayer(p, i, meta.viewerSeat, peeks));
@@ -587,6 +606,7 @@ export function normalize(raw: Raw, meta: FrameMeta): GameState {
     clock: toClock(raw.clock, meta),
     idle: toIdle(raw.idleTimeout, meta),
     ...(raw.isDay === true ? { dayNight: "day" as const } : raw.isNight === true ? { dayNight: "night" as const } : {}),
+    ...matchOf(raw.matchScore, players),
     reveals: [],
     unrecognizedKeys: Object.keys(raw).filter((k) => !KNOWN_TOP_LEVEL.has(k)),
     desynced: meta.desynced,

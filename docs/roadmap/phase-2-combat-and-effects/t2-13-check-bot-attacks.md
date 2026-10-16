@@ -1,9 +1,9 @@
-# t2-13 Â· Check combat when the bot attacks
+# t2-13 · Check combat when the bot attacks
 
 | | |
 | --- | --- |
 | Status | **Done** |
-| Phase | [Phase 2 Â· Combat and visual effects](README.md) |
+| Phase | [Phase 2 · Combat and visual effects](README.md) |
 | Type | Fix |
 | Needs approval | No (marked done directly) |
 | Done on | 2026-10-16 |

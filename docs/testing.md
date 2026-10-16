@@ -73,6 +73,10 @@ Added on 2026-10-08:
 | `gang-block` | The bot's Colossal Dreadmaw and two Llanowar Elves attack; block with eight Soldiers: each attacker and its blockers get a color and a numbered disc |
 | `gang-blocked` | The same, blocks declared (six on the Dreadmaw): no arrows, the discs say who fights whom |
 | `trample` | The Dreadmaw blocked by two Soldiers slams into each, then into you with the 4 over |
+| `arc-lightning` | Arc Lightning as Endstep asks it: pick targets (one of a pile of three Swiftspears comes out of it) and confirm, the division shows on the table, Submit answers Endstep's number per target (logged as ACTIONs) |
+| `bo3` | Game 2 of a best of three, 1–0 up: a pip by each name per game won, "Game 2 of 3 · 1–0" by the turn |
+| `bo3-won` | Game 2 won: Victory, "Match won 2–0" under it |
+| `replay-won` | A replay's last frame: "Opponent wins", "Match 1–1 · game 3 next", the replay's controls over it |
 | `strike-unseen` | No state showed the attack; the log names it: the strike plays |
 | `looting` | Faithless Looting's discard, asked without saying "discard": pick 2 cards right in your hand, no fan |
 | `stack7` | Seven items on the stack, spells and triggers of both players: click the magnifier beside *Stack · 7* |
@@ -150,6 +154,7 @@ Only the frames Endstep sent are kept (brotli; a 13-turn match is 26 KB). Then:
 | --- | --- |
 | `bot-combats` | 2026-10-11, against Forge AI, 13 turns: five combats of ours (unblocked, double strike, single blocks, a four-creature trade, lethal); the bot never attacks |
 | `bot-attacks` | 2026-10-16, against Forge AI (after two short matches), 16 turns: on turn 14 eight Soldier tokens block a Colossal Dreadmaw (six of them) and two Llanowar Elves; the bot wins. Turns 9 to 13 were lost in the recording |
+| `arc-lightning` | 2026-10-16, against Forge AI, unfinished: our Arc Lightning divided 2 to a Monastery Swiftspear and 1 to the bot, asked as targets then one `CHOOSE_NUMBER` per target; the bot's own Arc Lightning |
 | `bot-trample` | 2026-10-16, against Forge AI, unfinished (turn 19): the bot's Colossal Dreadmaw blocked by four Soldiers (2 trample over), by two (4 over) and by six (it dies). Turns 4 to 11 came with Endstep's tab hidden: no events, turn 11's `ATTACKERS_DECLARED` included |
 
 ## Unit tests

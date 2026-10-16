@@ -4,11 +4,12 @@
 // All game actions go through GameController; this file never talks to
 // Endstep directly.
 
-import type { AbilityOption, CardView, ChatMessage, CombatLink, DivideView, GameState, LogEntry, PendingActionView, PileView, PlayerView, SideboardView, StackItemView } from "../../game/GameState";
+import { winsNeeded } from "../../game/GameState";
+import type { AbilityOption, CardView, ChatMessage, CombatLink, DivideOption, DivideView,GameState, LogEntry, PendingActionView, PileView, PlayerView, SideboardView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
 import { createsTokens, relatedTokens } from "./relatedTokens";
 import { CARD_BACK_URL, chosenLabels, createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
-import { arrangeMove, canConfirm, clickInMode, deckColumns, defenderForKey, deriveMode, discardInHand, isProliferate, divideLeft, divideLocked, divideReady, divideShort, divideStart, divideStep, humanize, keyForDefender, learnStep, promptKey, sideboardChanged, sideboardCheck, sideboardMove, sideboardStacks, stepNumber, type Mode, type SideboardStack } from "./modes";
+import { arrangeMove, canConfirm, clickInMode, deckColumns, defenderForKey, deriveMode, discardInHand, isProliferate, divideLeft, splitAsk, divideLocked, divideReady, divideShort, divideStart, divideStep, humanize, keyForDefender, learnStep, promptKey, sideboardChanged, sideboardCheck, sideboardMove, sideboardStacks, stepNumber, type Mode, type SideboardStack } from "./modes";
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
 import { currentStep, stepIndex, stepLabel, TURN_STEPS } from "./phases";
 import type { PhaseStops, StopSide } from "../../game/endstep/phaseStops";
@@ -174,6 +175,12 @@ export class Board {
   /** Stack card element id → its stack item (for source/target arrows). */
   private stackEls = new Map<string, StackItemView>();
   private hoverStack: string | null = null;
+  /** A spell dividing its damage (Arc Lightning): the targets last sent for it, and the split
+      chosen on the table, answering Endstep's question per target (see asSplit). */
+  private splitTargets: { source?: string; keys: string[] } | null = null;
+  /** The targets last sent, by the card they're for (kept out of their piles until it's cast). */
+  private aimedAt: { source: string; keys: string[] } | null = null;
+  private splitPlan: { source?: string; left: { option: DivideOption; amount: number }[]; answered?: number } | null = null;
   /** Each fighter's block group number (see blockGroups), and the one pointed at. */
   private blockGroupOf = new Map<string, number>();
   private hoverBlock: string | null = null;
@@ -338,6 +345,7 @@ export class Board {
       </section>
       <div class="midline">
         <div class="turn-label"></div>
+        <div class="match-score" hidden></div>
         <div class="daynight" hidden></div>
       </div>
       <section class="side me">
@@ -418,6 +426,7 @@ export class Board {
 
   update(state: GameState | null): void {
     const prev = this.state;
+    if (state) state = this.asSplit(state);
     this.state = state;
     if (!state) {
       this.el.classList.remove("live");
@@ -730,6 +739,14 @@ export class Board {
     // pick, as your blockers do, so the next copy of the same creature can be blocked on its own.
     if (this.mode.kind === "blockers") for (const [b, a] of this.mode.assignments) note(a, `blocked:${b}`);
     for (const s of state.stack) for (const t of s.targets) note(t, `target:${s.id}`);
+    // A spell still being cast (its damage divided on the table, its cost paid): the targets sent
+    // for it are out of their piles already, as they will be once it's on the stack.
+    const aimed = this.aimedAt;
+    const p = state.pending;
+    if (aimed && p && p.type !== "PRIORITY" && p.sourceCardId === aimed.source && !state.stack.some((s) => [s.sourceCardId, s.card?.id, s.id].includes(aimed.source))) {
+      for (const t of aimed.keys) note(t, `target:${aimed.source}`);
+    }
+    if (this.mode.kind === "divide") for (const o of p?.divide?.options ?? []) note(o.id, "divided");
     this.renderBattlefield(this.q(".side.me"), this.withLingering(z.me), attachedTo);
     this.renderBattlefield(this.q(".side.opp"), this.withLingering(z.opp), attachedTo);
     this.renderEmblems(this.q(".side.me .emblems"), z.me);
@@ -2617,7 +2634,9 @@ export class Board {
     if (m.kind !== "divide") return "";
     const left = divideLeft(d, m.amounts);
     const ready = divideReady(d, m.amounts);
-    const msg = p.message || `Divide ${d.total} damage among the targets.`;
+    // Asked one target at a time, Endstep's message names just the first: the whole split here.
+    const spell = p.numberSplit ? splitAsk(p.message)?.spell : undefined;
+    const msg = p.numberSplit ? `${spell ?? "The spell"} divides ${d.total} damage among its targets.` : p.message || `Divide ${d.total} damage among the targets.`;
     const status = left > 0 ? `${left} of ${d.total} left to assign` : ready ? "All assigned: Submit" : "Each target needs at least 1";
     return `<div class="banner-msg">${withSymbols(esc(msg))}</div><div class="banner-sub${ready ? " ready" : ""}">${esc(status)}</div>`;
   }
@@ -2688,12 +2707,17 @@ export class Board {
       p.controlledBy !== undefined ? '<span class="chip" title="Another player makes this player\'s decisions">Controlled</span>' : "",
       ...(this.looseEffects.get(p.id) ?? []).map((fx) => `<span class="chip fx" title="${esc(effectText(fx))}">✦ ${esc(fx.effectSourceName || fx.name)}</span>`),
     ].join("");
-    // The corner keeps just the name (and status chips).
-    const sig = JSON.stringify([p.name, extras, hasPrio]);
+    // The corner keeps just the name (and status chips); in a best of three, a pip by it for each
+    // game they've won, out of the games needed, as Endstep shows it.
+    const m = state.match;
+    const wins = m && m.gamesPerMatch > 1 ? m.wins[p.id] ?? 0 : null;
+    const pips = wins === null ? "" : `<span class="wins" title="Games won: ${wins} of ${winsNeeded(m!)} needed (best of ${m!.gamesPerMatch})">${
+      Array.from({ length: winsNeeded(m!) }, (_, i) => `<i class="${i < wins ? "won" : ""}"></i>`).join("")}</span>`;
+    const sig = JSON.stringify([p.name, extras, hasPrio, pips]);
     if (el.dataset.sig !== sig) {
       el.dataset.sig = sig;
       el.innerHTML = `
-        <div class="pname">${esc(p.name)}</div>
+        <div class="pname">${esc(p.name)}${pips}</div>
         <div class="chips">${extras}</div>`;
     }
 
@@ -3095,6 +3119,17 @@ export class Board {
     const label = this.q(".turn-label");
     const labelHtml = `<b>Turn ${state.turnNumber ?? "–"}</b><span>${esc(stepLabel(step))}</span>`;
     if (label.innerHTML !== labelHtml) label.innerHTML = labelHtml;
+    // A best of three: which game, and the score from this side (yours first; the bottom player's).
+    const score = this.q(".match-score");
+    const ms = state.match;
+    const near = me ?? state.players[0];
+    const rival = state.players.find((pl) => pl.id !== near?.id);
+    const scoreText = ms && ms.gamesPerMatch > 1 ? `${ms.over ? "Match over" : `Game ${ms.game} of ${ms.gamesPerMatch}`} · ${near ? ms.wins[near.id] ?? 0 : 0}–${rival ? ms.wins[rival.id] ?? 0 : 0}` : "";
+    score.hidden = !scoreText;
+    if (score.textContent !== scoreText) {
+      score.textContent = scoreText;
+      score.title = scoreText ? `Best of ${ms!.gamesPerMatch}: ${state.players.map((pl) => `${pl.name} ${ms!.wins[pl.id] ?? 0}`).join(", ")}` : "";
+    }
 
     if (prev && this.prevActive !== state.activePlayerId && state.activePlayerId !== undefined) {
       // Watching someone else's game, every turn is named.
@@ -3259,24 +3294,52 @@ export class Board {
     if (wait > 0 && state.status === "COMPLETE") {
       this.endHoldTimer = window.setTimeout(() => this.state && this.renderEnd(this.state, this.state.players.find((p) => p.isViewer)), wait);
     }
-    // A replay's last frame is a finished game, but the replay goes on being watched.
-    const over = state.status === "COMPLETE" && !state.replay && wait <= 0;
+    // A replay's last frame is a finished game: who won shows there too, and goes as soon as the
+    // replay is wound back.
+    const replay = !!state.replay;
+    const winnerId = gameWinner(state);
+    const over = (state.status === "COMPLETE" || (replay && winnerId !== undefined)) && wait <= 0;
     if (!over) this.endPeek = false;
-    // A spectator sees who won, not a victory or defeat of their own.
-    const won = state.winnerId !== undefined && state.winnerId === me?.id && !state.spectating;
-    const winner = state.players.find((p) => p.id === state.winnerId);
-    const title = state.winnerId === undefined ? "Game over" : state.spectating ? `${winner?.name ?? "Someone"} wins` : won ? "Victory" : "Defeat";
+    // A spectator (or a replay) sees who won, not a victory or defeat of their own.
+    const neutral = !!state.spectating || replay;
+    const won = winnerId !== undefined && winnerId === me?.id && !neutral;
+    const winner = state.players.find((p) => p.id === winnerId);
+    const title = winnerId === undefined ? "Game over" : neutral ? `${winner?.name ?? "Someone"} wins` : won ? "Victory" : "Defeat";
+    const score = this.matchLine(state, me, winnerId);
     const html = !over ? "" : `<button class="end-peek" data-ui="end-peek"><span class="p-view">View battlefield</span><span class="p-back">Back to result</span></button>
-      <div class="end-body">${me ? this.avatarHtml(me) : ""}<h2>${title}</h2>
-        <button class="end-back" data-ui="hide">Back to Endstep</button></div>`;
+      <div class="end-body">${(neutral ? winner : me) ? this.avatarHtml((neutral ? winner : me)!) : ""}<h2>${esc(title)}</h2>${score ? `<p class="end-score">${esc(score)}</p>` : ""}
+        ${replay ? "" : '<button class="end-back" data-ui="hide">Back to Endstep</button>'}</div>`;
     if (box.dataset.sig !== html) {
       box.dataset.sig = html;
       box.innerHTML = html;
     }
-    if (over && !box.classList.contains("show") && state.winnerId !== undefined && !state.spectating) this.sfx(won ? "win" : "lose");
-    if (over !== box.classList.contains("show")) this.hooks.endShown(over);
-    const outcome = won ? " won" : state.winnerId === undefined || state.spectating ? "" : " lost";
-    box.className = `endgame${over ? " show" : ""}${outcome}${this.endPeek ? " peek" : ""}`;
+    if (over && !box.classList.contains("show") && winnerId !== undefined && !neutral) this.sfx(won ? "win" : "lose");
+    if (over !== box.classList.contains("show") && !replay) this.hooks.endShown(over);
+    const outcome = won ? " won" : winnerId === undefined || neutral ? "" : " lost";
+    box.className = `endgame${over ? " show" : ""}${outcome}${replay ? " replay" : ""}${this.endPeek ? " peek" : ""}`;
+  }
+
+  /** The match's score under the result, in a best of three: "Match 1–0 · game 2 next", "Match
+      won 2–0", or for a spectator "Forge AI wins the match 2–1". Counted from the score Endstep
+      sent; a game just won that it doesn't count yet is added. */
+  private matchLine(state: GameState, me: PlayerView | null | undefined, winnerId: string | undefined): string {
+    const m = state.match;
+    if (!m || m.gamesPerMatch <= 1) return "";
+    const wins = { ...m.wins };
+    const counted = Object.values(wins).reduce((a, b) => a + b, 0) >= m.game;
+    if (winnerId !== undefined && !counted) wins[winnerId] = (wins[winnerId] ?? 0) + 1;
+    const near = me ?? state.players[0];
+    const rival = state.players.find((p) => p.id !== near?.id);
+    const a = near ? wins[near.id] ?? 0 : 0;
+    const b = rival ? wins[rival.id] ?? 0 : 0;
+    const need = winsNeeded(m);
+    const decided = m.over || a >= need || b >= need;
+    if (!decided) return `Match ${a}–${b} · game ${m.game + 1} next`;
+    if (state.spectating || state.replay || !me) {
+      const leader = a > b ? near : rival;
+      return `${leader?.name ?? "Someone"} wins the match ${Math.max(a, b)}–${Math.min(a, b)}`;
+    }
+    return `Match ${a > b ? "won" : "lost"} ${a}–${b}`;
   }
 
   private banner(text: string, kind: string, sticky = false): void {
@@ -3929,6 +3992,12 @@ export class Board {
     if (!p?.divide || m.kind !== "divide" || this.awaiting) return true;
     if (d.divConfirm !== undefined) {
       if (!divideReady(p.divide, m.amounts)) return true;
+      if (p.numberSplit) {
+        // Endstep asks one target at a time: this question now, the others as they come.
+        this.splitPlan = { source: p.sourceCardId, left: p.divide.options.map((o, i) => ({ option: o, amount: m.amounts[i] ?? 0 })) };
+        this.answerSplit(p);
+        return true;
+      }
       this.controller.divide(m.amounts);
       this.setAwaiting(true);
       this.render(this.state);
@@ -3937,6 +4006,63 @@ export class Board {
     if (d.divReset !== undefined) this.setMode({ ...m, amounts: divideStart(p.divide) });
     else this.setMode({ ...m, amounts: divideStep(p.divide, m.amounts, Number(d.divAdd ?? d.divSub), d.divAdd !== undefined, lethal) });
     return true;
+  }
+
+  /** Records the targets sent for a spell that divides its damage among them. */
+  private sendTargets(keys: string[]): void {
+    const p = this.state?.pending;
+    this.aimedAt = p?.sourceCardId ? { source: p.sourceCardId, keys: [...keys] } : null;
+    this.splitTargets = p && /\b(distribute|divided?)\b/i.test(p.message ?? "") ? { source: p.sourceCardId, keys: [...keys] } : null;
+    this.controller.chooseTargets(keys);
+  }
+
+  /**
+   * A spell dividing its damage (Arc Lightning): Endstep asks it after the targets, one number per
+   * target in the order they were chosen ("Assign 3 remaining to Monastery Swiftspear (Arc
+   * Lightning)"). The first question becomes the division on the table, as for any spell (each
+   * target with its ▲ amount ▼); once it's submitted, each question is answered from it.
+   */
+  private asSplit(state: GameState): GameState {
+    const p = state.pending;
+    const ask = p?.type === "CHOOSE_NUMBER" ? splitAsk(p.message) : null;
+    const targets = this.splitTargets;
+    if (!p || !ask || !targets || targets.source !== p.sourceCardId) {
+      if (p && p.type !== "CHOOSE_NUMBER") this.splitPlan = null;
+      return state;
+    }
+    const plan = this.splitPlan;
+    if (plan && plan.source === p.sourceCardId) {
+      // Already divided: answered at once, the division still on the table meanwhile.
+      window.setTimeout(() => this.answerSplit(p), 0);
+      const divide: DivideView = { kind: "spell", total: ask.left, options: plan.left.map((x) => x.option), freeSpill: true };
+      return { ...state, pending: { ...p, type: "ASSIGN_DAMAGE", divide, numberSplit: true } };
+    }
+    const options: DivideOption[] = targets.keys.map((key) => {
+      if (key.startsWith("player:")) {
+        const seat = Number(key.slice(7));
+        const pl = state.players.find((x) => x.seat === seat) ?? state.players[seat];
+        return { id: String(-(seat + 1)), name: pl?.name ?? "Player", lethal: null, player: true };
+      }
+      const c = state.players.flatMap((x) => x.battlefield).find((x) => x.id === key) ?? this.cardData.get(key);
+      const toughness = Number(c?.toughness);
+      return { id: key, name: c?.name ?? "Target", lethal: Number.isFinite(toughness) ? Math.max(1, toughness - (c?.damage ?? 0)) : null, player: false };
+    });
+    const divide: DivideView = { kind: "spell", total: ask.left, options, freeSpill: true };
+    return { ...state, pending: { ...p, type: "ASSIGN_DAMAGE", divide, numberSplit: true } };
+  }
+
+  /** Answers Endstep's question about one target of a divided spell from the split chosen. */
+  private answerSplit(p: PendingActionView): void {
+    const plan = this.splitPlan;
+    if (!plan || plan.answered === p.promptVersion) return;
+    plan.answered = p.promptVersion;
+    const name = splitAsk(p.message)?.target;
+    const at = Math.max(0, plan.left.findIndex((x) => x.option.name === name));
+    const [target] = plan.left.splice(at, 1);
+    if (!plan.left.length) this.splitPlan = null;
+    this.controller.chooseNumber(Math.min(p.numberMax, Math.max(p.numberMin, target?.amount ?? p.numberMin)));
+    this.setAwaiting(true);
+    this.render(this.state);
   }
 
   private choiceControls(state: GameState): string {
@@ -5240,7 +5366,7 @@ export class Board {
       if (next === m) return;
       // Single-target prompts submit on click, as in Endstep.
       if (next.kind === "targets" && next.max === 1 && next.selected.length === 1) {
-        this.controller.chooseTargets(next.selected);
+        this.sendTargets(next.selected);
         this.setAwaiting(true);
       }
       this.setMode(next);
@@ -5283,7 +5409,7 @@ export class Board {
 
   private onSelectedMany(next: Mode): void {
     if (next.kind === "targets" && next.max === 1 && next.selected.length === 1) {
-      this.controller.chooseTargets(next.selected);
+      this.sendTargets(next.selected);
       this.setAwaiting(true);
     }
     this.setMode(next);
@@ -5318,7 +5444,7 @@ export class Board {
       case "prolif-mine": {
         // Every option of the proliferating player's own (their permanents, and themselves), sent.
         const yours = this.proliferateYours();
-        if (this.state?.pending?.type === "CHOOSE_TARGETS") c.chooseTargets(yours);
+        if (this.state?.pending?.type === "CHOOSE_TARGETS") this.sendTargets(yours);
         else c.chooseCards(yours);
         break;
       }
@@ -5377,9 +5503,9 @@ export class Board {
       case "confirm":
         if (m.kind === "attackers") c.declareAttackers(m.assignments, !!m.defenders);
         else if (m.kind === "blockers") c.declareBlockers(m.assignments);
-        else if (m.kind === "targets") c.chooseTargets(m.selected);
+        else if (m.kind === "targets") this.sendTargets(m.selected);
         // Learn may be asked as a target choice: it's answered the way it was asked.
-        else if (m.kind === "cards" && this.state?.pending?.type === "CHOOSE_TARGETS") c.chooseTargets(m.selected);
+        else if (m.kind === "cards" && this.state?.pending?.type === "CHOOSE_TARGETS") this.sendTargets(m.selected);
         else if (m.kind === "cards") c.chooseCards(m.selected);
         else return;
         break;
@@ -6371,6 +6497,17 @@ function blocksDecided(state: GameState): boolean {
     if (log[i]!.type === "ATTACKERS_DECLARED" || log[i]!.type === "TURN_BEGAN") return false;
   }
   return false;
+}
+
+/** Who won the game: the state's winnerId, else the player this game's GAME_OUTCOME names
+    ("Winner: Forge AI"), as a replay may have only the event. */
+function gameWinner(state: GameState): string | undefined {
+  if (state.winnerId !== undefined) return state.winnerId;
+  const log = state.log ?? [];
+  const started = log.map((e) => e.type).lastIndexOf("GAME_STARTED");
+  const outcome = log.slice(started + 1).reverse().find((e) => e.type === "GAME_OUTCOME");
+  const name = /Winner:\s*(.+)$/i.exec(outcome?.lines.join(" ") ?? "")?.[1]?.trim();
+  return name ? state.players.find((p) => p.name === name)?.id : undefined;
 }
 
 /** The block groups' colors, one per blocked attacker (left to right): bright, far apart from each

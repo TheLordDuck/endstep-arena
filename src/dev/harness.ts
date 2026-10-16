@@ -8,7 +8,8 @@ import { Board } from "../ui/board/Board";
 import { GameController } from "../game/GameController";
 import { normalize, toLogEntry, toReveal, type Raw } from "../game/endstep/normalize";
 import type { GameState, LogEntry, RevealView } from "../game/GameState";
-import type { ReplayStatus } from "../game/ReplayPlayer";
+import { ReplayPlayer, type ReplayStatus } from "../game/ReplayPlayer";
+import { decodeReplay } from "../game/endstep/replay";
 import { loadStops, saveStops } from "../game/endstep/phaseStops";
 import { cleanPrefs } from "../ui/board/prefs";
 import { StatePacer } from "../ui/StatePacer";
@@ -41,6 +42,8 @@ if (new URLSearchParams(location.search).has("freeze")) {
 }
 
 let nextId = 100;
+/** A scenario's stand-in for the server: the next prompt for an action sent (none: priority back). */
+let answerWith: ((action: Raw) => Raw | undefined) | undefined;
 const card = (name: string, extra: Raw = {}): Raw => ({ id: nextId++, name, ...extra });
 const land = (name: string, extra: Raw = {}) => card(name, { typeLine: `Basic Land — ${name}`, ...extra });
 const creature = (name: string, p: number, t: number, extra: Raw = {}) => card(name, { typeLine: "Creature", power: p, toughness: t, ...extra });
@@ -1100,6 +1103,38 @@ const scenarios: Record<string, Scenario> = {
         { id: -2, name: "Opponent", types: ["Player"] },
       ] };
   },
+  // Arc Lightning as Endstep really asks it (2026-10-16): the targets first ("Select any target to
+  // distribute damage to"), then one number per target in that order ("Assign 3 remaining to
+  // Vampire Nighthawk (Arc Lightning)"). The board shows the division on the table once the targets
+  // are in, and answers each number itself; the console logs the ACTIONs.
+  "arc-lightning": (s) => {
+    const [, opp] = players(s);
+    const angel = byName(opp!, "Serra Angel");
+    const hawk = byName(opp!, "Vampire Nighthawk");
+    const src = { sourceCardId: 991, sourceCardName: "Arc Lightning", sourceSpellAbilityId: "777", canUndo: true,
+      sourceAbilityText: "Arc Lightning deals 3 damage divided as you choose among one, two, or three targets." };
+    // Three identical Swiftspears make a pile; the one targeted comes out of it.
+    const spears = Array.from({ length: 3 }, () => creature("Monastery Swiftspear", 1, 2, { oracleText: "Haste\nProwess" }));
+    bf(opp!).push(...spears);
+    const names: Record<string, string> = { "-1": "Flavio", "-2": "Opponent", [String(hawk.id)]: "Vampire Nighthawk", [String(angel.id)]: "Serra Angel",
+      ...Object.fromEntries(spears.map((c) => [String(c.id), "Monastery Swiftspear"])) };
+    s.pendingAction = { type: "CHOOSE_TARGETS", promptVersion: 30, message: "Select any target to distribute damage to", min: 1, max: 3, mandatory: false, ...src,
+      cardOptions: [
+        { id: -1, name: "Flavio", zone: "Player", types: ["Player"] }, { id: -2, name: "Opponent", zone: "Player", types: ["Player"] },
+        { id: hawk.id, name: "Vampire Nighthawk", zone: "Battlefield", types: ["Creature"] }, { id: angel.id, name: "Serra Angel", zone: "Battlefield", types: ["Creature"] },
+        ...spears.map((c) => ({ id: c.id, name: "Monastery Swiftspear", zone: "Battlefield", types: ["Creature"] })),
+      ] };
+    let queue: string[] = [];
+    let left = 3;
+    const ask = (): Raw | undefined => queue.length
+      ? { type: "CHOOSE_NUMBER", message: `Assign ${left} remaining to ${names[queue[0]!]} (Arc Lightning)`, min: 0, max: 0, minValue: 1, maxValue: left - (queue.length - 1), cardOptions: [], ...src }
+      : undefined;
+    answerWith = (a) => {
+      if (a.type === "CHOOSE_TARGETS") { queue = (a.targets as unknown[]).map(String); left = 3; return ask(); }
+      if (a.type === "CHOOSE_NUMBER") { queue.shift(); left -= Number(a.numberValue); return ask(); }
+      return undefined;
+    };
+  },
   // The same Arc Lightning on the stack once divided: each target's share by its arrow.
   divided: (s) => {
     const [, opp] = players(s);
@@ -1109,6 +1144,24 @@ const scenarios: Record<string, Scenario> = {
       targets: [{ id: hawk.id, zone: "Battlefield", dividedAmount: 1 }, { id: angel.id, zone: "Battlefield", dividedAmount: 1 }, { id: -2, zone: "Player", dividedAmount: 1 }] }];
     s.priorityPlayerId = "1";
     s.pendingAction = null;
+  },
+  // A best of three, game 2, you 1–0 up (Endstep's matchScore): a pip by each name per game won,
+  // and "Game 2 of 3 · 1–0" by the turn.
+  bo3: (s) => {
+    s.matchScore = { winsBySeat: [1, 0], player0Wins: 1, player1Wins: 0, gameNumber: 2, gamesPlayed: 1, gamesPerMatch: 3, isMatchOver: false };
+  },
+  // Game 2 of a best of three won: Victory, and "Match won 2–0" under it.
+  "bo3-won": (s) => {
+    s.status = "COMPLETE"; s.winnerId = "0"; s.pendingAction = null;
+    s.matchScore = { winsBySeat: [2, 0], player0Wins: 2, player1Wins: 0, gameNumber: 2, gamesPlayed: 2, gamesPerMatch: 3, isMatchOver: true };
+  },
+  // A replay at its last frame: the opponent won game 2, the match at 1–1. Who won shows, under the
+  // replay's controls; winding back takes it away.
+  "replay-won": (s) => {
+    s.pendingAction = null;
+    s.status = "COMPLETE"; s.winnerId = "1";
+    s.matchScore = { winsBySeat: [1, 1], player0Wins: 1, player1Wins: 1, gameNumber: 2, gamesPlayed: 2, gamesPerMatch: 3, isMatchOver: false };
+    s.__replay = { frame: 119, frames: 120, playing: false, speed: 1, turn: 9, turnStarts: [0, 12, 30, 41, 60, 75, 88, 99, 110] };
   },
   // Watching a replay: no prompt, the replay's controls on top.
   replay: (s) => {
@@ -1266,9 +1319,10 @@ document.body.appendChild(host);
 const controller = new GameController(() => state, (matchId, action) => {
   console.log("ACTION", JSON.stringify({ matchId, action }));
   (window as unknown as { __actions: unknown[] }).__actions.push(action);
-  // Stand in for the server: an answer closes the prompt and hands priority back.
+  // Stand in for the server: an answer closes the prompt and hands priority back (or, where the
+  // scenario says, asks the next question).
   if (action.type !== "SET_PHASE_STOPS" && action.type !== "SET_AUTO_YIELDS") {
-    raw.pendingAction = { type: "PRIORITY", promptVersion: 100 + seq, cardOptions: [] };
+    raw.pendingAction = { promptVersion: 100 + seq, ...(answerWith?.(action as Raw) ?? { type: "PRIORITY", cardOptions: [] }) };
     state = build({ seq: ++seq });
     setTimeout(() => pacer.push(state), 150);
   }
@@ -1299,7 +1353,7 @@ const board = new Board(controller, {
   // Endstep's table menu, as its best-of-three board offers it.
   tableMenu: async () => ["Show decklist", "Auto-yields", "Settings", "Keyboard shortcuts", "Report a problem", "Reload", "Concede game", "Concede match"],
   runTableItem: (label) => console.log("TABLE ITEM", label),
-  replay: (cmd) => console.log("REPLAY", JSON.stringify(cmd)),
+  replay: (cmd) => (replays ? replays.command(cmd) : console.log("REPLAY", JSON.stringify(cmd))),
   leaveReplay: () => console.log("LEAVE REPLAY"),
   leaveSpectate: () => console.log("LEAVE SPECTATE"),
   damageLanded: () => console.log("DAMAGE LANDED", pacer.current?.turnNumber ?? ""),
@@ -1331,6 +1385,36 @@ else {
 
 /** Plays a recorded match at the pace its frames came (`?speed=2`: twice as fast), from the start
     of turn `?turn=N` (what comes before goes at once). Logs MATCH OVER at the end. */
+/** A replay file playing on the board, as the extension plays one (see content/index.ts). */
+let replays: ReplayPlayer | null = null;
+
+/** Dev hook: plays an .esreplay (its bytes, base64) on the board from the start, at `speed`. */
+(window as unknown as { __playReplay: (b64: string, speed?: number) => Promise<number> }).__playReplay = async (b64, speed = 1) => {
+  const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+  const replay = await decodeReplay(bytes.buffer);
+  const adapter = new EndstepAdapter();
+  // The adapter shows replay frames only on a replay page.
+  adapter.setRoute("/replay/harness");
+  adapter.subscribe((s) => {
+    if (!s) return;
+    state = s;
+    pacer.push(s);
+  });
+  const player = new ReplayPlayer(() => {
+    const r = player.current;
+    const status = player.status();
+    adapter.showReplay(r && status ? {
+      raw: r.frames[status.frame]!.raw, seat: r.seat, status,
+      events: r.events.filter((e) => e.frame <= status.frame).map((e) => e.event),
+    } : null);
+  });
+  replays = player;
+  player.load(replay);
+  player.command({ kind: "speed", speed });
+  player.command({ kind: "toggle" });
+  return replay.frames.length;
+};
+
 function playMatch(id?: string): void {
   const text = (id ? __MATCHES__[id] : undefined) ?? Object.values(__MATCHES__)[0];
   if (!text) return console.log("NO MATCH", id ?? "");

@@ -2,7 +2,7 @@
 
 ## Session of 2026-10-16
 
-On top of `5efb895`. All 157 tests pass (6 new, in `tests/botAttacks.test.ts`). Checked in the
+On top of `5efb895`. All 159 tests pass (8 new, in `tests/botAttacks.test.ts`, `tests/prompts.test.ts` and `tests/gameInfo.test.ts`). Checked in the
 harness and on a recorded match, not yet live.
 
 1. **A match where the bot attacks, recorded** (roadmap t2-13): kept as the fixture
@@ -20,13 +20,23 @@ harness and on a recorded match, not yet live.
 4. **A fight whose `ATTACKERS_DECLARED` never came** uses the events that did (blocks and blows),
    with the attackers from the states. Endstep leaves out the events of the turns that pass while its
    tab is hidden and sends just the state when it comes back; both recordings have such a stretch.
-5. **Roadmap docs in sync with the tracker** (they were as of 2026-10-14). Fourteen features done
+5. **A spell's divided damage on the table, as Endstep really asks it** (asked for during the
+   session). Arc Lightning comes as its targets, then one number per target ("Assign 3 remaining to
+   …"); the board now shows the whole split on the table, like any division, and answers each
+   number itself. Harness `arc-lightning`; fixture `arc-lightning`. A target that's one of a pile
+   of identical cards comes out of it and stays out until the spell is on the stack (it used to go
+   back once the targets were sent, while dividing and paying).
+6. **The match score, and who won in replays** (asked for during the session). Endstep's
+   `matchScore` is read: in a best of three, a pip by each name per game won and "Game 2 of 3 · 1–0"
+   by the turn, and the match's score under the result ("Match won 2–0"). A replay's last frame
+   shows who won, under its controls. Harness `bo3`, `bo3-won`, `replay-won`.
+7. **Roadmap docs in sync with the tracker** (they were as of 2026-10-14). Fourteen features done
    since then now have their cards written (what was done, commit, how it was checked): t2-14,
    t2-21, t3-5, t3-6, t3-7, t3-10 to t3-13, t3-15 to t3-17, t4-6 and t5-3. t3-9, t3-14 and t4-7,
    rejected on 2026-10-14, are marked so.
-6. **The Commander features rejected for good:** t2-6 (commander damage) and t5-2 (3- and
+8. **The Commander features rejected for good:** t2-6 (commander damage) and t5-2 (3- and
    4-player tables) go back to Phases 2 and 5 as rejected, and Phase 6 · Maybe later is gone.
-7. **Roadmap:** t2-13 done. Left open: t0-3 and t1-6, both waiting on a real match.
+9. **Roadmap:** t2-13 done; t1-6 rejected (no card known to bring `DIVIDE_SHIELD`). New: t3-19 (the opponent's off-hand cards to one side, approved), t2-25 (two attack declarations at once), t2-26 (show prevented damage) and t2-27 (piles of more than four that read), the last two awaiting approval. t0-3 waits on a replay.
 
 ## Release 0.7.0 (2026-10-14)
 
