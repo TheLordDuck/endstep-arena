@@ -37,6 +37,40 @@ harness and on a recorded match, not yet live.
 8. **The Commander features rejected for good:** t2-6 (commander damage) and t5-2 (3- and
    4-player tables) go back to Phases 2 and 5 as rejected, and Phase 6 · Maybe later is gone.
 9. **Roadmap:** t2-13 done; t1-6 rejected (no card known to bring `DIVIDE_SHIELD`). New: t3-19 (the opponent's off-hand cards to one side, approved), t2-25 (two attack declarations at once), t2-26 (show prevented damage) and t2-27 (piles of more than four that read), the last two awaiting approval. t0-3 waits on a replay.
+10. **A replay's score after game 1** (asked for during the session). A replay holds the whole
+    match, and the score after a game already counts it; the result counted it again ("wins the
+    match 2–0" after game 1). It now counts the games finished from the replay's log: "Match 1–0 ·
+    game 2 next". Checked against a real best-of-three replay.
+11. **No "Game 2 of 3 · 1–0" by the turn** (asked for during the session): the pips by the names
+    already say it.
+12. **The opponent's off-hand cards, to one side** (roadmap t3-19). Their commander, flashback,
+    escape and adventure cards hung at the top centre, over their step track and life total; they
+    now hang at the top left, between their name and their step track, as yours sit to one side of
+    your hand. Harness `oppside`.
+13. **One attack declaration per prompt** (roadmap t2-25). In a real match two `DECLARE_ATTACKERS`
+    went out at once for the same prompt, one with the attack and one with none; the recording
+    of what was sent is gone, so the cause wasn't seen. Two guards: while attackers or blockers
+    are being chosen, Space and Enter are kept from Endstep's own hidden combat prompt (it would
+    answer with nothing chosen, as its hidden number picker and damage bar would); and
+    `GameController` sends one attack (or block) declaration per prompt version, a second one
+    within 3 s being dropped. Test in `tests/adapter.test.ts`.
+14. **The game menu keeps only the board's items and Concede** (asked for during the session).
+    Endstep's other items (Show decklist, Auto-yields, Settings, Keyboard shortcuts, Report a
+    problem, Report stalling, Reload, Record a macro) opened Endstep's own UI over the board; they're
+    left out until the board has its own. The code that opens them is still there.
+15. **Three of Endstep's menu items, on the board** (roadmap t4-8, in progress). *Show decklist*
+    opens the deck you registered, fetched from Endstep's match info (`GET /api/matches/:id`:
+    `myDeck`, `mySideboard`, `myCommanders`, `myDeckArt`), with each card's cost and type from its
+    card batch (`POST /api/cards/batch`), shown with the cards' pictures as the sideboarding screen
+    shows a deck, only to look at: the main deck in columns by mana value (lands last), the
+    sideboard (and a commander) in a column beside it, a stack per card with ×N; pointing at a
+    card shows it big.
+    *Reload* reloads the page. *Keyboard shortcuts*: the board's list now ends with Endstep's keys
+    (copied from its shortcut definitions, with your rebinds from `endstep:hotkeys:v1`), noting C
+    is the board's chat. Auto-yields, Endstep's settings, the two reports and macros stay out.
+    Harness: `?open=menu|decklist|shortcuts` opens them (and `?point=` points once they're up).
+    Endstep's definitions also show what t2-25 guarded against: its Space is "Pass / Confirm",
+    confirming whatever the game asks.
 
 ## Release 0.7.0 (2026-10-14)
 

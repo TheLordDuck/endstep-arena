@@ -15,6 +15,7 @@ import { cleanPrefs } from "../ui/board/prefs";
 import { StatePacer } from "../ui/StatePacer";
 import { EndstepAdapter } from "../game/endstep/EndstepAdapter";
 import { MatchChat } from "../game/endstep/chat";
+import { parseCardDetails, parseDecklist } from "../game/endstep/decklist";
 
 /** The matches in tests/fixtures, by name: their frames as ndjson (see build.mjs). */
 declare const __MATCHES__: Record<string, string>;
@@ -1353,6 +1354,26 @@ const board = new Board(controller, {
   // Endstep's table menu, as its best-of-three board offers it.
   tableMenu: async () => ["Show decklist", "Auto-yields", "Settings", "Keyboard shortcuts", "Report a problem", "Reload", "Concede game", "Concede match"],
   runTableItem: (label) => console.log("TABLE ITEM", label),
+  // A Burn deck, as Endstep's match info gives it (a name per copy).
+  decklist: async () => parseDecklist({
+    myDeck: [
+      ...Array(4).fill("Lightning Bolt"), ...Array(4).fill("Goblin Guide"), ...Array(4).fill("Monastery Swiftspear"),
+      ...Array(4).fill("Lava Spike"), ...Array(4).fill("Rift Bolt"), ...Array(4).fill("Skewer the Critics"),
+      ...Array(4).fill("Eidolon of the Great Revel"), ...Array(4).fill("Boros Charm"), ...Array(4).fill("Lightning Helix"),
+      ...Array(4).fill("Searing Blaze"), ...Array(4).fill("Inspiring Vantage"), ...Array(4).fill("Sacred Foundry"),
+      ...Array(12).fill("Mountain"),
+    ],
+    mySideboard: [...Array(3).fill("Smash to Smithereens"), ...Array(4).fill("Path to Exile"), ...Array(4).fill("Kor Firewalker"), ...Array(4).fill("Deflecting Palm")],
+    myCommanders: [],
+    myDeckArt: { "lightning bolt": { setCode: "2xm", collectorNumber: "141" } },
+  }, parseCardDetails({ cards: ([
+    ["Lightning Bolt", "{R}", "Instant"], ["Goblin Guide", "{R}", "Creature — Goblin Scout"], ["Monastery Swiftspear", "{R}", "Creature — Human Monk"],
+    ["Lava Spike", "{R}", "Sorcery — Arcane"], ["Rift Bolt", "{2}{R}", "Sorcery"], ["Skewer the Critics", "{2}{R}", "Sorcery"],
+    ["Eidolon of the Great Revel", "{R}{R}", "Enchantment Creature — Spirit"], ["Boros Charm", "{R}{W}", "Instant"],
+    ["Lightning Helix", "{R}{W}", "Instant"], ["Searing Blaze", "{R}{R}", "Instant"], ["Inspiring Vantage", "", "Land"],
+    ["Sacred Foundry", "", "Land — Mountain Plains"], ["Mountain", "", "Basic Land — Mountain"], ["Smash to Smithereens", "{1}{R}", "Instant"],
+    ["Path to Exile", "{W}", "Instant"], ["Kor Firewalker", "{W}{W}", "Creature — Kor Soldier"], ["Deflecting Palm", "{R}{W}", "Instant"],
+  ] as const).map(([name, manaCost, typeLine]) => ({ name, card: { name, manaCost, typeLine } })) })),
   replay: (cmd) => (replays ? replays.command(cmd) : console.log("REPLAY", JSON.stringify(cmd))),
   leaveReplay: () => console.log("LEAVE REPLAY"),
   leaveSpectate: () => console.log("LEAVE SPECTATE"),
@@ -1477,17 +1498,27 @@ if (location.search) root.querySelector("style")!.textContent += " * { transitio
 const click = at("click");
 if (click?.length === 2) (root.elementFromPoint(click[0]!, click[1]!) as HTMLElement | null)?.click();
 const point = at("point");
-if (point?.length === 2) {
+// (Again once a panel asked for with `?open=` is up.)
+const pointAt = () => {
+  if (point?.length !== 2) return;
   for (const type of ["pointerover", "pointermove"]) {
     root.elementFromPoint(point[0]!, point[1]!)?.dispatchEvent(
       new PointerEvent(type, { clientX: point[0], clientY: point[1], bubbles: true, composed: true }));
   }
-}
+};
+pointAt();
 
 // Dev hook: `?play=<card id>` clicks that card as if to play it (a permanent with several
 // abilities opens its Choose One).
 const play = new URLSearchParams(location.search).get("play");
 if (play) setTimeout(() => (board as unknown as { tryPlay(id: string): boolean }).tryPlay(play), 50);
+
+// Dev hook: `?open=menu|decklist|shortcuts` opens the table menu (in the middle) or that panel.
+const open = new URLSearchParams(location.search).get("open");
+if (open) {
+  const b = board as unknown as { openTableMenu(x: number, y: number): Promise<void>; renderDecklist(): Promise<void>; renderShortcuts(): void };
+  setTimeout(() => void Promise.resolve(open === "menu" ? b.openTableMenu(innerWidth / 2, innerHeight / 3) : open === "decklist" ? b.renderDecklist() : b.renderShortcuts()).then(pointAt), 50);
+}
 
 // Dev hook: the board itself, to open its panels from a test script.
 (window as unknown as { __board: Board }).__board = board;

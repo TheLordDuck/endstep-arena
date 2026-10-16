@@ -9,7 +9,7 @@ import type { AbilityOption, CardView, ChatMessage, CombatLink, DivideOption, Di
 import { playerTargetKey, type GameController } from "../../game/GameController";
 import { createsTokens, relatedTokens } from "./relatedTokens";
 import { CARD_BACK_URL, chosenLabels, createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
-import { arrangeMove, canConfirm, clickInMode, deckColumns, defenderForKey, deriveMode, discardInHand, isProliferate, divideLeft, splitAsk, divideLocked, divideReady, divideShort, divideStart, divideStep, humanize, keyForDefender, learnStep, promptKey, sideboardChanged, sideboardCheck, sideboardMove, sideboardStacks, stepNumber, type Mode, type SideboardStack } from "./modes";
+import { arrangeMove, canConfirm, clickInMode, deckColumns, defenderForKey, deriveMode, discardInHand, isProliferate, divideLeft, splitAsk, divideLocked, divideReady, divideShort, divideStart, divideStep, humanize, keyForDefender, learnStep, manaValue, promptKey, sideboardChanged, sideboardCheck, sideboardMove, sideboardStacks, stepNumber, type Mode, type SideboardStack } from "./modes";
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
 import { currentStep, stepIndex, stepLabel, TURN_STEPS } from "./phases";
 import type { PhaseStops, StopSide } from "../../game/endstep/phaseStops";
@@ -21,6 +21,8 @@ import { counterNotes, keywordNotes, type KeywordNote } from "./keywords";
 import { MULLIGAN_RULE, mulliganCost, mulliganHint, mulliganStatus } from "./mulligan";
 import { handLimitWarning } from "./handLimit";
 import { offHandCards } from "./oppCastables";
+import { endstepKeyRows } from "./endstepKeys";
+import type { DeckCard, Decklist } from "../../game/endstep/decklist";
 import { lifeGainSource } from "./lifeGain";
 import { bestLine, chosenModes, frameColor, loyaltyCost, loyaltyLines, loyaltyNeeded, modeLines, withoutCost } from "./abilityText";
 import { ANIM_SPEEDS, CARD_SCALES, TABLES, validTableImage, type BoardPrefs, type TableChoice } from "./prefs";
@@ -116,6 +118,8 @@ export interface BoardHooks {
   tableMenu(): Promise<string[] | null>;
   /** Runs one of those items through Endstep's menu (its window shows while the board steps aside). */
   runTableItem(label: string): void;
+  /** The deck the player registered for this match (Endstep's "Show decklist"), or null. */
+  decklist(matchId: string): Promise<Decklist | null>;
   /** Drives the replay being watched (play, step, seek…). */
   replay(cmd: ReplayCommand): void;
   leaveReplay(): void;
@@ -345,7 +349,6 @@ export class Board {
       </section>
       <div class="midline">
         <div class="turn-label"></div>
-        <div class="match-score" hidden></div>
         <div class="daynight" hidden></div>
       </div>
       <section class="side me">
@@ -642,16 +645,78 @@ export class Board {
       ]],
       ["Mouse", [
         ["Right-click a card", "See it big (and its options)"],
-        ["Right-click the table", "Game menu: log, settings, Endstep's items"],
+        ["Right-click the table", "Game menu: log, decklist, settings, concede"],
       ]],
+      ["Endstep's keys (they work here too)", endstepKeyRows()],
     ];
     const box = this.q(".settings");
     box.dataset.panel = "shortcuts";
-    box.innerHTML = `<div class="phead"><h2>Keyboard shortcuts</h2><p>Endstep's own shortcuts keep working too: table menu → Keyboard shortcuts.</p></div>
+    box.innerHTML = `<div class="phead"><h2>Keyboard shortcuts</h2><p>The board's own keys, then Endstep's (rebound under Endstep's Settings → Controls).</p></div>
       <div class="keys">${groups.map(([title, rows]) => `<section><h3>${esc(title)}</h3>${rows.map(([k, what]) =>
         `<div class="key-row"><span class="kk">${key(k)}</span><span>${esc(what)}</span></div>`).join("")}</section>`).join("")}</div>
       <div class="choices big"><button class="opt primary" data-ui="settings-close">Done</button></div>`;
     box.classList.add("open");
+  }
+
+  /** The deck asked for, by match (fetched once). */
+  private decklists = new Map<string, Promise<Decklist | null>>();
+
+  /** The deck you registered for this match (table menu → Show decklist), in the settings' panel,
+      with the cards' pictures as the sideboarding screen shows them; pointing at one shows it big. */
+  private async renderDecklist(): Promise<void> {
+    const matchId = this.state?.matchId;
+    if (!matchId) return;
+    const box = this.q(".settings");
+    box.dataset.panel = "decklist";
+    const done = '<div class="choices big"><button class="opt primary" data-ui="settings-close">Done</button></div>';
+    box.innerHTML = `<div class="phead"><h2>Your deck</h2><p>Loading…</p></div>${done}`;
+    box.classList.add("open");
+    let ask = this.decklists.get(matchId);
+    if (!ask) {
+      ask = this.hooks.decklist(matchId);
+      this.decklists.set(matchId, ask);
+      // A failed fetch is asked again next time.
+      void ask.then((d) => { if (!d) this.decklists.delete(matchId); });
+    }
+    const deck = await ask;
+    // Closed or moved on to another panel meanwhile.
+    if (!box.classList.contains("open") || box.dataset.panel !== "decklist") return;
+    if (!deck) {
+      box.innerHTML = `<div class="phead"><h2>Your deck</h2><p>Endstep didn't give the deck for this match.</p></div>${done}`;
+      return;
+    }
+    // As the sideboarding screen lays a deck out (only to look at): the main deck in columns by
+    // mana value, lands last; the sideboard (and a commander) in a column on the right.
+    const stacks = (cards: DeckCard[]): SideboardStack[] => cards.map((c) => {
+      const key = `deck:${c.name}`;
+      const card = { ...blankCard(key, c.name), setCode: c.setCode, collectorNumber: c.collectorNumber, manaCost: c.manaCost, typeLine: c.typeLine, oracleText: c.oracleText };
+      this.cardData.set(key, card);
+      return { name: c.name, card, indexes: Array.from({ length: c.count }, (_, i) => i) };
+    }).sort((a, b) => manaValue(a.card.manaCost) - manaValue(b.card.manaCost) || a.name.localeCompare(b.name));
+    const count = (list: SideboardStack[]) => list.reduce((n, st) => n + st.indexes.length, 0);
+    const pic = (st: SideboardStack, i: number) => {
+      const url = imageUrl(st.card, "large");
+      return `<div class="sb-card" data-zoom="${esc(st.card.id)}" style="--i: ${i}">
+        ${url ? `<img src="${esc(url)}" alt="${esc(st.name)}" draggable="false">` : `<span>${esc(st.name)}</span>`}
+        ${st.indexes.length > 1 ? `<b class="sb-qty">×${st.indexes.length}</b>` : ""}</div>`;
+    };
+    const main = stacks(deck.main);
+    // Without Endstep's card details (cost, type) the deck can't be sorted: one column.
+    const known = main.some((st) => st.card.manaCost || st.card.typeLine);
+    const columns = (known ? deckColumns(main) : [{ label: "Cards", stacks: main }]).map((col) => `<div class="sb-col">
+        <h4>${esc(col.label)} <span>${count(col.stacks)}</span></h4>
+        <div class="sb-stack">${col.stacks.map(pic).join("")}</div></div>`).join("");
+    const aside = (title: string, cards: DeckCard[]) => {
+      const list = stacks(cards);
+      return list.length ? `<section class="sb-zone spare"><h3>${esc(title)} <span>${count(list)}</span></h3>
+        <div class="sb-stack spare">${list.map(pic).join("")}</div></section>` : "";
+    };
+    box.innerHTML = `<div class="phead"><h2>Your deck</h2><p>As you registered it for this match.</p></div>
+      <div class="sb-board deck-view">
+        ${aside(deck.commanders.length > 1 ? "Commanders" : "Commander", deck.commanders)}
+        <section class="sb-zone main"><h3>Main deck <span>${count(main)}</span></h3><div class="sb-cols">${columns}</div></section>
+        ${aside("Sideboard", deck.sideboard)}
+      </div>${done}`;
   }
 
   private onPrefButton(btn: HTMLElement): void {
@@ -3119,18 +3184,6 @@ export class Board {
     const label = this.q(".turn-label");
     const labelHtml = `<b>Turn ${state.turnNumber ?? "–"}</b><span>${esc(stepLabel(step))}</span>`;
     if (label.innerHTML !== labelHtml) label.innerHTML = labelHtml;
-    // A best of three: which game, and the score from this side (yours first; the bottom player's).
-    const score = this.q(".match-score");
-    const ms = state.match;
-    const near = me ?? state.players[0];
-    const rival = state.players.find((pl) => pl.id !== near?.id);
-    const scoreText = ms && ms.gamesPerMatch > 1 ? `${ms.over ? "Match over" : `Game ${ms.game} of ${ms.gamesPerMatch}`} · ${near ? ms.wins[near.id] ?? 0 : 0}–${rival ? ms.wins[rival.id] ?? 0 : 0}` : "";
-    score.hidden = !scoreText;
-    if (score.textContent !== scoreText) {
-      score.textContent = scoreText;
-      score.title = scoreText ? `Best of ${ms!.gamesPerMatch}: ${state.players.map((pl) => `${pl.name} ${ms!.wins[pl.id] ?? 0}`).join(", ")}` : "";
-    }
-
     if (prev && this.prevActive !== state.activePlayerId && state.activePlayerId !== undefined) {
       // Watching someone else's game, every turn is named.
       const yours = myTurn && !state.spectating;
@@ -3326,7 +3379,11 @@ export class Board {
     const m = state.match;
     if (!m || m.gamesPerMatch <= 1) return "";
     const wins = { ...m.wins };
-    const counted = Object.values(wins).reduce((a, b) => a + b, 0) >= m.game;
+    // The games finished so far, this one included. A replay holds the whole match, and the
+    // score after a game already counts it (game 1 won: 1–0, game 2 next), so its log counts them.
+    const outcomes = state.replay ? (state.log ?? []).filter((e) => e.type === "GAME_OUTCOME").length : 0;
+    const finished = outcomes || m.game;
+    const counted = Object.values(wins).reduce((a, b) => a + b, 0) >= finished;
     if (winnerId !== undefined && !counted) wins[winnerId] = (wins[winnerId] ?? 0) + 1;
     const near = me ?? state.players[0];
     const rival = state.players.find((p) => p.id !== near?.id);
@@ -3334,7 +3391,7 @@ export class Board {
     const b = rival ? wins[rival.id] ?? 0 : 0;
     const need = winsNeeded(m);
     const decided = m.over || a >= need || b >= need;
-    if (!decided) return `Match ${a}–${b} · game ${m.game + 1} next`;
+    if (!decided) return `Match ${a}–${b} · game ${finished + 1} next`;
     if (state.spectating || state.replay || !me) {
       const leader = a > b ? near : rival;
       return `${leader?.name ?? "Someone"} wins the match ${Math.max(a, b)}–${Math.min(a, b)}`;
@@ -4545,11 +4602,20 @@ export class Board {
     if (sideSpan) side.style.setProperty("--cx", `${width - sideSpan / 2}px`);
     const oppHand = this.q(".opp-hand");
     const oppSpan = this.fan(oppHand, oppHand.clientWidth * 0.9, null);
-    // What they can play from outside their hand: just right of it (the hand's x is drawn at 0.55,
-    // the side's at 1.2, so its cards stand apart with their labels).
+    // What they can play from outside their hand: to one side, as yours is (turned around the
+    // table, so top left): between their name and their step track, clear of both. The side's
+    // x is drawn at 1.2, so its cards stand apart with their labels.
     const oppSide = this.q(".opp-side");
-    const sideW = this.fan(oppSide, oppHand.clientWidth * 0.3, null);
-    if (sideW) oppSide.style.setProperty("--cx", `${oppHand.clientWidth / 2 + (oppSpan || 0) * 0.55 / 2 + 36 + sideW * 1.2 / 2}px`);
+    const sideBox = oppSide.getBoundingClientRect();
+    const firstStep = this.q(".opp-bar").querySelector<HTMLElement>(".track-half.left > *")?.getBoundingClientRect();
+    const sideRight = (firstStep?.width ? firstStep.left : sideBox.left + oppHand.clientWidth / 2 - (oppSpan || 0) * 0.55 / 2) - 14;
+    const sideLeft = this.q(".opp-plate").getBoundingClientRect().right + 14;
+    const sideW = this.fan(oppSide, Math.max(0, (sideRight - sideLeft) / 1.2), null);
+    if (sideW) {
+      const cw = (oppSide.firstElementChild as HTMLElement).offsetWidth;
+      const drawn = cw + (sideW - cw) * 1.2;
+      oppSide.style.setProperty("--cx", `${sideRight - drawn / 2 - sideBox.left}px`);
+    }
     this.applyHandHover();
     this.placeManaWheel();
     this.layoutFans();
@@ -5061,7 +5127,7 @@ export class Board {
       // Hovering a permanent or a stack item shows it big beside it (unless a right-click zoom
       // is pinned or a card is being dragged).
       // (Revealed cards are small, on the right: they enlarge on hover too.)
-      const perm = t.closest<HTMLElement>(".side .card[data-id], .stack .card[data-id], .opp-hand .card.known[data-id], .reveal .rcard[data-zoom], .emblem[data-zoom]");
+      const perm = t.closest<HTMLElement>(".side .card[data-id], .stack .card[data-id], .opp-hand .card.known[data-id], .reveal .rcard[data-zoom], .emblem[data-zoom], .deck-view .sb-card[data-zoom]");
       const permId = perm?.dataset.id ?? perm?.dataset.zoom ?? null;
       if (permId === this.hoverPerm || this.zoomPinned || this.drag?.active) return;
       this.hoverPerm = permId;
@@ -5105,6 +5171,17 @@ export class Board {
     window.addEventListener("pointerup", (e) => this.onPointerUp(e));
     // A drag the browser cancels (e.g. the window loses focus) ends like a drop.
     window.addEventListener("pointercancel", (e) => this.onPointerUp(e));
+    // (Its key up and press as well, whichever Endstep listens to; see the keydown below.)
+    for (const type of ["keyup", "keypress"]) {
+      window.addEventListener(type, (e) => {
+        const k = e as KeyboardEvent;
+        if (typingIn(k) || (k.key !== " " && k.key !== "Enter") || !this.el.classList.contains("live")) return;
+        if (this.mode.kind === "attackers" || this.mode.kind === "blockers") {
+          k.preventDefault();
+          k.stopImmediatePropagation();
+        }
+      }, true);
+    }
     window.addEventListener("keydown", (e) => {
       // Typing (the chat, a card name): the keys are the text's.
       if (typingIn(e)) return;
@@ -5163,6 +5240,13 @@ export class Board {
           if (btn && !btn.disabled) this.divideButton(btn, false);
           return;
         }
+      }
+      // Declaring attackers or blockers: Endstep's own (hidden) combat prompt takes Space and Enter
+      // too, and would answer it behind the board's back with nothing chosen (no attackers).
+      if ((m.kind === "attackers" || m.kind === "blockers") && (e.key === " " || e.key === "Enter") && this.el.classList.contains("live")) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        return;
       }
       // ?: the list of this board's keyboard shortcuts.
       if (e.key === "?" && this.el.classList.contains("live") && !e.ctrlKey && !e.altKey && !e.metaKey && !(e.target as HTMLElement | null)?.closest?.("input, textarea, [contenteditable]")) {
@@ -6064,22 +6148,26 @@ export class Board {
   /** The items of the table menu, by index (their labels are Endstep's). */
   private tableItems: string[] = [];
 
-  /** Endstep's table menu (decklist, auto-yields, settings, reports, concede…), in this board's
-      style. Concede asks here; the rest opens Endstep's own window. */
+  /** The game menu, in this board's style: the board's own items, then Endstep's concede items
+      (Concede asks here first). */
   private async openTableMenu(x: number, y: number): Promise<void> {
     const labels = (await this.hooks.tableMenu()) ?? ["Reload", "Concede"];
     this.tableItems = labels;
-    const items: { label: string; hint?: string; data: string; cls?: string }[] = labels.map((label, i) => {
+    // Of Endstep's items, those the board does itself: the decklist, reloading, conceding. The
+    // others (auto-yields, settings, reports, macros) would open Endstep's own UI over the board,
+    // so they're left out until the board has its own; its keyboard shortcuts are in the board's.
+    const items: { label: string; hint?: string; data: string; cls?: string }[] = labels.flatMap((label) => {
       const concede = /^concede( game| match)?$/i.exec(label);
-      return concede
-        ? { label, data: `concede:${concede[1]?.trim().toLowerCase() ?? "single"}`, cls: "danger" }
-        : { label, data: `table:${i}` };
+      if (concede) return [{ label, data: `concede:${concede[1]?.trim().toLowerCase() ?? "single"}`, cls: "danger" }];
+      if (label === "Show decklist") return [{ label, data: "arena:decklist" }];
+      if (label === "Reload") return [{ label, data: "arena:reload" }];
+      return [];
     });
     // This board's own items come first.
     items.unshift(
       { label: this.prefs.logOpen ? "Hide game log" : "Game log", hint: "L", data: "arena:log" },
       { label: "Arena UI settings", data: "arena:settings" },
-      { label: "Arena UI shortcuts", hint: "?", data: "arena:shortcuts", cls: "sep-after" },
+      { label: "Arena UI shortcuts", hint: "?", data: "arena:shortcuts" },
     );
     // Conceding sits apart, at the bottom.
     const first = items.findIndex((i) => i.cls === "danger");
@@ -6135,6 +6223,8 @@ export class Board {
       if (id === "settings") this.renderSettings();
       if (id === "shortcuts") this.renderShortcuts();
       if (id === "log") this.setPref({ logOpen: !this.prefs.logOpen });
+      if (id === "decklist") void this.renderDecklist();
+      if (id === "reload") location.reload();
       return;
     }
     if (cmd === "pass") {

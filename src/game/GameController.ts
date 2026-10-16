@@ -25,6 +25,9 @@ const wireTarget = (key: string) => (key.startsWith("player:") ? -(Number(key.sl
 // Types Endstep never stamps with the prompt version (its `mS` helper).
 const UNVERSIONED = new Set(["SET_PHASE_STOPS", "SET_AUTO_YIELDS", "CHEAT", "CONCEDE", "CONCEDE_MATCH"]);
 
+/** How long a second combat declaration for the same prompt is held back (see firstDeclaration). */
+const DECLARE_AGAIN_MS = 3000;
+
 export class GameController {
   constructor(
     private readonly getState: () => GameState | null,
@@ -138,8 +141,23 @@ export class GameController {
     this.send({ type: "MULLIGAN_SPECIAL", stringValue: label });
   }
 
+  /** A combat declaration goes once per prompt: a second one for the same prompt version, right
+      after, is dropped (two at once, one with the attack and one with none, were seen in a real
+      match). Later on it goes, in case the first was lost. */
+  private firstDeclaration(type: "DECLARE_ATTACKERS" | "DECLARE_BLOCKERS"): boolean {
+    const state = this.getState();
+    const key = `${state?.matchId}|${type}|${state?.pending?.promptVersion}`;
+    const now = Date.now();
+    if (this.declared?.key === key && now - this.declared.at < DECLARE_AGAIN_MS) return false;
+    this.declared = { key, at: now };
+    return true;
+  }
+
+  private declared: { key: string; at: number } | null = null;
+
   /** attackerId → defender mode index; `withDefenders` when the prompt offered several defenders. */
   declareAttackers(assignments: Map<string, number>, withDefenders: boolean): void {
+    if (!this.firstDeclaration("DECLARE_ATTACKERS")) return;
     const attackers = [...assignments.keys()].map(wireId);
     if (!withDefenders) {
       this.send({ type: "DECLARE_ATTACKERS", attackers });
@@ -152,6 +170,7 @@ export class GameController {
 
   /** blockerId → attackerId. */
   declareBlockers(assignments: Map<string, string>): void {
+    if (!this.firstDeclaration("DECLARE_BLOCKERS")) return;
     const blockers: Record<string, string | number> = {};
     assignments.forEach((attacker, blocker) => (blockers[blocker] = wireId(attacker)));
     this.send({ type: "DECLARE_BLOCKERS", blockers });

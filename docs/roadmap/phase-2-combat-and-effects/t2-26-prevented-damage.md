@@ -2,10 +2,11 @@
 
 | | |
 | --- | --- |
-| Status | **Awaiting approval** |
+| Status | **Rejected** |
 | Phase | [Phase 2 · Combat and visual effects](README.md) |
 | Type | Feature |
 | Needs approval | Yes |
+| Rejected on | 2026-10-16 |
 
 When damage is prevented (Druid's Deliverance, a shield counter…) Endstep sends `EFFECT_REPLACED` ("Prevent all combat damage that would be dealt to you this turn."), seen on 2026-10-16.
 
@@ -24,3 +25,4 @@ Nothing shows: the blow seems to do nothing.
 ## History
 
 - 2026-10-16: added to the roadmap.
+- 2026-10-16: rejected.

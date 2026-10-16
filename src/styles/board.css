@@ -914,9 +914,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
   rotate: calc(var(--r, 0deg) * -1);
   transform-origin: 50% -20%;
 }
-/* What they can play from outside their hand (flashback, adventure, their commander…): right of
-   their hand, hanging like its cards, face up, with what lets them play it under each; hovering
-   one slides it down into view. */
+/* What they can play from outside their hand (flashback, adventure, their commander…): at the top
+   left, between their name and their step track (placed in layout()), hanging like their hand's
+   cards, face up, with what lets them play it under each; hovering one slides it down into view. */
 .opp-side { grid-row: 1; z-index: 3; }
 .opp-side:has(.card:hover) { z-index: 26; }
 .opp-side .card {
@@ -3169,8 +3169,6 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .plate .wins { display: inline-flex; gap: 3px; margin-left: 7px; vertical-align: 1px; }
 .plate .wins i { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--gold); }
 .plate .wins i.won { background: var(--gold-hi); box-shadow: 0 0 6px rgba(255, 214, 120, 0.8); }
-.match-score { padding: 2px 10px; border-radius: 999px; font: 700 12px/18px var(--font); color: var(--gold-hi); background: var(--glass); border: 1px solid var(--glass-line); white-space: nowrap; }
-.match-score[hidden] { display: none; }
 
 .banner {
   position: absolute;
@@ -3835,6 +3833,16 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   color: var(--gold-hi);
   text-align: center;
 }
+
+/* The shortcuts list, long with Endstep's keys, scrolls inside the panel. */
+.keys { max-height: calc(100% - 190px); overflow-y: auto; }
+
+/* Your deck (table menu → Show decklist), laid out as the sideboarding screen lays it out, only to
+   look at: pointing at a card shows it big. */
+.sb-board.deck-view { flex: 0 1 auto; width: min(1500px, calc(100% - 48px)); height: calc(100% - 210px); }
+.deck-view .sb-card { cursor: default; }
+/* The card pointed at shows over the panel. */
+.board:has(.settings.open[data-panel="decklist"]) .zoom { z-index: 97; }
 
 /* A destroy (Murder, Doom Blade): a dark bolt and a black-violet burst. An exile (Swords to
    Plowshares): a pale violet one. */

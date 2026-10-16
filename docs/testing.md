@@ -16,6 +16,8 @@ Useful parameters:
 - `?step=<ms>`: a scenario's follow-up states come that far apart instead of all at once.
 - `?point=x,y` / `?click=x,y`: moves the pointer or clicks once the board is up. The click runs
   before full-screen choices appear, so it can't drive them.
+- `?open=menu|decklist|shortcuts`: opens the table menu (in the middle of the board), the
+  decklist (a Burn deck) or the keyboard shortcuts; `?point=` points again once it's up.
 
 ### Scenarios added on 2026-10-07
 
@@ -74,7 +76,7 @@ Added on 2026-10-08:
 | `gang-blocked` | The same, blocks declared (six on the Dreadmaw): no arrows, the discs say who fights whom |
 | `trample` | The Dreadmaw blocked by two Soldiers slams into each, then into you with the 4 over |
 | `arc-lightning` | Arc Lightning as Endstep asks it: pick targets (one of a pile of three Swiftspears comes out of it) and confirm, the division shows on the table, Submit answers Endstep's number per target (logged as ACTIONs) |
-| `bo3` | Game 2 of a best of three, 1–0 up: a pip by each name per game won, "Game 2 of 3 · 1–0" by the turn |
+| `bo3` | Game 2 of a best of three, 1–0 up: a pip by each name per game won |
 | `bo3-won` | Game 2 won: Victory, "Match won 2–0" under it |
 | `replay-won` | A replay's last frame: "Opponent wins", "Match 1–1 · game 3 next", the replay's controls over it |
 | `strike-unseen` | No state showed the attack; the log names it: the strike plays |

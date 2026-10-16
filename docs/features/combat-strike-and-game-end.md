@@ -126,8 +126,8 @@ fight above.
   player1Wins, gameNumber, gamesPlayed, gamesPerMatch, isMatchOver }` (seen in best of one and best
   of three matches). `normalize.ts` reads it into `GameState.match` (`game`, `gamesPerMatch`,
   `wins` by player id, `over`). In a best of three the board shows a pip by each player's name for
-  each game won, out of the two needed, and "Game 2 of 3 · 1–0" by the turn (the bottom player's
-  wins first; "Match over · 2–0" once decided). A best of one shows nothing.
+  each game won, out of the two needed (no "Game 2 of 3 · 1–0" by the turn: the pips already say
+  it). A best of one shows nothing.
 - **Under the result**, in a best of three: "Match 1–0 · game 2 next", "Match won 2–0" or "Match
   lost 0–2" (a game just won that the score doesn't count yet is added).
 - **Replays.** A replay's last frame used to show no result. Now it shows who won ("Forge AI wins",

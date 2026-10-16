@@ -13,6 +13,12 @@ In a match on 2026-10-16 (09:19, match 16048950, in the dev bridge's recording) 
 
 Unknown which path sent the second one: a double click, the main button and a shortcut, or the "no attackers" choice.
 
+## What was done (not yet checked in a real match)
+
+- The recording of what was sent is gone, so the cause wasn't seen. Likeliest: Space or Enter, which Endstep's hidden combat prompt also takes, answering with nothing chosen.
+- While attackers or blockers are being chosen, Space and Enter (key down, up and press) are kept from Endstep's own UI.
+- `GameController` sends one attack (or block) declaration per prompt version; a second within 3 s is dropped. Test in `tests/adapter.test.ts`.
+
 ## What it involves
 
 - Find the cause in the recording and the board's attack paths, and send one answer per prompt.
@@ -24,3 +30,4 @@ Unknown which path sent the second one: a double click, the main button and a sh
 ## History
 
 - 2026-10-16: added to the roadmap.
+- 2026-10-16: two guards added; to be checked in a real match.

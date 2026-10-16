@@ -6,6 +6,7 @@ import { EndstepAdapter, matchIdFromPath } from "../src/game/endstep/EndstepAdap
 import { imageUrl } from "../src/ui/board/cards";
 import { GameController } from "../src/game/GameController";
 import { ALLOWED_ACTIONS } from "../src/shared/protocol";
+import { parseCardDetails, parseDecklist } from "../src/game/endstep/decklist";
 
 const player = (name: string, extra: Record<string, unknown> = {}) => ({
   displayName: name,
@@ -193,6 +194,48 @@ test("every action the UI can send is allowed through to Endstep", () => {
   c.orderAbilities(["1"], []); c.orderCombatants("ORDER_ATTACKERS", ["1"]); c.orderCombatants("ORDER_BLOCKERS", ["1"]);
   const blocked = [...new Set(sent.map((x) => x.type))].filter((t) => !ALLOWED_ACTIONS.has(t));
   assert.deepEqual(blocked, []);
+});
+
+test("a combat declaration goes once per prompt: a second one right after is dropped (t2-25)", () => {
+  const a = new EndstepAdapter();
+  a.setRoute("/game/m1");
+  a.handleFrame(fullState(10));
+  let s = a.getGameState()!;
+  const sent: { type: string; attackers?: unknown[]; promptVersion?: number }[] = [];
+  const c = new GameController(() => s, (_m, action) => sent.push(action));
+  c.declareAttackers(new Map([["8", 0]]), false);
+  c.declareAttackers(new Map(), false);
+  assert.deepEqual(sent.map((x) => x.attackers), [[8]]);
+  // The blocks are another question; and the next prompt is answered as usual.
+  c.declareBlockers(new Map([["1", "2"]]));
+  s = { ...s, pending: { ...s.pending!, promptVersion: (s.pending?.promptVersion ?? 0) + 1 } };
+  c.declareAttackers(new Map(), false);
+  assert.deepEqual(sent.map((x) => x.type), ["DECLARE_ATTACKERS", "DECLARE_BLOCKERS", "DECLARE_ATTACKERS"]);
+});
+
+test("the registered deck is read from Endstep's match info, a stack per card with its count", () => {
+  const deck = parseDecklist({
+    myDeck: ["Mountain", "Lightning Bolt", "Mountain", "Goblin Guide", "Lightning Bolt", 7, ""],
+    mySideboard: ["Path to Exile"],
+    myCommanders: [],
+    myDeckArt: { "lightning bolt": { setCode: "2xm", collectorNumber: "141" } },
+  });
+  assert.deepEqual(deck, {
+    main: [
+      { name: "Goblin Guide", count: 1, setCode: undefined, collectorNumber: undefined },
+      { name: "Lightning Bolt", count: 2, setCode: "2xm", collectorNumber: "141" },
+      { name: "Mountain", count: 2, setCode: undefined, collectorNumber: undefined },
+    ],
+    sideboard: [{ name: "Path to Exile", count: 1, setCode: undefined, collectorNumber: undefined }],
+    commanders: [],
+  });
+  // With Endstep's card batch, each card's cost and type, to lay the deck out by mana value.
+  const details = parseCardDetails({ cards: [{ name: "Lightning Bolt", card: { name: "Lightning Bolt", manaCost: "{R}", typeLine: "Instant", cmc: 1 } }, null, { card: {} }] });
+  assert.deepEqual(details, { "lightning bolt": { manaCost: "{R}", typeLine: "Instant", oracleText: undefined } });
+  assert.equal(parseDecklist({ myDeck: ["Lightning Bolt"] }, details)?.main[0]?.manaCost, "{R}");
+  // Spectating, or no deck: nothing to show.
+  assert.equal(parseDecklist({ myDeck: undefined }), null);
+  assert.equal(parseDecklist(null), null);
 });
 
 test("a disconnected player carries the deadline, moved to the local clock, until they return", () => {

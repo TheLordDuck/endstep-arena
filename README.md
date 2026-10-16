@@ -46,7 +46,7 @@ reload icon on the extension card and refresh the endstep.cc tab.
 | Drag a card from the small hand on the right | Play it from the graveyard / exile / command zone (flashback, escape…) |
 | Click a glowing permanent | Activate it (a menu appears if it has several abilities) |
 | **Undo** (above the big button) | Take back the last action, when Endstep allows it |
-| Right-click empty table | Game menu: Endstep's own items (decklist, auto-yields, settings, reports, reload…) open Endstep's window while the board steps aside; **Concede** asks to confirm first |
+| Right-click empty table | Game menu: the game log, this board's settings and shortcuts (Endstep's keys included), your registered decklist, Reload, and **Concede** (it asks to confirm first). Endstep's auto-yields, settings, reports and macros are left out for now: they opened Endstep's own UI |
 | Right-click a card | Full card (all its text) in the left column, plus a menu when there is something to do with it |
 | Enlarge a card that makes tokens (hover or right-click) | A *Creates Token* box beside it shows the token(s), as in Arena. Endstep doesn't send them, so the card's name is looked up on [Scryfall](https://scryfall.com/docs/api) (once per card, only for cards whose text creates tokens) |
 | Click a step on the turn tracks (center) | Toggle whether the game stops there; a gold dot = stop. All steps stop by default |

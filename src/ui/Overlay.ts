@@ -17,6 +17,7 @@ import { Board } from "./board/Board";
 import { StatePacer } from "./StatePacer";
 import type { GameState } from "../game/GameState";
 import { endstepWindowOpen, readBoardMenu, runBoardMenuItem } from "../game/endstep/boardMenu";
+import { fetchDecklist } from "../game/endstep/decklist";
 import { COMMAND_TAG, type DamageSoundCommand } from "../shared/protocol";
 
 export type SocketStatus = "none" | "open" | "closed";
@@ -152,6 +153,7 @@ export class Overlay {
       setTemporaryStops: (extra) => this.stops.setTemporary(extra),
       tableMenu: () => readBoardMenu(),
       runTableItem: (label) => this.runTableItem(label),
+      decklist: (matchId) => fetchDecklist(matchId),
       replay: (cmd) => this.replays.command(cmd),
       leaveReplay: () => {
         // Endstep's own way out of the replay (back to where it was opened from).
