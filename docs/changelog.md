@@ -1,5 +1,17 @@
 # Changelog
 
+## Session of 2026-10-16
+
+Docs only.
+
+1. **Roadmap docs in sync with the tracker** (they were as of 2026-10-14). Fourteen features done
+   since then now have their cards written (what was done, commit, how it was checked): t2-14,
+   t2-21, t3-5, t3-6, t3-7, t3-10 to t3-13, t3-15 to t3-17, t4-6 and t5-3. t3-9, t3-14 and t4-7,
+   rejected on 2026-10-14, are marked so.
+2. **The Commander features rejected for good:** t2-6 (commander damage) and t5-2 (3- and
+   4-player tables) go back to Phases 2 and 5 as rejected, and Phase 6 · Maybe later is gone.
+3. Left open: t0-3, t1-6 and t2-13, all waiting on a real match.
+
 ## Release 0.7.0 (2026-10-14)
 
 On top of `10a40e8`. All 151 tests pass; no visual change in the 94 harness scenarios

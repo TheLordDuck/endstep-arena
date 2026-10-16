@@ -5,7 +5,7 @@ What's left for the extension to feel like MTG Arena, in phases. Each phase is a
 
 **Where decisions are made:** the tracker page https://claude.ai/artifact/43uFfdsXsZiFrf2YzYu4T9 (private to its owner). Features are
 approved, rejected and marked done there. These files mirror its state as of
-**2026-10-14** and are regenerated from it, not edited by hand.
+**2026-10-16** and are regenerated from it, not edited by hand.
 
 ## Statuses
 
@@ -19,23 +19,24 @@ approved, rejected and marked done there. These files mirror its state as of
 
 ## Summary
 
-Awaiting approval: 15 · Approved: 0 · To do: 7 · Done: 46 · Rejected: 1
+Awaiting approval: 0 · Approved: 0 · To do: 3 · Done: 60 · Rejected: 6
 
 **Approved:** none right now.
 
+**Still open:** t0-3 (to do), t1-6 (to do), t2-13 (to do).
+
 ## Phases
 
-A phase is **Done** when every feature in it (rejected ones aside) is done, and **In progress** once one is. Phase 6 holds what is **Not planned** for now.
+A phase is **Done** when every feature in it (rejected ones aside) is done, and **In progress** once one is.
 
 | Phase | Phase status | Done | Features by status |
 | --- | --- | --- | --- |
 | [Phase 0 · Finish open work](phase-0-finish-open-work/README.md) | **In progress** | 4/5 | To do: 1 · Done: 4 |
 | [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md) | **In progress** | 9/10 | To do: 1 · Done: 9 |
-| [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **In progress** | 20/23 | Awaiting approval: 1 · To do: 2 · Done: 20 |
-| [Phase 3 · Game information](phase-3-game-information/README.md) | **In progress** | 6/18 | Awaiting approval: 11 · To do: 1 · Done: 6 |
-| [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md) | **In progress** | 5/7 | Awaiting approval: 2 · Done: 5 |
-| [Phase 5 · Modes and platform](phase-5-modes-and-platform/README.md) | **In progress** | 2/3 | To do: 1 · Done: 2 · Rejected: 1 |
-| [Phase 6 · Maybe later](phase-6-maybe-later/README.md) | **Not planned** | 0/2 | Awaiting approval: 1 · To do: 1 |
+| [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **In progress** | 22/23 | To do: 1 · Done: 22 · Rejected: 1 |
+| [Phase 3 · Game information](phase-3-game-information/README.md) | **Done** | 16/16 | Done: 16 · Rejected: 2 |
+| [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md) | **Done** | 6/6 | Done: 6 · Rejected: 1 |
+| [Phase 5 · Modes and platform](phase-5-modes-and-platform/README.md) | **Done** | 3/3 | Done: 3 · Rejected: 2 |
 
 ## Progress by phase
 
@@ -60,13 +61,14 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t1-9 · [Discarding from your hand, without a fan](phase-1-prompts-still-in-endstep/t1-9-discard-in-hand.md) — Done
 - [x] t1-10 · [Proliferate on the table](phase-1-prompts-still-in-endstep/t1-10-proliferate.md) — Done
 
-### [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md): In progress (20/23)
+### [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md): In progress (22/23)
 
 - [x] t2-1 · [Spells travel when they resolve](phase-2-combat-and-effects/t2-1-spells-travel-on-resolve.md) — Done
 - [x] t2-2 · [Projectile to the target](phase-2-combat-and-effects/t2-2-projectile-to-target.md) — Done
 - [x] t2-3 · [Smoke outside combat too](phase-2-combat-and-effects/t2-3-smoke-outside-combat.md) — Done
 - [x] t2-4 · [Token entrance](phase-2-combat-and-effects/t2-4-token-entrance.md) — Done
 - [x] t2-5 · [Animate counters and power/toughness](phase-2-combat-and-effects/t2-5-animate-counters.md) — Done
+- [ ] t2-6 · [Commander damage on the player's picture](phase-2-combat-and-effects/t2-6-commander-damage.md) — Rejected
 - [x] t2-7 · [Piles of four identical cards](phase-2-combat-and-effects/t2-7-piles-of-four.md) — Done
 - [x] t2-8 · [Toughness minus damage, in red](phase-2-combat-and-effects/t2-8-damaged-toughness.md) — Done
 - [x] t2-9 · [Exiling a permanent](phase-2-combat-and-effects/t2-9-exile-animation.md) — Done
@@ -74,57 +76,53 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t2-11 · [Animation pace (against bots)](phase-2-combat-and-effects/t2-11-animation-pace.md) — Done
 - [x] t2-12 · [Combat driven by Endstep's events](phase-2-combat-and-effects/t2-12-combat-from-events.md) — Done
 - [ ] t2-13 · [Check combat when the bot attacks](phase-2-combat-and-effects/t2-13-check-bot-attacks.md) — To do
-- [ ] t2-14 · [Look at the whole stack in a fan (magnifier)](phase-2-combat-and-effects/t2-14-stack-fan.md) — To do
+- [x] t2-14 · [Look at the whole stack in a fan (magnifier)](phase-2-combat-and-effects/t2-14-stack-fan.md) — Done
 - [x] t2-15 · [Icons for printed keywords on permanents](phase-2-combat-and-effects/t2-15-printed-keyword-icons.md) — Done
 - [x] t2-16 · [One pile per group of identical cards, with a count (×18)](phase-2-combat-and-effects/t2-16-one-pile-per-group.md) — Done
 - [x] t2-17 · [Permanents in Arena's cropped frame](phase-2-combat-and-effects/t2-17-arena-cropped-frames.md) — Done
 - [x] t2-18 · [The timer's rope across the table](phase-2-combat-and-effects/t2-18-timer-rope.md) — Done
 - [x] t2-19 · [Loyalty cost on the stack, and impossible abilities in grey](phase-2-combat-and-effects/t2-19-loyalty-costs.md) — Done
 - [x] t2-20 · [Modal spells on the stack, the modes not chosen in grey](phase-2-combat-and-effects/t2-20-modal-spells-on-stack.md) — Done
-- [ ] t2-21 · [Orbs when gaining life](phase-2-combat-and-effects/t2-21-life-gain-orbs.md) — Awaiting approval
+- [x] t2-21 · [Orbs when gaining life](phase-2-combat-and-effects/t2-21-life-gain-orbs.md) — Done
 - [x] t2-22 · [Target arrows as in Arena](phase-2-combat-and-effects/t2-22-arena-target-arrows.md) — Done
 - [x] t2-23 · [Abilities on the stack in Arena's ability frame](phase-2-combat-and-effects/t2-23-ability-frame-on-stack.md) — Done
 - [x] t2-24 · [An illustrated table](phase-2-combat-and-effects/t2-24-illustrated-table.md) — Done
 
-### [Phase 3 · Game information](phase-3-game-information/README.md): In progress (6/18)
+### [Phase 3 · Game information](phase-3-game-information/README.md): Done (16/16)
 
 - [x] t3-1 · [Game log](phase-3-game-information/t3-1-game-log.md) — Done
 - [x] t3-2 · [Game and turn clocks](phase-3-game-information/t3-2-game-clocks.md) — Done
 - [x] t3-3 · [Keyword glossary](phase-3-game-information/t3-3-keyword-glossary.md) — Done
 - [x] t3-4 · [Who has priority and what we're waiting for](phase-3-game-information/t3-4-priority-and-waiting.md) — Done
-- [ ] t3-5 · [Cards the opponent can cast from the graveyard or exile](phase-3-game-information/t3-5-opponent-off-hand-playables.md) — To do
-- [ ] t3-6 · [Maximum hand size warning](phase-3-game-information/t3-6-max-hand-size-warning.md) — Awaiting approval
-- [ ] t3-7 · [The opponent's mulligan status](phase-3-game-information/t3-7-opponent-mulligan-status.md) — Awaiting approval
+- [x] t3-5 · [Cards the opponent can cast from the graveyard or exile](phase-3-game-information/t3-5-opponent-off-hand-playables.md) — Done
+- [x] t3-6 · [Maximum hand size warning](phase-3-game-information/t3-6-max-hand-size-warning.md) — Done
+- [x] t3-7 · [The opponent's mulligan status](phase-3-game-information/t3-7-opponent-mulligan-status.md) — Done
 - [x] t3-8 · [The token a card creates, when enlarging it](phase-3-game-information/t3-8-creates-token.md) — Done
-- [ ] t3-9 · [Compact phase indicator above the button](phase-3-game-information/t3-9-compact-phase-indicator.md) — Awaiting approval
-- [ ] t3-10 · [Each player's zone counts](phase-3-game-information/t3-10-zone-counts.md) — Awaiting approval
-- [ ] t3-11 · [Explain counters in the hover boxes](phase-3-game-information/t3-11-counters-in-hover-boxes.md) — Awaiting approval
-- [ ] t3-12 · [The card's state in the hover boxes](phase-3-game-information/t3-12-card-state-in-hover-boxes.md) — Awaiting approval
-- [ ] t3-13 · [Player counters Endstep sends that we don't show](phase-3-game-information/t3-13-player-counters.md) — Awaiting approval
-- [ ] t3-14 · [The opponent's emotes in a bubble](phase-3-game-information/t3-14-opponent-emotes.md) — Awaiting approval
-- [ ] t3-15 · [What a mulligan costs, under the button](phase-3-game-information/t3-15-mulligan-cost.md) — Awaiting approval
-- [ ] t3-16 · [The player's portrait and life as in Arena](phase-3-game-information/t3-16-arena-player-portrait.md) — Awaiting approval
-- [ ] t3-17 · [Library and graveyard without labels, by the portrait](phase-3-game-information/t3-17-piles-without-labels.md) — Awaiting approval
+- [ ] t3-9 · [Compact phase indicator above the button](phase-3-game-information/t3-9-compact-phase-indicator.md) — Rejected
+- [x] t3-10 · [Each player's zone counts](phase-3-game-information/t3-10-zone-counts.md) — Done
+- [x] t3-11 · [Explain counters in the hover boxes](phase-3-game-information/t3-11-counters-in-hover-boxes.md) — Done
+- [x] t3-12 · [The card's state in the hover boxes](phase-3-game-information/t3-12-card-state-in-hover-boxes.md) — Done
+- [x] t3-13 · [Player counters Endstep sends that we don't show](phase-3-game-information/t3-13-player-counters.md) — Done
+- [ ] t3-14 · [The opponent's emotes in a bubble](phase-3-game-information/t3-14-opponent-emotes.md) — Rejected
+- [x] t3-15 · [What a mulligan costs, under the button](phase-3-game-information/t3-15-mulligan-cost.md) — Done
+- [x] t3-16 · [The player's portrait and life as in Arena](phase-3-game-information/t3-16-arena-player-portrait.md) — Done
+- [x] t3-17 · [Library and graveyard without labels, by the portrait](phase-3-game-information/t3-17-piles-without-labels.md) — Done
 - [x] t3-18 · [The match chat on the board](phase-3-game-information/t3-18-match-chat.md) — Done
 
-### [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md): In progress (5/7)
+### [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md): Done (6/6)
 
 - [x] t4-1 · [Keyboard shortcuts panel](phase-4-comfort-and-settings/t4-1-shortcuts-panel.md) — Done
 - [x] t4-2 · [Extension settings](phase-4-comfort-and-settings/t4-2-extension-settings.md) — Done
 - [x] t4-3 · [Sounds](phase-4-comfort-and-settings/t4-3-sounds.md) — Done
 - [x] t4-4 · [Pass until…](phase-4-comfort-and-settings/t4-4-pass-until.md) — Done
 - [x] t4-5 · [The buttons on the right in Arena's order, colors and words](phase-4-comfort-and-settings/t4-5-arena-dock-buttons.md) — Done
-- [ ] t4-6 · [Pass until my turn during the opponent's](phase-4-comfort-and-settings/t4-6-pass-to-my-turn.md) — Awaiting approval
-- [ ] t4-7 · [The hand in a curved fan](phase-4-comfort-and-settings/t4-7-curved-hand-fan.md) — Awaiting approval
+- [x] t4-6 · [Pass until my turn during the opponent's](phase-4-comfort-and-settings/t4-6-pass-to-my-turn.md) — Done
+- [ ] t4-7 · [The hand in a curved fan](phase-4-comfort-and-settings/t4-7-curved-hand-fan.md) — Rejected
 
-### [Phase 5 · Modes and platform](phase-5-modes-and-platform/README.md): In progress (2/3)
+### [Phase 5 · Modes and platform](phase-5-modes-and-platform/README.md): Done (3/3)
 
 - [x] t5-1 · [Spectating with the Arena board](phase-5-modes-and-platform/t5-1-spectating.md) — Done
-- [ ] t5-3 · [Visual regression tests](phase-5-modes-and-platform/t5-3-visual-regression-tests.md) — To do
+- [ ] t5-2 · [Tables for 3 and 4 players](phase-5-modes-and-platform/t5-2-multiplayer-tables.md) — Rejected
+- [x] t5-3 · [Visual regression tests](phase-5-modes-and-platform/t5-3-visual-regression-tests.md) — Done
 - [x] t5-4 · [Real matches as tests](phase-5-modes-and-platform/t5-4-real-matches-as-tests.md) — Done
 - [ ] t5-5 · [Publish to the Chrome Web Store and Edge Add-ons](phase-5-modes-and-platform/t5-5-publish-to-stores.md) — Rejected
-
-### [Phase 6 · Maybe later](phase-6-maybe-later/README.md): Not planned (0/2)
-
-- [ ] t2-6 · [Commander damage on the player's picture](phase-6-maybe-later/t2-6-commander-damage.md) — To do
-- [ ] t5-2 · [Tables for 3 and 4 players](phase-6-maybe-later/t5-2-multiplayer-tables.md) — Awaiting approval
