@@ -84,3 +84,38 @@ Now the fight comes from Endstep's events (`src/game/combatEvents.ts`, roadmap
   state are worked out from the states, as before.
 
 Checked with harness `#match:bot-combats` (the recorded match): all five combats play, 14 blows.
+
+## Change of 2026-10-16: who blocks whom, and trample
+
+From a real match where the bot attacked (`tests/fixtures/bot-attacks`, roadmap
+[t2-13](../roadmap/phase-2-combat-and-effects/t2-13-check-bot-attacks.md)): with eight Soldier
+tokens blocking three attackers, the blue block arrows all ended on the attackers' centres and
+crossed each other, and once the blocks were declared they went away, leaving no way to tell who
+fought whom.
+
+- **Block groups** (`blockGroups()` / `blockMarks()` in `Board.ts`). Each blocked attacker gets a
+  color and a number, left to right as they sit on the table; it and each of its blockers carry a
+  disc of that color with the number, on their top right corner (a pile's count is on the left),
+  one per pile of identical cards. The discs stay until combat ends; the arrows, while blocks are
+  chosen or not yet declared. A blocker's arrow, in its group's color, rises from its near edge to
+  a point of the attacker's near edge, the blockers' points spread over it left to right so that
+  they don't cross. Pointing at a fighter dims the other groups. While you choose blockers the
+  attack arrows step back (30 %).
+- **Trample.** A blocked attacker that deals damage past its blockers slams into each of them and
+  then on into who it attacks (the player's picture, or the planeswalker), which loses that much
+  then. The amount is what the events say it dealt there; without events, for a creature with
+  trample, its power beyond what's lethal to its blockers (`trampleExcess()` in
+  `src/game/combatEvents.ts`), when that player's life did go down.
+- **A fight without `ATTACKERS_DECLARED`** (`toldFight()`): the attackers the states show, with the
+  blocks and blows of the events that did come, from `BLOCKERS_DECLARED` on.
+
+Harness: `gang-block` (choose blockers for the bot's Dreadmaw and two Elves with eight Soldiers),
+`gang-blocked` (the same, declared) and `trample` (the Dreadmaw through two Soldiers into you, 4
+over). Tests: `tests/botAttacks.test.ts`, on that match and on a second one (`bot-trample`): the
+Dreadmaw blocked by four Soldiers (2 over), two (4 over) and six (nothing over). Endstep sends the
+blow at the player before those at the blockers; the board slams into the blockers first all the same.
+
+Both recordings have turns with no events (9 to 13, and 4 to 11): Endstep leaves out the events of
+the turns that pass while its tab is hidden, and sends just the state (an `ATTACH` holding a
+`GAME_STATE`) when it comes back. A combat right after that has no `ATTACKERS_DECLARED`, hence the
+fight above.

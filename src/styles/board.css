@@ -2498,6 +2498,17 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .arrow.atk { stroke: var(--atk); }
 .arrow.blk { stroke: var(--blk); }
 .arrow.pending { stroke-dasharray: 10 8; animation: dash 0.8s linear infinite; }
+/* Blocks: each blocked attacker and its blockers in one color, with the group's number in a disc
+   on each (see blockMarks). Pointing at one of them dims the other groups. */
+.arrow.blk.grouped { stroke-width: 4; filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.9)) drop-shadow(0 0 6px rgba(0, 0, 0, 0.5)); }
+.blk-disc circle { stroke: #14100c; stroke-width: 2.5; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.8)); }
+.blk-disc text { fill: #14100c; font: 800 13px/1 var(--font); text-anchor: middle; }
+.blk-disc.att text { font-size: 15px; }
+.arrows.focusing [data-g]:not(.focus) { opacity: 0.15; }
+.arrows.focusing .arrow.focus { stroke-width: 5; }
+.arrows [data-g] { transition: opacity 0.15s ease; }
+/* While you choose blockers the attack arrows step back: the blocks are what's being drawn. */
+.board.declaring-blocks .arrow.atk { opacity: 0.3; }
 /* An attacker being aimed: its arrow follows the pointer, and goes solid over a player or
    planeswalker it can attack. */
 .arrow.aim { opacity: 0.75; stroke-dasharray: 10 8; }

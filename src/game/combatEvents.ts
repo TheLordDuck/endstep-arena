@@ -5,7 +5,7 @@
 // blocks whom (BLOCKERS_DECLARED) and each blow (CARD_DAMAGED / PLAYER_DAMAGED, after the
 // TURN_PHASE of their damage step). The blows of a step may come just after its state, though.
 
-import type { CombatLink, LogEntry, LogFight } from "./GameState";
+import type { CardView, CombatLink, LogEntry, LogFight } from "./GameState";
 
 export type Blow = NonNullable<LogFight["blow"]> & { seq: number };
 
@@ -34,7 +34,7 @@ export function turnLog(log: LogEntry[], began: number): LogEntry[] {
  */
 export function toldFight(turn: LogEntry[], seatOf: (cardId: string) => number | undefined, seats: number, known: CombatLink[] = []): ToldFight | null {
   const declared = turn.filter((e) => e.type === "ATTACKERS_DECLARED" && e.fight?.attackers?.length).at(-1);
-  if (!declared) return null;
+  if (!declared) return knownFight(turn, known);
   const after = turn.filter((e) => e.seq > declared.seq);
   const hits = after.flatMap((e) => (e.fight?.blow ? [e.fight.blow] : []));
   const attacks: CombatLink[] = [];
@@ -56,6 +56,22 @@ export function toldFight(turn: LogEntry[], seatOf: (cardId: string) => number |
   };
 }
 
+/** A fight whose ATTACKERS_DECLARED never came (Endstep leaves out the events of the turns that
+    pass while its tab is hidden, and sends just the state when it comes back): the attackers the
+    states show, and the blocks and blows of the events that did come, from BLOCKERS_DECLARED on. */
+function knownFight(turn: LogEntry[], known: CombatLink[]): ToldFight | null {
+  const blockers = turn.filter((e) => e.type === "BLOCKERS_DECLARED").at(-1);
+  if (!known.length || !blockers) return null;
+  const attacking = new Set(known.map((a) => a.fromId));
+  const ended = turn.find((e) => e.type === "COMBAT_ENDED" && e.seq > blockers.seq);
+  return {
+    since: blockers.seq,
+    attacks: known,
+    blocks: (blockers.fight?.blocks ?? []).filter((b) => attacking.has(b.toId)),
+    ...(ended ? { endedAt: ended.seq } : {}),
+  };
+}
+
 /** The blows of a fight's combat damage in the log: damage from a creature in it, after `since`
     and before the combat ends (or the next one, or the next turn, begins). With `step`, only that
     damage step's (a blow whose step isn't known counts as regular). */
@@ -71,4 +87,17 @@ export function blowsOf(log: LogEntry[], since: number, fight: { attacks: Combat
     blows.push({ ...b, seq: e.seq });
   }
   return blows;
+}
+
+/** The creature has trample: a keyword line of its text ("Flying, trample"), or given by an effect. */
+export function hasTrample(c: CardView): boolean {
+  return /^(?:[\w' -]+,\s*)*trample\b/im.test([c.oracleText ?? "", ...(c.keywordsGranted ?? [])].join("\n"));
+}
+
+/** What a trampler deals past its blockers when the events don't say: its power beyond the damage
+    that's lethal to each of them (their toughness less the damage they already have). */
+export function trampleExcess(attacker: CardView, blockers: CardView[]): number {
+  if (!hasTrample(attacker)) return 0;
+  const lethal = blockers.reduce((n, b) => n + Math.max(0, (Number(b.toughness) || 0) - (b.damage ?? 0)), 0);
+  return Math.max(0, (Number(attacker.power) || 0) - lethal);
 }

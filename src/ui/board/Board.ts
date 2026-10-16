@@ -29,7 +29,7 @@ import { loadScene } from "./scene/loadScene";
 import { deckLand } from "./tableArt";
 import { Sounds, type Sfx } from "./sounds";
 import { damageDealt } from "../../game/spellDamage";
-import { blowsOf, toldFight, turnLog, type ToldFight } from "../../game/combatEvents";
+import { blowsOf, toldFight, trampleExcess, turnLog, type ToldFight } from "../../game/combatEvents";
 import { waitingFor, type Waiting } from "../../game/waiting";
 import { PASS_TARGETS, passLabel, passUntilStep, passUntilStops, startPassUntil, type PassTarget, type PassUntil } from "../../game/passUntil";
 
@@ -174,6 +174,9 @@ export class Board {
   /** Stack card element id → its stack item (for source/target arrows). */
   private stackEls = new Map<string, StackItemView>();
   private hoverStack: string | null = null;
+  /** Each fighter's block group number (see blockGroups), and the one pointed at. */
+  private blockGroupOf = new Map<string, number>();
+  private hoverBlock: string | null = null;
   /** The result screen is set aside to look at the battlefield. */
   private endPeek = false;
   /** The game's result waits until then (ms, Date.now()), for the fight that ended it. */
@@ -1603,25 +1606,52 @@ export class Board {
 
     // Each run: a striker and what it slams into, one after another. Usually the attacker; a
     // blocker runs at the attacker only when it strikes and the attacker doesn't (first strike).
-    type Target = { el: HTMLElement; id: string | null; key: string };
+    // `amount`: the life a blow at a player takes, when known (trample's excess).
+    type Target = { el: HTMLElement; id: string | null; key: string; amount?: number };
     const runs: { from: HTMLElement; id: string; targets: Target[]; hurtBy: number }[] = [];
+    // What an attacker goes at past its blockers: the defending player (their picture) or
+    // planeswalker. A player is "player:<seat>" (never a card's id); a planeswalker or battle, its card id.
+    const defender = (a: CombatLink): Target | undefined => {
+      const seat = a.toId.startsWith("player:") ? Number(a.toId.slice(7)) : undefined;
+      const playerId = seat === undefined ? undefined : prev.players[seat]?.id ?? String(seat);
+      const card = playerId === undefined ? fighter(a.toId) : undefined;
+      const orb = playerId === undefined ? null : this.el.querySelector<HTMLElement>(`.life-orb[data-player="${CSS.escape(playerId)}"]`);
+      const target = card ?? orb?.querySelector<HTMLElement>(".avatar") ?? orb ?? undefined;
+      return target ? { el: target, id: card ? a.toId : null, key: card ? a.toId : playerId! } : undefined;
+    };
+    // The damage a blocked attacker deals past its blockers (trample): what the events say it dealt
+    // to who it attacks; else, for a trampler, its power beyond what its blockers could take.
+    const trampledOver = (a: CombatLink, target: Target, blockers: string[]) => {
+      const dealt = told(target.key, a.fromId);
+      if (dealt) return dealt;
+      const c = before.get(a.fromId);
+      // A player's life must have gone down, a planeswalker or battle taken damage.
+      if (!c || (target.id ? !taken(target.id) : !lifeLeft.has(target.key))) return 0;
+      return trampleExcess(c, blockers.map((b) => before.get(b)).filter((b): b is CardView => !!b));
+    };
+    const lifeLeft = new Map<string, number>();
+    for (const p of state.players) {
+      const was = prev.players.find((q) => q.id === p.id)?.life;
+      if (was !== undefined && p.life !== undefined && was > p.life) lifeLeft.set(p.id, was - p.life);
+    }
     for (const a of prev.combat.attacks) {
       const el = fighter(a.fromId);
       if (!el) continue;
       const blockers = (blockersOf.get(a.fromId) ?? []).filter((b) => fighter(b));
       const hitBack = blockers.filter(strikes);
       if (blockers.length) {
-        if (strikes(a.fromId)) runs.push({ from: el, id: a.fromId, targets: blockers.map((b) => ({ el: fighter(b)!, id: b, key: b })), hurtBy: hitBack.length });
-        else for (const b of hitBack) runs.push({ from: fighter(b)!, id: b, targets: [{ el, id: a.fromId, key: a.fromId }], hurtBy: 0 });
+        if (strikes(a.fromId)) {
+          const targets: Target[] = blockers.map((b) => ({ el: fighter(b)!, id: b, key: b }));
+          // Trample: through its blockers, then on into who it attacks.
+          const past = defender(a);
+          const over = past ? trampledOver(a, past, blockers) : 0;
+          if (past && over > 0) targets.push({ ...past, amount: over });
+          runs.push({ from: el, id: a.fromId, targets, hurtBy: hitBack.length });
+        } else for (const b of hitBack) runs.push({ from: fighter(b)!, id: b, targets: [{ el, id: a.fromId, key: a.fromId }], hurtBy: 0 });
       } else if (strikes(a.fromId)) {
-        // Unblocked: straight at the defending player (their picture) or planeswalker.
-        // A player is "player:<seat>" (never a card's id); a planeswalker or battle, its card id.
-        const seat = a.toId.startsWith("player:") ? Number(a.toId.slice(7)) : undefined;
-        const playerId = seat === undefined ? undefined : prev.players[seat]?.id ?? String(seat);
-        const card = playerId === undefined ? fighter(a.toId) : undefined;
-        const orb = playerId === undefined ? null : this.el.querySelector<HTMLElement>(`.life-orb[data-player="${CSS.escape(playerId)}"]`);
-        const target = card ?? orb?.querySelector<HTMLElement>(".avatar") ?? orb ?? undefined;
-        if (target) runs.push({ from: el, id: a.fromId, targets: [{ el: target, id: card ? a.toId : null, key: card ? a.toId : playerId! }], hurtBy: 0 });
+        // Unblocked: straight at the defending player or planeswalker.
+        const target = defender(a);
+        if (target) runs.push({ from: el, id: a.fromId, targets: [target], hurtBy: 0 });
       }
     }
 
@@ -1644,17 +1674,12 @@ export class Board {
     const blowAt = (i: number, k: number) => START + starts[i]! + LIFT + k * (SLAM + HOLD) + SLAM;
     // A player hit by several attackers loses the life a blow at a time (each what the events say
     // it dealt, else its attacker's power; the last blow what's left), not all of it at the first.
-    const lifeLeft = new Map<string, number>();
-    for (const p of state.players) {
-      const was = prev.players.find((q) => q.id === p.id)?.life;
-      if (was !== undefined && p.life !== undefined && was > p.life) lifeLeft.set(p.id, was - p.life);
-    }
     const lifeShare = new Map<Target, number>();
     const lastBlow = new Map<string, Target>();
     for (const run of runs) for (const tg of run.targets) {
       const left = lifeLeft.get(tg.key);
       if (tg.id || left === undefined) continue;
-      const share = Math.min(left, told(tg.key, run.id) || Math.max(0, Number(before.get(run.id)?.power) || 0));
+      const share = Math.min(left, tg.amount ?? (told(tg.key, run.id) || Math.max(0, Number(before.get(run.id)?.power) || 0)));
       lifeLeft.set(tg.key, left - share);
       lifeShare.set(tg, share);
       lastBlow.set(tg.key, tg);
@@ -2451,6 +2476,7 @@ export class Board {
     const attackingAssigned = mode.kind === "attackers" ? mode.assignments : null;
     const blockAssigned = mode.kind === "blockers" ? mode.assignments : null;
     this.el.classList.toggle("declaring-attacks", mode.kind === "attackers");
+    this.el.classList.toggle("declaring-blocks", mode.kind === "blockers");
     this.el.classList.toggle("aiming-attack", mode.kind === "attackers" && !!mode.aiming);
     this.el.classList.toggle("aiming-target", mode.kind === "targets");
     for (const [id, el] of this.cardEls) {
@@ -4608,12 +4634,13 @@ export class Board {
     // A defender is a card id, or "player:<seat>" (the key the arrows find a player by).
     // Only until the blocks are decided: from then on the chevrons and golden edges say who
     // fights whom, and the arrows across the table would only get in the way.
-    if (!blocksDecided(state)) {
-      for (const a of state.combat.attacks) links.push({ from: a.fromId, to: a.toId, kind: "atk" });
-      for (const b of state.combat.blocks) links.push({ from: b.fromId, to: b.toId, kind: "blk" });
-    }
+    const decided = blocksDecided(state);
+    if (!decided) for (const a of state.combat.attacks) links.push({ from: a.fromId, to: a.toId, kind: "atk" });
     const m = this.mode;
-    if (m.kind === "blockers") m.assignments.forEach((att, blk) => links.push({ from: blk, to: att, kind: "blk", pending: true }));
+    // Who blocks whom: each blocked attacker and its blockers share a color and a number (see
+    // blockGroups); their arrows fan out over the attacker's near edge.
+    const pairs = this.blockPairs(state);
+    const groups = this.blockGroups(pairs);
     if (m.kind === "attackers" && m.defenders) {
       m.assignments.forEach((def, att) => {
         const to = keyForDefender(m, def, state);
@@ -4669,6 +4696,7 @@ export class Board {
       const y = (1 - t) ** 2 * a.y + 2 * (1 - t) * t * c.y + t * t * b.y;
       return `${line}<g class="arrow-amt" transform="translate(${x.toFixed(1)},${y.toFixed(1)})"><circle r="13"/><text dy="0.35em">${l.amount}</text></g>`;
     }).join("");
+    html += this.blockMarks(pairs, groups, origin, decided);
     // A spell's damage divided on the table: the spell points at each target given some.
     if (m.kind === "divide" && this.boardDivide()) {
       state.pending!.divide!.options.forEach((o, i) => {
@@ -4701,6 +4729,90 @@ export class Board {
       }
     }
     g.innerHTML = html;
+    this.focusBlockGroup(this.hoverBlock);
+  }
+
+  /** Who blocks whom: the blocks you're still choosing (`pending`), and the state's others. */
+  private blockPairs(state: GameState): { from: string; to: string; pending: boolean }[] {
+    const m = this.mode;
+    const choosing = m.kind === "blockers" ? m.assignments : new Map<string, string>();
+    return [
+      ...[...choosing].map(([from, to]) => ({ from, to, pending: true })),
+      ...state.combat.blocks.filter((b) => !choosing.has(b.fromId)).map((b) => ({ from: b.fromId, to: b.toId, pending: false })),
+    ];
+  }
+
+  /** Each blocked attacker's number and color, numbered left to right as they sit on the table;
+      `blockGroupOf` gives every fighter's number. */
+  private blockGroups(pairs: { from: string; to: string }[]): Map<string, { n: number; color: string }> {
+    const left = (id: string) => this.anchor(id)?.left ?? Infinity;
+    const attackers = [...new Set(pairs.map((p) => p.to))].sort((a, b) => left(a) - left(b));
+    const groups = new Map(attackers.map((id, i) => [id, { n: i + 1, color: BLOCK_COLORS[i % BLOCK_COLORS.length]! }]));
+    this.blockGroupOf = new Map([...groups].map(([id, g]) => [id, g.n]));
+    for (const p of pairs) this.blockGroupOf.set(p.from, groups.get(p.to)!.n);
+    return groups;
+  }
+
+  /**
+   * The blocks drawn on the table: an arrow from each blocker to its attacker, in their group's
+   * color, the blockers' arrows spread along the attacker's near edge left to right so that none
+   * cross; and a numbered disc of that color on the attacker and on each of its blockers, kept
+   * through the damage (when the arrows are gone) so it's always clear who fights whom.
+   */
+  private blockMarks(pairs: { from: string; to: string; pending: boolean }[], groups: Map<string, { n: number; color: string }>, origin: DOMRect, decided: boolean): string {
+    if (!pairs.length) return "";
+    // A fighter's place: its pile of identical cards (one disc and one arrow for all of them), or itself.
+    const place = (id: string) => {
+      if (!this.anchor(id)) return null;
+      const el = this.elFor(id)!;
+      const pile = el.closest<HTMLElement>(".slot") ?? el;
+      const r = pile.getBoundingClientRect();
+      return { pile, l: r.left - origin.left, t: r.top - origin.top, w: r.width, h: r.height };
+    };
+    const f = (n: number) => n.toFixed(1);
+    let out = "";
+    const discs = new Map<Element, string>();
+    // On the top right corner (a pile's count is on the left).
+    const disc = (r: { pile: Element; l: number; t: number; w: number }, g: { n: number; color: string }, big = false) => {
+      const rad = big ? 13 : 11;
+      discs.set(r.pile, `<g class="blk-disc${big ? " att" : ""}" data-g="${g.n}" transform="translate(${f(r.l + r.w - rad * 0.6)},${f(r.t + rad * 0.6)})">`
+        + `<circle r="${rad}" style="fill:${g.color}"/><text dy="0.36em">${g.n}</text></g>`);
+    };
+    for (const [att, g] of groups) {
+      const a = place(att);
+      if (!a) continue;
+      out += `<marker id="ah-g${g.n}" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" style="fill:${g.color}"/></marker>`;
+      disc(a, g, true);
+      const seen = new Set<Element>();
+      const blockers = pairs.filter((p) => p.to === att)
+        .map((p) => ({ p, r: place(p.from) }))
+        .filter((x): x is { p: typeof x.p; r: NonNullable<typeof x.r> } => !!x.r && !seen.has(x.r.pile) && !!seen.add(x.r.pile))
+        .sort((x, y) => x.r.l - y.r.l);
+      blockers.forEach((x) => disc(x.r, g));
+      const drawn = blockers.filter((x) => x.p.pending || !decided);
+      drawn.forEach((x, i) => {
+        const r = x.r;
+        const below = r.t + r.h / 2 > a.t + a.h / 2;
+        const sx = r.l + r.w / 2;
+        const sy = below ? r.t + r.h * 0.12 : r.t + r.h * 0.88;
+        const ex = a.l + (a.w * (i + 1)) / (drawn.length + 1);
+        const ey = below ? a.t + a.h - 4 : a.t + 4;
+        const my = (sy + ey) / 2;
+        out += `<path class="arrow blk grouped${x.p.pending ? " pending" : ""}" data-g="${g.n}" style="stroke:${g.color}" `
+          + `d="M${f(sx)},${f(sy)} C${f(sx)},${f(my)} ${f(ex)},${f(my)} ${f(ex)},${f(ey)}" marker-end="url(#ah-g${g.n})"/>`;
+      });
+    }
+    return out + [...discs.values()].join("");
+  }
+
+  /** Pointing at a fighter brings out its group's arrows and discs, the others dimmed. */
+  private focusBlockGroup(id: string | null): void {
+    this.hoverBlock = id;
+    const svg = this.el.querySelector("svg.arrows");
+    if (!svg) return;
+    const n = id ? this.blockGroupOf.get(id) : undefined;
+    svg.classList.toggle("focusing", n !== undefined);
+    for (const el of svg.querySelectorAll<SVGElement>("[data-g]")) el.classList.toggle("focus", el.dataset.g === String(n));
   }
 
   /** What an arrow follows the pointer from right now: an attacker being aimed, or the prompt
@@ -4817,6 +4929,9 @@ export class Board {
         this.hoverStack = id;
         this.drawArrows();
       }
+      // Hovering a fighter in a block brings out its group.
+      const fighter = t.closest<HTMLElement>(".side .card[data-id]")?.dataset.id ?? null;
+      if (fighter !== this.hoverBlock) this.focusBlockGroup(fighter);
       // Hovering a permanent or a stack item shows it big beside it (unless a right-click zoom
       // is pinned or a card is being dragged).
       // (Revealed cards are small, on the right: they enlarge on hover too.)
@@ -6257,6 +6372,10 @@ function blocksDecided(state: GameState): boolean {
   }
   return false;
 }
+
+/** The block groups' colors, one per blocked attacker (left to right): bright, far apart from each
+    other and from the attack red. */
+const BLOCK_COLORS = ["#ffc83d", "#3fd8ff", "#ff6ad5", "#8ee04f", "#ff9a3d", "#b190ff", "#3fe0b0", "#ff8f8f"];
 
 /** The dock's small blue button in the opponent's turn. */
 const MY_TURN_SKIP = { id: "my-turn", label: "⏩", title: "My turn: pass priority until your turn (stops if they cast something or you're asked anything)" };

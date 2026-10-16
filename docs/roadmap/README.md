@@ -19,11 +19,11 @@ approved, rejected and marked done there. These files mirror its state as of
 
 ## Summary
 
-Awaiting approval: 0 · Approved: 0 · To do: 3 · Done: 60 · Rejected: 6
+Awaiting approval: 0 · Approved: 0 · To do: 2 · Done: 61 · Rejected: 6
 
 **Approved:** none right now.
 
-**Still open:** t0-3 (to do), t1-6 (to do), t2-13 (to do).
+**Still open:** t0-3 (to do), t1-6 (to do).
 
 ## Phases
 
@@ -33,7 +33,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 | --- | --- | --- | --- |
 | [Phase 0 · Finish open work](phase-0-finish-open-work/README.md) | **In progress** | 4/5 | To do: 1 · Done: 4 |
 | [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md) | **In progress** | 9/10 | To do: 1 · Done: 9 |
-| [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **In progress** | 22/23 | To do: 1 · Done: 22 · Rejected: 1 |
+| [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **Done** | 23/23 | Done: 23 · Rejected: 1 |
 | [Phase 3 · Game information](phase-3-game-information/README.md) | **Done** | 16/16 | Done: 16 · Rejected: 2 |
 | [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md) | **Done** | 6/6 | Done: 6 · Rejected: 1 |
 | [Phase 5 · Modes and platform](phase-5-modes-and-platform/README.md) | **Done** | 3/3 | Done: 3 · Rejected: 2 |
@@ -61,7 +61,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t1-9 · [Discarding from your hand, without a fan](phase-1-prompts-still-in-endstep/t1-9-discard-in-hand.md) — Done
 - [x] t1-10 · [Proliferate on the table](phase-1-prompts-still-in-endstep/t1-10-proliferate.md) — Done
 
-### [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md): In progress (22/23)
+### [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md): Done (23/23)
 
 - [x] t2-1 · [Spells travel when they resolve](phase-2-combat-and-effects/t2-1-spells-travel-on-resolve.md) — Done
 - [x] t2-2 · [Projectile to the target](phase-2-combat-and-effects/t2-2-projectile-to-target.md) — Done
@@ -75,7 +75,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t2-10 · [Damage and deaths as the blow lands](phase-2-combat-and-effects/t2-10-impacts-in-sync.md) — Done
 - [x] t2-11 · [Animation pace (against bots)](phase-2-combat-and-effects/t2-11-animation-pace.md) — Done
 - [x] t2-12 · [Combat driven by Endstep's events](phase-2-combat-and-effects/t2-12-combat-from-events.md) — Done
-- [ ] t2-13 · [Check combat when the bot attacks](phase-2-combat-and-effects/t2-13-check-bot-attacks.md) — To do
+- [x] t2-13 · [Check combat when the bot attacks](phase-2-combat-and-effects/t2-13-check-bot-attacks.md) — Done
 - [x] t2-14 · [Look at the whole stack in a fan (magnifier)](phase-2-combat-and-effects/t2-14-stack-fan.md) — Done
 - [x] t2-15 · [Icons for printed keywords on permanents](phase-2-combat-and-effects/t2-15-printed-keyword-icons.md) — Done
 - [x] t2-16 · [One pile per group of identical cards, with a count (×18)](phase-2-combat-and-effects/t2-16-one-pile-per-group.md) — Done

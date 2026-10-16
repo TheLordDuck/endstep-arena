@@ -2,15 +2,31 @@
 
 ## Session of 2026-10-16
 
-Docs only.
+On top of `5efb895`. All 157 tests pass (6 new, in `tests/botAttacks.test.ts`). Checked in the
+harness and on a recorded match, not yet live.
 
-1. **Roadmap docs in sync with the tracker** (they were as of 2026-10-14). Fourteen features done
+1. **A match where the bot attacks, recorded** (roadmap t2-13): kept as the fixture
+   `tests/fixtures/bot-attacks.ndjson.br`. On turn 14 eight Soldier tokens block a Colossal
+   Dreadmaw (six of them) and two Llanowar Elves; the states and events agree on every block and blow.
+   A second, `bot-trample`: the Dreadmaw tramples over four Soldiers (2) and two (4).
+2. **Who blocks whom, readable with many blockers** (asked for during the session). Each blocked
+   attacker and its blockers share a color and a numbered disc, kept until combat ends (the arrows
+   used to go once blocks were declared). The blockers' arrows, in that color, spread over the
+   attacker's near edge instead of meeting in its centre. Pointing at a fighter dims the other
+   groups; choosing blockers, the attack arrows step back. Harness `gang-block`, `gang-blocked`.
+3. **Trample hits the player too** (asked for during the session): an attacker that deals damage
+   past its blockers slams into each, then into the player's picture (or the planeswalker), whose
+   life goes down then. Harness `trample`.
+4. **A fight whose `ATTACKERS_DECLARED` never came** uses the events that did (blocks and blows),
+   with the attackers from the states. Endstep leaves out the events of the turns that pass while its
+   tab is hidden and sends just the state when it comes back; both recordings have such a stretch.
+5. **Roadmap docs in sync with the tracker** (they were as of 2026-10-14). Fourteen features done
    since then now have their cards written (what was done, commit, how it was checked): t2-14,
    t2-21, t3-5, t3-6, t3-7, t3-10 to t3-13, t3-15 to t3-17, t4-6 and t5-3. t3-9, t3-14 and t4-7,
    rejected on 2026-10-14, are marked so.
-2. **The Commander features rejected for good:** t2-6 (commander damage) and t5-2 (3- and
+6. **The Commander features rejected for good:** t2-6 (commander damage) and t5-2 (3- and
    4-player tables) go back to Phases 2 and 5 as rejected, and Phase 6 · Maybe later is gone.
-3. Left open: t0-3, t1-6 and t2-13, all waiting on a real match.
+7. **Roadmap:** t2-13 done. Left open: t0-3 and t1-6, both waiting on a real match.
 
 ## Release 0.7.0 (2026-10-14)
 

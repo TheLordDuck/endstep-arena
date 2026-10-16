@@ -2,7 +2,7 @@
 
 Everything that happens on the table looks as it does in Arena: spells, tokens, counters, deaths.
 
-**Phase status: In progress** (22/23 done; t2-6 rejected)
+**Phase status: Done** (23/23 done; t2-6 rejected)
 
 ## Progress
 
@@ -18,7 +18,7 @@ Everything that happens on the table looks as it does in Arena: spells, tokens, 
 - [x] t2-10 · [Damage and deaths as the blow lands](t2-10-impacts-in-sync.md) — Done
 - [x] t2-11 · [Animation pace (against bots)](t2-11-animation-pace.md) — Done
 - [x] t2-12 · [Combat driven by Endstep's events](t2-12-combat-from-events.md) — Done
-- [ ] t2-13 · [Check combat when the bot attacks](t2-13-check-bot-attacks.md) — To do
+- [x] t2-13 · [Check combat when the bot attacks](t2-13-check-bot-attacks.md) — Done
 - [x] t2-14 · [Look at the whole stack in a fan (magnifier)](t2-14-stack-fan.md) — Done
 - [x] t2-15 · [Icons for printed keywords on permanents](t2-15-printed-keyword-icons.md) — Done
 - [x] t2-16 · [One pile per group of identical cards, with a count (×18)](t2-16-one-pile-per-group.md) — Done
@@ -47,7 +47,7 @@ Everything that happens on the table looks as it does in Arena: spells, tokens, 
 | t2-10 | [Damage and deaths as the blow lands](t2-10-impacts-in-sync.md) | Feature | **Done** |
 | t2-11 | [Animation pace (against bots)](t2-11-animation-pace.md) | Feature | **Done** |
 | t2-12 | [Combat driven by Endstep's events](t2-12-combat-from-events.md) | Technical | **Done** |
-| t2-13 | [Check combat when the bot attacks](t2-13-check-bot-attacks.md) | Fix | **To do** |
+| t2-13 | [Check combat when the bot attacks](t2-13-check-bot-attacks.md) | Fix | **Done** |
 | t2-14 | [Look at the whole stack in a fan (magnifier)](t2-14-stack-fan.md) | Feature | **Done** |
 | t2-15 | [Icons for printed keywords on permanents](t2-15-printed-keyword-icons.md) | Feature | **Done** |
 | t2-16 | [One pile per group of identical cards, with a count (×18)](t2-16-one-pile-per-group.md) | Feature | **Done** |

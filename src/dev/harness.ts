@@ -45,6 +45,25 @@ const card = (name: string, extra: Raw = {}): Raw => ({ id: nextId++, name, ...e
 const land = (name: string, extra: Raw = {}) => card(name, { typeLine: `Basic Land — ${name}`, ...extra });
 const creature = (name: string, p: number, t: number, extra: Raw = {}) => card(name, { typeLine: "Creature", power: p, toughness: t, ...extra });
 
+/** The bot's attack of the match of 2026-10-16 (see "gang-block"): our creatures become eight
+    Soldier tokens and some lands; the opponent attacks with a Colossal Dreadmaw (6/6 trample) and,
+    with `elves`, two Llanowar Elves; their Serra Angel stays home. In the declare blockers step. */
+function gangBlock(s: Raw, elves = true): { soldiers: Raw[]; dreadmaw: Raw; elves: Raw[] } {
+  const [me, opp] = players(s);
+  const soldiers = Array.from({ length: 8 }, () => creature("Soldier", 1, 1, { isToken: true, tokenSetCode: "tdom", tokenCollectorNumber: "2", color: "W", basePower: 1, baseToughness: 1 }));
+  me!.battlefield = [...bf(me!).filter((c) => /Land/.test(String(c.typeLine))), ...soldiers];
+  const attack = { isAttacking: true, attackingDefenderId: -1, tapped: true };
+  const dreadmaw = creature("Colossal Dreadmaw", 6, 6, { oracleText: "Trample", ...attack });
+  const elf = () => creature("Llanowar Elves", 1, 1, { oracleText: "{T}: Add {G}.", ...attack });
+  const theirElves = elves ? [elf(), elf()] : [];
+  opp!.battlefield = [...bf(opp!).filter((c) => c.name !== "Vampire Nighthawk" && c.name !== "Pacifism"), dreadmaw, ...theirElves];
+  me!.battlefield = bf(me!).map((c) => ({ ...c, attachedCards: undefined }));
+  s.phase = "DECLARE_BLOCKERS";
+  s.activePlayerId = "1";
+  s.pendingAction = null;
+  return { soldiers: bf(me!).filter((c) => c.name === "Soldier"), dreadmaw, elves: theirElves };
+}
+
 function baseState(): Raw {
   nextId = 100;
   const bolt = card("Lightning Bolt", { typeLine: "Instant" });
@@ -610,6 +629,51 @@ const scenarios: Record<string, Scenario> = {
   },
   // The same fight before damage: attackers stepped out, the blocker in front of its attacker.
   blocked: (s) => void scenarios.strike!(s),
+  // Many blockers, as in the match of 2026-10-16: the bot's Colossal Dreadmaw (trample) and two
+  // Llanowar Elves attack; we have eight Soldier tokens to block with (click a Soldier, then its
+  // attacker). Each attacker and its blockers get a color and a number.
+  "gang-block": (s) => {
+    gangBlock(s);
+    const [me, opp] = players(s);
+    const soldiers = bf(me!).filter((c) => c.name === "Soldier");
+    const attackers = bf(opp!).filter((c) => c.isAttacking).map((c) => c.id);
+    s.pendingAction = { type: "DECLARE_BLOCKERS", promptVersion: 6, cardOptions: soldiers.map((c) => ({ id: c.id })),
+      blockerEligibility: Object.fromEntries(soldiers.map((c) => [String(c.id), attackers])) };
+  },
+  // The same blocks once declared (six Soldiers on the Dreadmaw, one on each Elf): no arrows, the
+  // numbered discs say who fights whom.
+  "gang-blocked": (s) => {
+    const { soldiers, dreadmaw, elves } = gangBlock(s);
+    soldiers.slice(0, 6).forEach((c) => { c.isBlocking = true; c.blockingIds = [dreadmaw.id]; });
+    soldiers[6]!.isBlocking = true; soldiers[6]!.blockingIds = [elves[0]!.id];
+    soldiers[7]!.isBlocking = true; soldiers[7]!.blockingIds = [elves[1]!.id];
+  },
+  // Trample: the bot's Colossal Dreadmaw (6/6) is blocked by two Soldiers. It slams into each, then
+  // on into us with the 4 left over; the Soldiers die.
+  trample: (s) => {
+    const { soldiers, dreadmaw } = gangBlock(s, false);
+    const blockers = soldiers.slice(0, 2);
+    blockers.forEach((c) => { c.isBlocking = true; c.blockingIds = [dreadmaw.id]; });
+    s.__events = [
+      { type: "ATTACKERS_DECLARED", message: "Forge AI declared 1 attacker", sequenceNumber: 80, playerIndex: "1", amount: 1, attackerIds: [dreadmaw.id] },
+      { type: "BLOCKERS_DECLARED", message: "Flavio declared 2 blockers", sequenceNumber: 81, playerIndex: "0", amount: 2,
+        blockerAssignments: Object.fromEntries(blockers.map((c) => [String(c.id), dreadmaw.id])) },
+    ];
+    return (n) => {
+      n.phase = "COMBAT_DAMAGE";
+      const [me2] = players(n);
+      me2!.life = (me2!.life as number) - 4;
+      const dead = new Set(blockers.map((c) => c.id));
+      me2!.battlefield = bf(me2!).filter((c) => !dead.has(c.id));
+      (me2!.graveyard as Raw[]).push(...blockers.map((c) => ({ ...c, isBlocking: false, blockingIds: [] })));
+      n.__events = [
+        { type: "TURN_PHASE", message: "Forge AI's combat damage", sequenceNumber: 82, phase: "COMBAT_DAMAGE" },
+        ...blockers.map((c, i) => ({ type: "CARD_DAMAGED", message: "Colossal Dreadmaw deals 1 damage to Soldier Token.", sequenceNumber: 83 + i,
+          cardId: dreadmaw.id, cardName: "Colossal Dreadmaw", targetCardId: c.id, targetCardName: "Soldier Token", amount: 1 })),
+        { type: "PLAYER_DAMAGED", message: "Colossal Dreadmaw deals 4 combat damage to Flavio.", sequenceNumber: 85, playerIndex: "0", cardId: dreadmaw.id, cardName: "Colossal Dreadmaw", amount: 4 },
+      ];
+    };
+  },
   target: (s) => {
     const [, opp] = players(s);
     s.pendingAction = { type: "CHOOSE_TARGETS", promptVersion: 7, message: "Lightning Bolt deals 3 damage to any target.",
