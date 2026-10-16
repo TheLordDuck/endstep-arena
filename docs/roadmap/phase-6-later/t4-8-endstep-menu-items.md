@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Status | **Approved** (in progress: 3 of 8) |
-| Phase | [Phase 4 · Comfort and settings](README.md) |
+| Phase | [Phase 6 · Later](README.md) |
 | Type | Feature |
 | Needs approval | Yes |
 | Approved on | 2026-10-16 |
@@ -33,3 +33,4 @@ The menu had the game log, this board's settings and shortcuts, and Concede (gam
 
 - 2026-10-16: added to the roadmap at the user's request, once the items were taken out of the menu.
 - 2026-10-16: approved; decklist, reload and keyboard shortcuts done on the board.
+- 2026-10-16: moved to Phase 6 · Later (to be done in the future).

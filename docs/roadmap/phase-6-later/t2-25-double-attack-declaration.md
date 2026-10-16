@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | Status | **To do** |
-| Phase | [Phase 2 · Combat and visual effects](README.md) |
+| Phase | [Phase 6 · Later](README.md) |
 | Type | Fix |
 | Needs approval | No (marked done directly) |
 
@@ -31,3 +31,4 @@ Unknown which path sent the second one: a double click, the main button and a sh
 
 - 2026-10-16: added to the roadmap.
 - 2026-10-16: two guards added; to be checked in a real match.
+- 2026-10-16: moved to Phase 6 · Later (to be done in the future).

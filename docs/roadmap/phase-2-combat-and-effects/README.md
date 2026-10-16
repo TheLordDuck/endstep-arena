@@ -2,7 +2,7 @@
 
 Everything that happens on the table looks as it does in Arena: spells, tokens, counters, deaths.
 
-**Phase status: In progress** (23/24 done; t2-6, t2-26 and t2-27 rejected)
+**Phase status: Done** (23/23 done; t2-6, t2-26 and t2-27 rejected; t2-25 moved to [Phase 6](../phase-6-later/README.md))
 
 ## Progress
 
@@ -30,7 +30,6 @@ Everything that happens on the table looks as it does in Arena: spells, tokens, 
 - [x] t2-22 · [Target arrows as in Arena](t2-22-arena-target-arrows.md) — Done
 - [x] t2-23 · [Abilities on the stack in Arena's ability frame](t2-23-ability-frame-on-stack.md) — Done
 - [x] t2-24 · [An illustrated table](t2-24-illustrated-table.md) — Done
-- [ ] t2-25 · [Two attack declarations at once](t2-25-double-attack-declaration.md) — To do
 - [ ] t2-26 · [Show prevented damage](t2-26-prevented-damage.md) — Rejected
 - [ ] t2-27 · [Piles of more than four that read](t2-27-readable-big-piles.md) — Rejected
 
@@ -62,6 +61,5 @@ Everything that happens on the table looks as it does in Arena: spells, tokens, 
 | t2-22 | [Target arrows as in Arena](t2-22-arena-target-arrows.md) | Feature | **Done** |
 | t2-23 | [Abilities on the stack in Arena's ability frame](t2-23-ability-frame-on-stack.md) | Feature | **Done** |
 | t2-24 | [An illustrated table](t2-24-illustrated-table.md) | Feature | **Done** |
-| t2-25 | [Two attack declarations at once](t2-25-double-attack-declaration.md) | Fix | **To do** |
 | t2-26 | [Show prevented damage](t2-26-prevented-damage.md) | Feature | **Rejected** |
 | t2-27 | [Piles of more than four that read](t2-27-readable-big-piles.md) | Feature | **Rejected** |
