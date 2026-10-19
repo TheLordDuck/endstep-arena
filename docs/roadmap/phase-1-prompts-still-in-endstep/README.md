@@ -2,7 +2,7 @@
 
 No decision in a game should force you off the Arena board.
 
-**Phase status: Done** (9/9 done; t1-6 rejected)
+**Phase status: Done** (10/10 done; t1-6 rejected)
 
 ## Progress
 
@@ -16,6 +16,7 @@ No decision in a game should force you off the Arena board.
 - [x] t1-8 · [Choosing cards from your own hand in a fan](t1-8-own-hand-in-a-fan.md) — Done
 - [x] t1-9 · [Discarding from your hand, without a fan](t1-9-discard-in-hand.md) — Done
 - [x] t1-10 · [Proliferate on the table](t1-10-proliferate.md) — Done
+- [x] t1-11 · [Ordering cards to the bottom, graveyard or exile, and replacement effects](t1-11-arrange-and-replacement-order.md) — Done
 
 ## Features
 
@@ -31,3 +32,4 @@ No decision in a game should force you off the Arena board.
 | t1-8 | [Choosing cards from your own hand in a fan](t1-8-own-hand-in-a-fan.md) | Feature | **Done** |
 | t1-9 | [Discarding from your hand, without a fan](t1-9-discard-in-hand.md) | Feature | **Done** |
 | t1-10 | [Proliferate on the table](t1-10-proliferate.md) | Feature | **Done** |
+| t1-11 | [Ordering cards to the bottom, graveyard or exile, and replacement effects](t1-11-arrange-and-replacement-order.md) | Fix | **Done** |

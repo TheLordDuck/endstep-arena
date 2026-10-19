@@ -166,3 +166,10 @@ pnpm test
 ```
 
 140 tests at the end of the 2026-10-14 session.
+
+Added on 2026-10-19:
+
+| Scenario | Shows |
+| --- | --- |
+| `arrange-bottom` | Cards put on the bottom of the library in any order: *Bottom of Library*, the first tagged *Bottom* |
+| `replacement` | Two replacement effects (Doubling Season, Anointed Procession): *Order Replacement Effects*, *Applies first* |

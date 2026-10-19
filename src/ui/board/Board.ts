@@ -3645,7 +3645,7 @@ export class Board {
     const tile = (id: string, i: number, top: boolean) => {
       const c = this.cardData.get(id);
       const url = c ? imageUrl(c, "large") : null;
-      const tag = top && !m.pick ? (i === 0 ? "Next" : String(i + 1)) : "";
+      const tag = top && !m.pick ? (i === 0 ? arrangeFirst(m.context) : String(i + 1)) : "";
       return `<button class="arr-card" data-arr="${esc(id)}" data-zoom="${esc(id)}" style="--i: ${i}">
         ${url ? `<img src="${esc(url)}" alt="${esc(c?.name ?? "")}" draggable="false">` : `<span>${esc(c?.name ?? id)}</span>`}
         ${tag ? `<b class="arr-tag">${tag}</b>` : ""}</button>`;
@@ -3656,7 +3656,7 @@ export class Board {
     </section>`;
     const piles = m.context === "piles";
     const trayLabel = piles ? "Pile 1" : m.context === "surveil" ? "Graveyard" : "Bottom of Library";
-    const topLabel = piles ? "Pile 2" : m.pick ? "Hand" : m.hasTray ? (m.context === "surveil" ? "Library" : "Top of Library") : m.context === "library_top" ? "Top of Library" : "Order";
+    const topLabel = piles ? "Pile 2" : m.pick ? "Hand" : m.hasTray ? (m.context === "surveil" ? "Library" : "Top of Library") : ARRANGE_ZONES[m.context]?.label ?? "Order";
     const ready = !m.pick || (m.tray.length >= m.pick.min && m.tray.length <= m.pick.max);
     const done = piles ? `Done · ${m.tray.length} | ${m.top.length}` : m.pick ? `Done · ${m.tray.length}/${m.pick.max}` : "Done";
     return `<div class="arrange${m.hasTray ? " two" : ""}">
@@ -3897,6 +3897,8 @@ export class Board {
       leftmost first, moved by dragging or with the arrows; optional triggers can be declined. */
   private orderBox(p: PendingActionView, m: Extract<Mode, { kind: "order" }>): string {
     const abilities = p.type === "ORDER_ABILITIES";
+    // Replacement effects (two that would change the same event) apply rather than resolve.
+    const verb = p.contextType === "replacement" ? "Applies" : "Resolves";
     const byId = new Map(p.orderOptions.map((o) => [o.id, o]));
     const allDeclinable = abilities && p.orderOptions.length > 0 && p.orderOptions.every((o) => o.declinable);
     const tiles = m.order.map((id, i) => {
@@ -3924,7 +3926,7 @@ export class Board {
     }).join("");
     return `<div class="order-box">
       <div class="order-row" style="--n: ${m.order.length}">${tiles}</div>
-      <div class="order-legend"><span>◂ ${abilities ? "Resolves first" : "First"}</span><span>drag to reorder</span><span>${abilities ? "Resolves last" : "Last"} ▸</span></div>
+      <div class="order-legend"><span>◂ ${abilities ? `${verb} first` : "First"}</span><span>drag to reorder</span><span>${abilities ? `${verb} last` : "Last"} ▸</span></div>
       <div class="choices big">
         ${allDeclinable ? '<button class="opt alt" data-order-skip>Skip all</button>' : ""}
         <button class="opt primary" data-order-confirm>Done</button>
@@ -6926,12 +6928,13 @@ function promptTitle(state: GameState, m: Mode): { title: string; sub: string; n
       // Endstep's message ("Surveil 2") makes the heading; the instructions stay under it.
       const [base, sub] = p.contextType === "surveil" ? ["Surveil", "Drag or click cards to put them on the top of your library or into your graveyard."]
         : p.contextType === "scry" ? ["Scry", "Drag or click cards to keep them on the top of your library or put them on the bottom."]
-        : ["Arrange Cards", "Drag to set the order. The leftmost comes first."];
+        : ["Arrange Cards", ARRANGE_ZONES[p.contextType ?? ""]?.sub ?? "Drag to set the order. The leftmost comes first."];
       return { title: msg.toLowerCase().startsWith(base.toLowerCase()) ? msg : base, sub };
     }
     case "CHOOSE_PILE":
       return pick("Choose a Pile", "Click a pile, then take it.");
     case "ORDER_ABILITIES":
+      if (p.contextType === "replacement") return pick("Order Replacement Effects", "Drag to set the order. The leftmost applies first.");
       return pick("Order Triggers", "Drag to set the order. The leftmost resolves first.");
     case "ORDER_ATTACKERS":
       return pick("Order Attackers", "Drag to set the order.");
@@ -6965,6 +6968,22 @@ function promptTitle(state: GameState, m: Mode): { title: string; sub: string; n
       }
       return pick(p.sourceCardName ?? humanize(p.type), "");
   }
+}
+
+/** Endstep's other arrangements: cards going somewhere together in an order the player picks,
+    leftmost first. Going to the bottom (of the library, or into the graveyard), the first ends
+    up closest to the bottom, as Endstep's box says. */
+const ARRANGE_ZONES: Record<string, { label: string; sub: string; first: string }> = {
+  library_top: { label: "Top of Library", sub: "Drag to set the order. The leftmost ends up on top.", first: "Next" },
+  library_bottom: { label: "Bottom of Library", sub: "Drag to set the order. The leftmost ends up closest to the bottom.", first: "Bottom" },
+  graveyard: { label: "Graveyard", sub: "Drag to set the order they go into your graveyard. The leftmost ends up closest to the bottom.", first: "Bottom" },
+  exile: { label: "Exile", sub: "Drag to set the order they're exiled. The leftmost goes first.", first: "1st" },
+  battlefield: { label: "Battlefield", sub: "Drag to set the order they enter. The leftmost goes first.", first: "1st" },
+};
+
+/** The first card's tag in an arrangement ("Next" on top of the library). */
+function arrangeFirst(context: string): string {
+  return context === "scry" || context === "surveil" ? "Next" : ARRANGE_ZONES[context]?.first ?? "1st";
 }
 
 /** Mana symbols as Endstep shows them (Scryfall's card symbols). */

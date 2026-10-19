@@ -19,11 +19,11 @@ approved, rejected and marked done there. These files mirror its state as of
 
 ## Summary
 
-Approved: 1 · To do: 1 · Done: 69 · Rejected: 9
+Approved: 1 · To do: 2 · Done: 70 · Rejected: 9
 
 **Approved:** t4-8.
 
-**Still open, for later (Phase 6):** t2-25 (to do: fixed in the code, to be checked in a real match), t4-8 (approved, 5 of its 8 items done).
+**Still open, for later (Phase 6):** t1-12 (to do: check the prompts in real matches), t2-25 (to do: fixed in the code, to be checked in a real match), t4-8 (approved, 5 of its 8 items done).
 
 ## Phases
 
@@ -32,12 +32,12 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 | Phase | Phase status | Done | Features by status |
 | --- | --- | --- | --- |
 | [Phase 0 · Finish open work](phase-0-finish-open-work/README.md) | **Done** | 5/5 | Done: 5 |
-| [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md) | **Done** | 9/9 | Done: 9 · Rejected: 1 |
+| [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md) | **Done** | 10/10 | Done: 10 · Rejected: 1 |
 | [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **Done** | 25/25 | Done: 25 · Rejected: 3 |
 | [Phase 3 · Game information](phase-3-game-information/README.md) | **Done** | 20/20 | Done: 20 · Rejected: 2 |
 | [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md) | **Done** | 7/7 | Done: 7 · Rejected: 1 |
 | [Phase 5 · Modes and platform](phase-5-modes-and-platform/README.md) | **Done** | 3/3 | Done: 3 · Rejected: 2 |
-| [Phase 6 · Later](phase-6-later/README.md) | **Not planned** | 0/2 | Approved: 1 · To do: 1 |
+| [Phase 6 · Later](phase-6-later/README.md) | **Not planned** | 0/3 | Approved: 1 · To do: 2 |
 
 ## Progress by phase
 
@@ -49,7 +49,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t0-4 · [Update the README](phase-0-finish-open-work/t0-4-update-readme.md) — Done
 - [x] t0-5 · [Release 0.5.0](phase-0-finish-open-work/t0-5-release-0-5-0.md) — Done
 
-### [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md): Done (9/9)
+### [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md): Done (10/10)
 
 - [x] t1-1 · [Sideboarding screen](phase-1-prompts-still-in-endstep/t1-1-sideboarding.md) — Done
 - [x] t1-2 · [Paying Phyrexian mana](phase-1-prompts-still-in-endstep/t1-2-phyrexian-mana.md) — Done
@@ -61,6 +61,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t1-8 · [Choosing cards from your own hand in a fan](phase-1-prompts-still-in-endstep/t1-8-own-hand-in-a-fan.md) — Done
 - [x] t1-9 · [Discarding from your hand, without a fan](phase-1-prompts-still-in-endstep/t1-9-discard-in-hand.md) — Done
 - [x] t1-10 · [Proliferate on the table](phase-1-prompts-still-in-endstep/t1-10-proliferate.md) — Done
+- [x] t1-11 · [Ordering cards to the bottom, graveyard or exile, and replacement effects](phase-1-prompts-still-in-endstep/t1-11-arrange-and-replacement-order.md) — Done
 
 ### [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md): Done (25/25)
 
@@ -137,7 +138,8 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t5-4 · [Real matches as tests](phase-5-modes-and-platform/t5-4-real-matches-as-tests.md) — Done
 - [ ] t5-5 · [Publish to the Chrome Web Store and Edge Add-ons](phase-5-modes-and-platform/t5-5-publish-to-stores.md) — Rejected
 
-### [Phase 6 · Later](phase-6-later/README.md): Not planned (0/2)
+### [Phase 6 · Later](phase-6-later/README.md): Not planned (0/3)
 
+- [ ] t1-12 · [Check the prompts in real matches](phase-6-later/t1-12-check-prompts-in-real-matches.md) — To do
 - [ ] t2-25 · [Two attack declarations at once](phase-6-later/t2-25-double-attack-declaration.md) — To do
 - [ ] t4-8 · [Endstep's menu items, on the board](phase-6-later/t4-8-endstep-menu-items.md) — Approved

@@ -760,6 +760,20 @@ const scenarios: Record<string, Scenario> = {
     s.pendingAction = { type: "ARRANGE_CARDS", contextType: "scry", promptVersion: 13, sourceCardName: "Opt", message: "Scry 1",
       cardOptions: [{ id: 972, name: "Counterspell", typeLine: "Instant" }] };
   },
+  // Cards put on the bottom of the library in any order (the first closest to the bottom).
+  "arrange-bottom": (s) => {
+    s.pendingAction = { type: "ARRANGE_CARDS", contextType: "library_bottom", promptVersion: 14, sourceCardName: "Ancestral Vision",
+      message: "Put the rest on the bottom of your library in any order",
+      cardOptions: [{ id: 973, name: "Island", typeLine: "Basic Land — Island" }, { id: 974, name: "Brainstorm", typeLine: "Instant" }, { id: 975, name: "Snapcaster Mage", typeLine: "Creature — Human Wizard" }] };
+  },
+  // Two replacement effects on the same event: which applies first.
+  replacement: (s) => {
+    s.pendingAction = { type: "ORDER_ABILITIES", contextType: "replacement", promptVersion: 15, message: "Choose the order to apply replacement effects",
+      cardOptions: [
+        { id: 953, name: "Doubling Season", description: "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.", declinable: false },
+        { id: 954, name: "Anointed Procession", description: "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.", declinable: false },
+      ] };
+  },
   // Overgrown Tomb tapped for mana: black or green.
   mana: (s) => {
     const [me] = players(s);

@@ -2138,6 +2138,8 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .arr-card.dragging { z-index: 10; cursor: grabbing; transition: none; transform: scale(1.05); box-shadow: 0 0 0 2px var(--target), 0 22px 40px rgba(0, 0, 0, 0.75); }
 .arr-card img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; display: block; }
 .arr-card > span { display: block; padding: 10px; font-size: 13px; }
+/* Under the next card from 55% on: the tag sits in the part that shows. */
+.arr-card:not(:last-child) > .arr-tag { left: 27.5%; }
 .arr-tag {
   position: absolute;
   top: -10px;
