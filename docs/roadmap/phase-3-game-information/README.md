@@ -2,7 +2,7 @@
 
 Understand what happened and what you're waiting for without opening Endstep's panel.
 
-**Phase status: Done** (17/17 done; t3-9 and t3-14 rejected)
+**Phase status: Done** (20/20 done; t3-9 and t3-14 rejected)
 
 ## Progress
 
@@ -25,6 +25,9 @@ Understand what happened and what you're waiting for without opening Endstep's p
 - [x] t3-17 · [Library and graveyard without labels, by the portrait](t3-17-piles-without-labels.md) — Done
 - [x] t3-18 · [The match chat on the board](t3-18-match-chat.md) — Done
 - [x] t3-19 · [The opponent's off-hand cards, to one side](t3-19-opponent-side-hand-aside.md) — Done
+- [x] t3-20 · [Hovering the opponent's revealed cards](t3-20-hover-revealed-opponent-cards.md) — Done
+- [x] t3-21 · [Your off-hand cards, always beside your hand](t3-21-own-off-hand-cards-always.md) — Done
+- [x] t3-22 · [The other face of double-faced cards](t3-22-double-faced-other-face.md) — Done
 
 ## Features
 
@@ -49,3 +52,6 @@ Understand what happened and what you're waiting for without opening Endstep's p
 | t3-17 | [Library and graveyard without labels, by the portrait](t3-17-piles-without-labels.md) | Feature | **Done** |
 | t3-18 | [The match chat on the board](t3-18-match-chat.md) | Feature | **Done** |
 | t3-19 | [The opponent's off-hand cards, to one side](t3-19-opponent-side-hand-aside.md) | Feature | **Done** |
+| t3-20 | [Hovering the opponent's revealed cards](t3-20-hover-revealed-opponent-cards.md) | Fix | **Done** |
+| t3-21 | [Your off-hand cards, always beside your hand](t3-21-own-off-hand-cards-always.md) | Feature | **Done** |
+| t3-22 | [The other face of double-faced cards](t3-22-double-faced-other-face.md) | Feature | **Done** |

@@ -7,7 +7,7 @@
 import { winsNeeded } from "../../game/GameState";
 import type { AbilityOption, CardView, ChatMessage, CombatLink, DivideOption, DivideView,GameState, LogEntry, PendingActionView, PileView, PlayerView, SideboardView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
-import { createsTokens, relatedTokens } from "./relatedTokens";
+import { createsTokens, isDoubleFaced, knownDoubleFaced, relatedTokens } from "./relatedTokens";
 import { CARD_BACK_URL, chosenLabels, createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
 import { arrangeMove, canConfirm, clickInMode, deckColumns, defenderForKey, deriveMode, discardInHand, isProliferate, divideLeft, splitAsk, divideLocked, divideReady, divideShort, divideStart, divideStep, humanize, keyForDefender, learnStep, manaValue, promptKey, sideboardChanged, sideboardCheck, sideboardMove, sideboardStacks, stepNumber, type Mode, type SideboardStack } from "./modes";
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
@@ -71,6 +71,12 @@ const STOP_NAMES: Record<string, string> = {
 };
 /** Space between an enlarged card and its keyword boxes (px, as in the CSS). */
 const KW_GAP = 10;
+/** Space between a hovered double-faced card and its other face (px, as in the CSS). */
+const ZBACK_GAP = 10;
+/** How much a card of the opening hand grows when hovered (as in the CSS, .mcard:hover). */
+const MCARD_HOVER_SCALE = 1.06;
+/** How much further right a double-faced card's other face turns, fanned out from it (deg). */
+const MCARD_FAN_TURN = 6;
 
 /** A card still gliding into its place (from the hand onto the stack, say) gets there now, so it's
     measured where it is, not halfway. */
@@ -1970,12 +1976,13 @@ export class Board {
         slot.style.setProperty("--gn", String(shown));
         slot.style.setProperty("--atts", "0");
         slot.style.setProperty("--held", "0");
-        slot.classList.remove("holds");
+        slot.classList.remove("holds", "has-atts");
         // Stacked vertically: each card behind shows its bottom strip (with its power/toughness).
         // Past the few drawn, the cards lie exactly under the backmost one.
         const els = unit.map((u, i) => {
           const el = this.card(u, true);
           el.style.removeProperty("--att");
+          el.classList.remove("attached");
           el.style.setProperty("--gi", String(Math.max(0, i - (unit.length - shown))));
           return el;
         });
@@ -1993,21 +2000,25 @@ export class Board {
       } else {
         slot.style.removeProperty("--gn");
         const attached = c.attachmentIds.map((a) => this.cardData.get(a)).filter((a): a is CardView => !!a);
-        // Exiled cards it holds peek out from behind its left edge (see .linked).
-        const held = (this.held.get(c.id) ?? []).map((h, i) => {
+        // Exiled cards it holds peek out from behind its left edge (see .linked), and so do the
+        // ones its Auras/Equipment hold (Sheltered by Ghosts), as those are drawn in its slot.
+        const held = [c, ...attached].flatMap((h) => this.held.get(h.id) ?? []).map((h, i) => {
           const el = this.card(h, false);
           el.classList.add("linked");
           el.style.setProperty("--li", String(i));
           el.style.removeProperty("--att");
+          el.classList.remove("attached");
           return el;
         });
         const children = [...attached.map((a) => this.card(a, true)), this.card(c, true)];
         for (const el of children) el.style.removeProperty("--gi");
         attached.forEach((_, i) => children[i]!.style.setProperty("--att", String(attached.length - i)));
+        children.forEach((el, i) => el.classList.toggle("attached", i < attached.length));
         children[children.length - 1]!.style.removeProperty("--att");
         slot.style.setProperty("--atts", String(attached.length));
         slot.style.setProperty("--held", String(held.length));
         slot.classList.toggle("holds", held.length > 0);
+        slot.classList.toggle("has-atts", attached.length > 0);
         // The ones sticking out furthest go first, so each lies behind the one before it.
         reconcile(slot, [...held.reverse(), ...children]);
       }
@@ -2076,17 +2087,28 @@ export class Board {
     el.hidden = !text;
   }
 
-  /** Cards playable from outside the hand (flashback, escape, exile, top of library…). */
+  /** Cards playable from outside the hand (flashback, escape, exile, top of library…): the ones
+      Endstep offers now, and the ones that could be played from there (your commander, flashback
+      cards… read from the cards, see offHandCards), greyed while they can't. Grouped by zone. */
   private renderSideHand(state: GameState): void {
     const playable = state.pending?.type === "PRIORITY" ? state.pending.playable : [];
+    const now = new Set(playable.map((o) => o.cardId));
+    const me = state.players.find((p) => p.isViewer);
+    const later = new Set(state.spectating || state.pending?.type === "MULLIGAN" ? [] : offHandCards(me).map((o) => o.card.id));
+    // In the order they lie in their zones (yours first), whether playable now or not, so a card
+    // doesn't change places when it becomes playable or stops being.
+    const zones: [string, (p: PlayerView) => CardView[]][] = [["Command", (p) => p.commandZone], ["Graveyard", (p) => p.graveyard],
+      ["Exile", (p) => p.exile], ["Effect", (p) => p.effects], ["Library", (p) => p.libraryTop]];
+    const players = me ? [me, ...state.players.filter((p) => p !== me)] : state.players;
+    const cards = zones.flatMap(([from, zone]) => players.flatMap((p) => zone(p).filter((c) => now.has(c.id) || later.has(c.id)).map((c) => ({ id: c.id, from }))));
     const els: HTMLElement[] = [];
     this.sideIds.clear();
-    for (const opt of playable) {
-      const from = this.offHandZone(state, opt.cardId);
-      const c = this.cardData.get(opt.cardId);
-      if (!from || !c) continue;
+    for (const { id, from } of cards) {
+      const c = this.cardData.get(id);
+      if (!c) continue;
       this.sideIds.add(c.id);
       const el = this.card(c, false);
+      el.classList.toggle("unplayable", !now.has(id));
       // The zone is named once, on the last card of each run from it (the one lying on the others).
       if (els.at(-1)?.dataset.from === from) els.at(-1)!.classList.remove("from-head");
       el.classList.add("from-head");
@@ -2094,7 +2116,7 @@ export class Board {
       els.push(el);
     }
     // Cards that were in the side hand lose their zone tag when they leave it.
-    for (const el of this.q(".side-hand").children) if (!els.includes(el as HTMLElement)) delete (el as HTMLElement).dataset.from;
+    for (const el of this.q(".side-hand").children) if (!els.includes(el as HTMLElement)) { delete (el as HTMLElement).dataset.from; el.classList.remove("unplayable"); }
     reconcile(this.q(".side-hand"), els);
   }
 
@@ -2148,17 +2170,6 @@ export class Board {
     if (mark.textContent !== text) mark.textContent = text;
     if (mark.title !== title) mark.title = title;
     el.classList.toggle("has-fx", effects.length > 0);
-  }
-
-  private offHandZone(state: GameState, id: string): string | null {
-    for (const p of state.players) {
-      if (p.graveyard.some((c) => c.id === id)) return "Graveyard";
-      if (p.exile.some((c) => c.id === id)) return "Exile";
-      if (p.commandZone.some((c) => c.id === id)) return "Command";
-      if (p.effects.some((c) => c.id === id)) return "Effect";
-      if (p.libraryTop.some((c) => c.id === id)) return "Library";
-    }
-    return null;
   }
 
   /** Beside the opponent's hand, as yours has its side hand: what they can play from outside it
@@ -4754,6 +4765,7 @@ export class Board {
     const hands = [this.q(".my-hand"), this.q(".side-hand")].map((hand) => [...hand.children] as HTMLElement[]);
     if (!hands.some((items) => items.some((it) => it.dataset.id === this.handHover))) this.handHover = null;
     for (const items of hands) this.applyHover(items);
+    this.showHandOtherFace();
   }
 
   private applyHover(items: HTMLElement[]): void {
@@ -5128,11 +5140,14 @@ export class Board {
       // is pinned or a card is being dragged).
       // (Revealed cards are small, on the right: they enlarge on hover too.)
       const perm = t.closest<HTMLElement>(".side .card[data-id], .stack .card[data-id], .opp-hand .card.known[data-id], .reveal .rcard[data-zoom], .emblem[data-zoom], .deck-view .sb-card[data-zoom]");
-      const permId = perm?.dataset.id ?? perm?.dataset.zoom ?? null;
+      // A card of the opening hand, already big: only a double-faced one's other face beside it.
+      const mull = perm ? null : t.closest<HTMLElement>(".mull-hand .mcard[data-zoom]");
+      const permId = perm?.dataset.id ?? perm?.dataset.zoom ?? mull?.dataset.zoom ?? null;
       if (permId === this.hoverPerm || this.zoomPinned || this.drag?.active) return;
       this.hoverPerm = permId;
       const c = permId ? this.cardData.get(permId) : undefined;
       if (perm && c && (!c.faceDown || c.peeked)) this.showHoverZoom(c, perm);
+      else if (!perm && mull && c) this.showOtherFace(c, mull);
       else this.hideZoom();
     });
     el.addEventListener("pointerleave", () => {
@@ -5408,6 +5423,10 @@ export class Board {
     if (btn?.classList.contains("pile")) return this.openViewer(btn.dataset.player!, btn.dataset.zone!);
     const menuItem = t.closest<HTMLElement>("[data-menu]");
     if (menuItem) return this.onMenuItem(menuItem);
+
+    // One of several Auras/Equipment on a permanent (thin strips behind it): picked in a fan.
+    const att = t.closest<HTMLElement>(".slot > .card.attached");
+    if (att && att.parentElement!.querySelectorAll(":scope > .card.attached").length > 1) return this.openViewer(att.parentElement!.dataset.host!, "attached");
 
     const key = this.keyFromTarget(t);
     // Aiming an attacker: a click on nothing in particular puts the arrow down.
@@ -5958,20 +5977,112 @@ export class Board {
   // ---------------------------------------------------------------- zoom (right-click)
 
   /** Hovering a permanent shows it big beside it, on whichever side has room: the card alone (its
-      boxes are in the right-click zoom). */
+      boxes are in the right-click zoom), and a double-faced card's other face to its right. */
   private showHoverZoom(c: CardView, anchor: HTMLElement): void {
     this.showZoom(c, undefined, true);
     const zoom = this.q(".zoom");
     if (!zoom.classList.contains("show")) return;
+    const id = this.hoverPerm;
+    const other = !c.isToken || c.isCopyOfRealCard ? imageUrl({ ...c, backFace: !c.backFace }, "large") : null;
+    const known = other ? knownDoubleFaced(c.name) : false;
+    if (known) this.addOtherFace(zoom, c, other!);
+    this.placeHoverZoom(zoom, anchor);
+    // Not known yet: Scryfall says, and the face is added if that card is still the one shown.
+    if (other && known === undefined) {
+      void isDoubleFaced(c.name).then((two) => {
+        if (!two || this.hoverPerm !== id || this.zoomPinned || zoom.dataset.card !== c.name || !zoom.classList.contains("show") || !anchor.isConnected) return;
+        this.addOtherFace(zoom, c, other);
+        this.placeHoverZoom(zoom, anchor);
+      });
+    }
+  }
+
+  /** A double-faced card of the opening hand, already shown big: its other face alone, fanned
+      out from it. */
+  private showOtherFace(c: CardView, anchor: HTMLElement): void {
+    this.hideZoom();
+    this.hoverPerm = anchor.dataset.zoom ?? null;
+    const id = this.hoverPerm;
+    this.fanOtherFace(c, () => this.hoverPerm === id && anchor.isConnected, () => {
+      // Where the card ends up once raised by its hover (.mcard:hover: up 10px, MCARD_HOVER_SCALE
+      // bigger), not where its transition is now.
+      const tilt = parseFloat(getComputedStyle(anchor).rotate) || 0;
+      const a = (tilt * Math.PI) / 180;
+      const w = anchor.offsetWidth * MCARD_HOVER_SCALE;
+      const h = anchor.offsetHeight * MCARD_HOVER_SCALE;
+      const parent = (anchor.offsetParent ?? this.el).getBoundingClientRect();
+      const box = this.el.getBoundingClientRect();
+      const cx = parent.left + anchor.offsetLeft + anchor.offsetWidth / 2 - box.left;
+      const cy = parent.top + anchor.offsetTop + anchor.offsetHeight / 2 - 10 - box.top;
+      return { x: cx + (w / 2) * Math.cos(a) - (h / 2) * Math.sin(a), y: cy + (w / 2) * Math.sin(a) + (h / 2) * Math.cos(a), w, tilt };
+    });
+  }
+
+  /** The raised card of your hand, when it's double-faced: its other face, fanned out from it. */
+  private showHandOtherFace(): void {
+    const zoom = this.q(".zoom");
+    if (zoom.dataset.hand && (zoom.dataset.hand !== this.handHover || this.drag)) this.hideZoom();
+    const id = this.handHover;
+    // Already shown for it (the hand is laid out again on every update).
+    if (id && zoom.dataset.hand === id) return;
+    const c = id ? this.cardData.get(id) : undefined;
+    const el = id ? this.cardEls.get(id) : undefined;
+    if (!id || !c || !el || this.drag || c.faceDown) return;
+    const still = () => this.handHover === id && !this.drag && el.isConnected && el.classList.contains("hover") && this.hoverPerm === null && zoom.dataset.hand === id;
+    // Placed once the picture has risen (its transition takes 0.16s): upright, so its box is the card.
+    zoom.dataset.hand = id;
+    window.setTimeout(() => {
+      if (!still()) return;
+      this.fanOtherFace(c, still, () => {
+        const box = this.el.getBoundingClientRect();
+        const r = (el.querySelector(".face") ?? el).getBoundingClientRect();
+        return { x: r.right - box.left, y: r.bottom - box.top, w: r.width, tilt: 0 };
+      });
+    }, 170);
+  }
+
+  /** A double-faced card's other face, as big as the card shown and fanned out from it: its bottom
+      left corner on the card's bottom right one (`at`: that corner, the card's width and tilt),
+      turned a little further right from there. */
+  private fanOtherFace(c: CardView, still: () => boolean, at: () => { x: number; y: number; w: number; tilt: number }): void {
+    const url = !c.isToken || c.isCopyOfRealCard ? imageUrl({ ...c, backFace: !c.backFace }, "large") : null;
+    if (!url) return;
+    const show = () => {
+      if (!still() || this.zoomPinned) return;
+      const zoom = this.q(".zoom");
+      zoom.innerHTML = `<div class="zcard"><img src="${esc(url)}" alt="${esc(`${c.name} (other face)`)}"></div>`;
+      zoom.dataset.card = c.name;
+      zoom.classList.remove("kw-left");
+      const { x, y, w, tilt } = at();
+      zoom.style.setProperty("--zw", `${w}px`);
+      zoom.classList.add("fanned");
+      zoom.style.rotate = `${tilt + MCARD_FAN_TURN}deg`;
+      zoom.style.left = `${x}px`;
+      zoom.style.top = `${y - zoom.offsetHeight}px`;
+      zoom.classList.add("show");
+    };
+    const known = knownDoubleFaced(c.name);
+    if (known) show();
+    else if (known === undefined) void isDoubleFaced(c.name).then((two) => two && show());
+  }
+
+  private addOtherFace(zoom: HTMLElement, c: CardView, url: string): void {
+    if (zoom.querySelector(".zback")) return;
+    zoom.querySelector(".zcard")?.insertAdjacentHTML("afterend", `<div class="zcard zback"><img src="${esc(url)}" alt="${esc(`${c.name} (other face)`)}"></div>`);
+  }
+
+  private placeHoverZoom(zoom: HTMLElement, anchor: HTMLElement, width?: number): void {
     const box = this.el.getBoundingClientRect();
     const r = anchor.getBoundingClientRect();
-    const zw = Math.min(300, (box.height * 0.6) / 1.397);
+    const zw = width ?? Math.min(300, (box.height * 0.6) / 1.397);
     zoom.style.setProperty("--zw", `${zw}px`);
+    // Both faces side by side take the room of two cards.
+    const w = zoom.querySelector(".zback") ? zw * 2 + ZBACK_GAP : zw;
     const zh = zoom.offsetHeight;
     const gap = 14;
     const right = r.right - box.left + gap;
-    const left = r.left - box.left - gap - zw;
-    const x = right + zw <= box.width - 8 || left < 8 ? Math.min(right, box.width - zw - 8) : left;
+    const left = r.left - box.left - gap - w;
+    const x = right + w <= box.width - 8 || left < 8 ? Math.max(8, Math.min(right, box.width - w - 8)) : left;
     const y = Math.max(8, Math.min(r.top + r.height / 2 - box.top - zh / 2, box.height - zh - 8));
     zoom.style.left = `${x}px`;
     zoom.style.top = `${y}px`;
@@ -6020,6 +6131,9 @@ export class Board {
     zoom.dataset.card = c.name;
     if (tokens) void this.fillTokens(c.name);
     zoom.classList.remove("kw-left");
+    zoom.style.rotate = "";
+    zoom.classList.remove("fanned");
+    delete zoom.dataset.hand;
     // Always at the top of the left column (over the opponent's plate while it's shown).
     const box = this.el.getBoundingClientRect();
     const extraH = (extra ? 60 : 0) + (c.damage && !bare ? 40 : 0) + notes.length * 22 + effects.length * 56;
@@ -6068,7 +6182,11 @@ export class Board {
   }
 
   private hideZoom(): void {
-    this.q(".zoom").classList.remove("show");
+    const zoom = this.q(".zoom");
+    zoom.classList.remove("show");
+    zoom.style.rotate = "";
+    zoom.classList.remove("fanned");
+    delete zoom.dataset.hand;
     this.hoverPerm = null;
   }
 
@@ -6256,6 +6374,7 @@ export class Board {
     const v = this.viewer;
     const box = this.q(".viewer");
     if (v?.zone === "stack") return this.refreshStackViewer(box);
+    if (v?.zone === "attached") return this.refreshAttachedViewer(box, v.player);
     const p = this.state?.players.find((pl) => pl.id === v?.player);
     if (!v || !p) return this.closeViewer();
     const cards = v.zone === "graveyard" ? p.graveyard : v.zone === "exile" ? p.exile : p.commandZone;
@@ -6310,6 +6429,37 @@ export class Board {
     box.onclick = (e) => {
       if (performance.now() < this.suppressClickUntil) return;
       if (e.target === box) this.closeViewer();
+    };
+  }
+
+  /** The Auras and Equipment on one permanent (`hostId`), in a fan: a click on one does what a
+      click on it on the table does (target it, pick it, activate it), and closes the fan. */
+  private refreshAttachedViewer(box: HTMLElement, hostId: string): void {
+    const host = this.cardData.get(hostId);
+    const slot = this.slotEls.get(hostId);
+    const cards = [...(slot?.querySelectorAll<HTMLElement>(":scope > .card.attached") ?? [])]
+      .map((el) => this.cardData.get(el.dataset.id!)).filter((c): c is CardView => !!c);
+    if (!host || cards.length < 2) return this.closeViewer();
+    const playable = new Set(this.state?.pending?.type === "PRIORITY" && this.mode.kind === "idle" ? this.state.pending.playable.map((o) => o.cardId) : []);
+    const html = `<div class="phead"><h2>Attached</h2><p>${esc(host.name)} · ${cards.length} cards</p></div>
+      ${this.fanHtml(`view:attached:${hostId}`, cards, (c) => `data-vpick="${esc(c.id)}"`,
+        (c) => (this.isSelectable(c.id) ? "selectable" : playable.has(c.id) ? "playable" : ""))}
+      <div class="choices big"><button class="opt primary" data-ui="close-viewer" title="Esc">Close</button></div>`;
+    if (box.dataset.sig !== html) {
+      box.dataset.sig = html;
+      this.swapHtml(box, html);
+    }
+    box.classList.add("open");
+    this.layoutFans();
+    box.onclick = (e) => {
+      const t = e.target as HTMLElement;
+      if (performance.now() < this.suppressClickUntil) return;
+      if (t === box) return this.closeViewer();
+      const card = t.closest<HTMLElement>("[data-vpick]");
+      if (!card || this.awaiting) return;
+      e.stopPropagation();
+      this.closeViewer();
+      this.onSelectKey(card.dataset.vpick!, e);
     };
   }
 

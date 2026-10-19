@@ -1,12 +1,19 @@
-// The tokens a card creates, for the "Creates Token" box beside an enlarged card (as Arena shows
-// it). Endstep doesn't send them, so they come from Scryfall's related cards (`all_parts`),
-// asked once per card name and kept for the session. Only the card's name is sent.
+// What Endstep doesn't send about a card, from Scryfall: the tokens it creates (for the "Creates
+// Token" box beside an enlarged card, as Arena shows it, from its related cards `all_parts`) and
+// whether it has a second face to show beside it. Asked once per card name and kept for the
+// session. Only the card's name is sent.
 
 export interface RelatedToken {
   name: string;
   typeLine: string;
   /** The token's image (Scryfall redirects this to its picture). */
   image: string;
+}
+
+interface ScryfallCard {
+  name?: string;
+  all_parts?: { component?: string; name?: string; type_line?: string; id?: string }[];
+  card_faces?: { image_uris?: unknown }[];
 }
 
 const API = "https://api.scryfall.com";
@@ -19,7 +26,7 @@ export function createsTokens(oracleText: string | undefined): boolean {
 }
 
 /** The tokens among a Scryfall card's related cards (not the card itself, if it is one). */
-export function tokensFromCard(card: { name?: string; all_parts?: { component?: string; name?: string; type_line?: string; id?: string }[] }): RelatedToken[] {
+export function tokensFromCard(card: ScryfallCard): RelatedToken[] {
   const seen = new Set<string>();
   const out: RelatedToken[] = [];
   for (const part of card.all_parts ?? []) {
@@ -33,18 +40,45 @@ export function tokensFromCard(card: { name?: string; all_parts?: { component?: 
   return out;
 }
 
-const cache = new Map<string, Promise<RelatedToken[]>>();
+/** A card printed with a picture on each side (transform, modal double-faced…). Split cards and
+    adventures have faces too, but on one picture. */
+export function hasTwoPictures(card: ScryfallCard): boolean {
+  const faces = card.card_faces ?? [];
+  return faces.length >= 2 && faces.every((f) => !!f.image_uris);
+}
 
-/** The tokens a card creates (empty when it creates none, or Scryfall can't be reached). */
-export function relatedTokens(name: string): Promise<RelatedToken[]> {
+const cache = new Map<string, Promise<ScryfallCard | null>>();
+const twoFaced = new Map<string, boolean>();
+
+function scryfallCard(name: string): Promise<ScryfallCard | null> {
   let found = cache.get(name);
   if (!found) {
     found = fetch(`${API}/cards/named?exact=${encodeURIComponent(name)}`, { headers: { Accept: "application/json" } })
       .then((r) => (r.ok ? r.json() : null))
-      .then((card) => (card ? tokensFromCard(card) : []))
+      .then((card: ScryfallCard | null) => {
+        twoFaced.set(name, !!card && hasTwoPictures(card));
+        return card;
+      })
       // Not reachable now: asked again next time.
-      .catch(() => { cache.delete(name); return []; });
+      .catch(() => { cache.delete(name); return null; });
     cache.set(name, found);
   }
   return found;
+}
+
+/** The tokens a card creates (empty when it creates none, or Scryfall can't be reached). */
+export async function relatedTokens(name: string): Promise<RelatedToken[]> {
+  const card = await scryfallCard(name);
+  return card ? tokensFromCard(card) : [];
+}
+
+/** Whether a card has a second face to show (false when Scryfall can't be reached). */
+export async function isDoubleFaced(name: string): Promise<boolean> {
+  await scryfallCard(name);
+  return twoFaced.get(name) ?? false;
+}
+
+/** The answer of isDoubleFaced when it's already known, without waiting. */
+export function knownDoubleFaced(name: string): boolean | undefined {
+  return twoFaced.get(name);
 }

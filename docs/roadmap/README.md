@@ -5,7 +5,7 @@ What's left for the extension to feel like MTG Arena, in phases. Each phase is a
 
 **Where decisions are made:** the tracker page https://claude.ai/artifact/43uFfdsXsZiFrf2YzYu4T9 (private to its owner). Features are
 approved, rejected and marked done there. These files mirror its state as of
-**2026-10-16** and are regenerated from it, not edited by hand.
+**2026-10-19** and are regenerated from it, not edited by hand.
 
 ## Statuses
 
@@ -19,7 +19,7 @@ approved, rejected and marked done there. These files mirror its state as of
 
 ## Summary
 
-Approved: 1 · To do: 1 · Done: 63 · Rejected: 9
+Approved: 1 · To do: 1 · Done: 68 · Rejected: 9
 
 **Approved:** t4-8.
 
@@ -33,8 +33,8 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 | --- | --- | --- | --- |
 | [Phase 0 · Finish open work](phase-0-finish-open-work/README.md) | **Done** | 5/5 | Done: 5 |
 | [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md) | **Done** | 9/9 | Done: 9 · Rejected: 1 |
-| [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **Done** | 23/23 | Done: 23 · Rejected: 3 |
-| [Phase 3 · Game information](phase-3-game-information/README.md) | **Done** | 17/17 | Done: 17 · Rejected: 2 |
+| [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **Done** | 25/25 | Done: 25 · Rejected: 3 |
+| [Phase 3 · Game information](phase-3-game-information/README.md) | **Done** | 20/20 | Done: 20 · Rejected: 2 |
 | [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md) | **Done** | 6/6 | Done: 6 · Rejected: 1 |
 | [Phase 5 · Modes and platform](phase-5-modes-and-platform/README.md) | **Done** | 3/3 | Done: 3 · Rejected: 2 |
 | [Phase 6 · Later](phase-6-later/README.md) | **Not planned** | 0/2 | Approved: 1 · To do: 1 |
@@ -62,7 +62,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t1-9 · [Discarding from your hand, without a fan](phase-1-prompts-still-in-endstep/t1-9-discard-in-hand.md) — Done
 - [x] t1-10 · [Proliferate on the table](phase-1-prompts-still-in-endstep/t1-10-proliferate.md) — Done
 
-### [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md): Done (23/23)
+### [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md): Done (25/25)
 
 - [x] t2-1 · [Spells travel when they resolve](phase-2-combat-and-effects/t2-1-spells-travel-on-resolve.md) — Done
 - [x] t2-2 · [Projectile to the target](phase-2-combat-and-effects/t2-2-projectile-to-target.md) — Done
@@ -90,8 +90,10 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t2-24 · [An illustrated table](phase-2-combat-and-effects/t2-24-illustrated-table.md) — Done
 - [ ] t2-26 · [Show prevented damage](phase-2-combat-and-effects/t2-26-prevented-damage.md) — Rejected
 - [ ] t2-27 · [Piles of more than four that read](phase-2-combat-and-effects/t2-27-readable-big-piles.md) — Rejected
+- [x] t2-28 · [Auras and Equipment behind their permanent, as in Arena](phase-2-combat-and-effects/t2-28-attachments-behind-host.md) — Done
+- [x] t2-29 · [What an Aura exiles, under its creature](phase-2-combat-and-effects/t2-29-aura-held-exile.md) — Done
 
-### [Phase 3 · Game information](phase-3-game-information/README.md): Done (17/17)
+### [Phase 3 · Game information](phase-3-game-information/README.md): Done (20/20)
 
 - [x] t3-1 · [Game log](phase-3-game-information/t3-1-game-log.md) — Done
 - [x] t3-2 · [Game and turn clocks](phase-3-game-information/t3-2-game-clocks.md) — Done
@@ -112,6 +114,9 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t3-17 · [Library and graveyard without labels, by the portrait](phase-3-game-information/t3-17-piles-without-labels.md) — Done
 - [x] t3-18 · [The match chat on the board](phase-3-game-information/t3-18-match-chat.md) — Done
 - [x] t3-19 · [The opponent's off-hand cards, to one side](phase-3-game-information/t3-19-opponent-side-hand-aside.md) — Done
+- [x] t3-20 · [Hovering the opponent's revealed cards](phase-3-game-information/t3-20-hover-revealed-opponent-cards.md) — Done
+- [x] t3-21 · [Your off-hand cards, always beside your hand](phase-3-game-information/t3-21-own-off-hand-cards-always.md) — Done
+- [x] t3-22 · [The other face of double-faced cards](phase-3-game-information/t3-22-double-faced-other-face.md) — Done
 
 ### [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md): Done (6/6)
 

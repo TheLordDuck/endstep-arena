@@ -323,7 +323,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   align-items: flex-end;
   width: var(--bf-w);
   margin-left: var(--gap);
-  padding-top: calc(var(--atts, 0) * var(--bf-w) * 0.17);
+  padding-top: calc(var(--atts, 0) * var(--bf-w) * 0.05);
   transition: width 0.22s ease, translate 0.22s ease, margin 0.22s ease;
 }
 .slot:first-child { margin-left: 0; }
@@ -367,7 +367,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .side.me .slot.blocking::before { top: calc(var(--bf-w) * -0.07); border-bottom: 0; border-radius: 50% 50% 0 0 / 100% 100% 0 0; }
 .side.opp .slot.blocking::before { bottom: calc(var(--bf-w) * -0.07); border-top: 0; border-radius: 0 0 50% 50% / 0 0 100% 100%; }
 @keyframes guard { 50% { box-shadow: 0 0 16px 4px rgba(255, 196, 70, 0.95), inset 0 0 10px rgba(255, 210, 110, 0.8); } }
-.side.opp .slot { align-items: flex-start; padding-top: 0; padding-bottom: calc(var(--atts, 0) * var(--bf-w) * 0.17); }
+.side.opp .slot { align-items: flex-start; padding-top: 0; padding-bottom: calc(var(--atts, 0) * var(--bf-w) * 0.05); }
 
 /* ---------- Cards ---------- */
 .card {
@@ -632,17 +632,24 @@ button { font: inherit; color: inherit; cursor: pointer; }
   text-shadow: 0 0 6px rgba(120, 160, 255, 0.9), 0 2px 4px rgba(0, 0, 0, 0.8);
   pointer-events: none;
 }
+/* Auras and Equipment, Arena style: whole cards behind the permanent they're attached to, each
+   peeking out from its left edge (and a little above it), the furthest one first. With several,
+   a click on any of them opens them in a fan to pick one (see onClick). The slot's padding
+   makes room for them, after the cards it holds (.holds). */
 .slot > .card:not(:last-child) {
   position: absolute;
   z-index: 0;
-  bottom: calc(var(--att) * var(--bf-w) * 0.17);
 }
-.side.opp .slot > .card:not(:last-child) { bottom: auto; top: calc(var(--att) * var(--bf-w) * 0.17); }
+.slot > .card.attached {
+  left: calc(var(--bf-w) * (0.16 * var(--held, 0) + 0.12 * (var(--atts) - var(--att))));
+  bottom: calc(var(--att) * var(--bf-w) * 0.05);
+}
+.side.opp .slot > .card.attached { bottom: auto; top: calc(var(--att) * var(--bf-w) * 0.05); }
 
 /* Cards exiled "until this leaves the battlefield" (Portable Hole, Oblivion Ring…): behind the
    permanent holding them, the whole card upright and small enough to be as tall as it, peeking
    out from its left edge (Arena style). Each further one peeks out a little more, behind the one before. */
-.slot.holds { padding-left: calc(var(--bf-w) * 0.16 * var(--held)); }
+.slot.holds, .slot.has-atts { padding-left: calc(var(--bf-w) * (0.16 * var(--held, 0) + 0.12 * var(--atts, 0))); }
 .slot > .card.linked,
 .side.opp .slot > .card.linked {
   --cw: calc(var(--bf-w) * 0.6);
@@ -837,6 +844,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
   pointer-events: none;
 }
 .side-hand .card .face { filter: saturate(0.85); }
+/* One you could play from there, but not right now: a little grey. */
+.side-hand .card.unplayable .face { filter: grayscale(0.7) brightness(0.75); }
 /* "Discard 2 at the end of your turn": a pill on the top edge of your hand, over its cards. */
 .hand-warn {
   grid-row: 7;
@@ -885,8 +894,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .opp-hand { grid-row: 1; z-index: 3; }
 /* Cards of theirs you know sit in line with the backs, face up; hovering one slides it down into
-   view (and shows it big beside it). */
-.opp-hand:has(.card.known:hover) { z-index: 26; }
+   view (and shows it big beside it), over the table (step track, life…) as your hand's raised card is. */
+.opp-hand:has(.card.known:hover) { z-index: 60; }
 /* Only the picture slides down: the card's box stays under the pointer, so it doesn't flicker. */
 .opp-hand .card.known .face { transition: translate 0.16s ease; }
 .opp-hand .card.known:hover { z-index: 50; }
@@ -917,11 +926,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* What they can play from outside their hand (flashback, adventure, their commander…): at the top
    left, between their name and their step track (placed in layout()), hanging like their hand's
    cards, face up, with what lets them play it under each; hovering one slides it down into view. */
-.opp-side { grid-row: 1; z-index: 3; }
-.opp-side:has(.card:hover) { z-index: 26; }
+/* Only its cards take the pointer: its box lies over their hand (same row), whose known cards
+   are hovered to see them. */
+.opp-side { grid-row: 1; z-index: 3; pointer-events: none; }
+.opp-side:has(.card:hover) { z-index: 60; }
 .opp-side .card {
   --cw: var(--ohand-w);
   position: absolute;
+  pointer-events: auto;
   left: calc(var(--cx, 50%) + var(--x, 0px) * 1.2 - var(--cw) / 2);
   top: calc(var(--cw) * -0.72 + var(--y, 0px) * 0.4);
   rotate: calc(var(--r, 0deg) * -1);
@@ -1979,6 +1991,7 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   transition: translate 0.15s ease, scale 0.15s ease;
 }
 .mcard:first-child { margin-left: 0; }
+/* scale: MCARD_HOVER_SCALE in Board.ts. */
 .mcard:hover { scale: 1.06; translate: 0 -10px; z-index: 2; }
 .mcard img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .mcard span { display: block; padding: 10px; font-size: 13px; }
@@ -2672,8 +2685,12 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   transition: opacity 0.12s ease, scale 0.12s ease;
 }
 .zoom.show { opacity: 1; scale: 1; }
+/* A double-faced card's other face in the opening hand turns around the corner it shares with the card. */
+.zoom.fanned { transform-origin: 0 100%; }
 .zcard { width: var(--zw); aspect-ratio: 63 / 88; border-radius: calc(var(--zw) * 0.05); overflow: hidden; background: #1b1712; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7); }
 .zcard img { width: 100%; height: 100%; object-fit: cover; }
+/* A double-faced card's other face, to the right of the one hovered. */
+.zcard.zback { position: absolute; top: 0; left: calc(var(--zw) + 10px); }
 .ztext { padding: 16px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
 .ztext b { color: var(--gold-hi); font-size: 17px; }
 .ztext i { color: var(--muted); }

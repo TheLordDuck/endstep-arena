@@ -1,5 +1,22 @@
 # Changelog
 
+## Session of 2026-10-19
+
+On top of `b4c5728`. All 162 tests pass. Checked in the harness, not yet in a live match.
+
+1. **The opponent's revealed cards** show big when pointed at; the box of their off-hand cards no
+   longer takes the pointer, and the hovered card comes up over the table (roadmap t3-20).
+2. **Your off-hand cards, always beside your hand:** what you could play from another zone
+   (commander, flashback, adventure…) stays there, a little grey while you can't, in its zone's
+   order (t3-21). Harness: `sidegrey`.
+3. **Double-faced cards** show their other face when pointed at, on the table, in your hand and
+   in the opening hand (t3-22).
+4. **Auras and Equipment** sit whole behind their permanent, peeking out from its left edge; with
+   several, a click opens them in a fan to pick one, also to target it (t2-28). Harness: `auras`,
+   `auras-target`.
+5. **What an Aura exiles** (Sheltered by Ghosts) peeks out under its creature instead of
+   disappearing (t2-29). Harness: `sheltered`.
+
 ## Release 0.8.0 (2026-10-16)
 
 On top of `cdeea12`. All 161 tests pass. `pnpm visual`: the changed scenarios are the expected

@@ -733,6 +733,25 @@ const scenarios: Record<string, Scenario> = {
       (opp!.exile as Raw[]).push(victim);
     };
   },
+  // Sheltered by Ghosts (an Aura on our Grizzly Bears) exiles their creature: it goes under the
+  // Bears' slot, with the Aura, since the Aura is drawn there.
+  sheltered: (s) => {
+    const [me, opp] = players(s);
+    const bears = bf(me!)[5]!;
+    const aura = card("Sheltered by Ghosts", { typeLine: "Enchantment — Aura", controllerId: "0", attachedTo: bears.id,
+      oracleText: "Enchant creature you control\nWhen Sheltered by Ghosts enters, exile target nonland permanent an opponent controls until Sheltered by Ghosts leaves the battlefield.\nEnchanted creature gets +1/+0 and has lifelink and ward {2}." });
+    const victim = creature("Dark Confidant", 2, 1);
+    bf(me!).push(aura);
+    bears.attachedCards = [...(bears.attachedCards as unknown[]), aura.id];
+    bf(opp!).push(victim);
+    s.stack = [{ stackTargetId: 961, isAbility: true, abilityDescription: "Exile target nonland permanent an opponent controls until Sheltered by Ghosts leaves the battlefield.",
+      sourceCard: aura, targets: [{ id: victim.id, zone: "Battlefield" }] }];
+    return (t) => {
+      t.stack = [];
+      bf(opp!).splice(bf(opp!).indexOf(victim), 1);
+      (opp!.exile as Raw[]).push(victim);
+    };
+  },
   surveil: (s) => {
     s.pendingAction = { type: "ARRANGE_CARDS", contextType: "surveil", promptVersion: 12, sourceCardName: "Consider", message: "Surveil 2",
       cardOptions: [{ id: 970, name: "Breeding Pool", typeLine: "Land — Forest Island" }, { id: 971, name: "Lightning Bolt", typeLine: "Instant" }] };
@@ -999,6 +1018,34 @@ const scenarios: Record<string, Scenario> = {
     const names = ["Faithless Looting", "Lingering Souls", "Deep Analysis", "Think Twice", "Opt", "Brainstorm", "Lightning Bolt", "Counterspell"];
     me!.graveyard = Array.from({ length: 30 }, (_, i) => card(names[i % names.length]!));
     s.pendingAction = { type: "PRIORITY", promptVersion: 22, cardOptions: (me!.graveyard as Raw[]).filter((_, i) => i % 8 < 3).map((c) => ({ id: c.id, zone: "GRAVEYARD", playableAbilities: [{ index: 0, description: "Flashback" }] })) };
+  },
+  // Grizzly Bears with three things on it (their Pacifism, our Rancor and Bonesplitter), peeking
+  // out from its left edge; a click on one opens them in a fan.
+  auras: (s) => {
+    const [me] = players(s);
+    const bears = bf(me!)[5]!;
+    const rancor = card("Rancor", { typeLine: "Enchantment — Aura", attachedTo: bears.id });
+    const splitter = card("Bonesplitter", { typeLine: "Artifact — Equipment", attachedTo: bears.id });
+    bf(me!).push(rancor, splitter);
+    bears.attachedCards = [...(bears.attachedCards as unknown[]), rancor.id, splitter.id];
+  },
+  // Disenchant on them: the Aura or Equipment to destroy is picked in the fan, as on the table.
+  "auras-target": (s) => {
+    scenarios.auras!(s);
+    const [me, opp] = players(s);
+    const targets = [...bf(me!), ...bf(opp!)].filter((c) => /Aura|Equipment|Artifact/.test(String(c.typeLine ?? "")));
+    s.pendingAction = { type: "CHOOSE_TARGETS", promptVersion: 30, sourceCardName: "Disenchant", min: 1, max: 1, mandatory: true,
+      message: "Choose target artifact or enchantment.", cardOptions: targets.map((c) => ({ id: c.id })) };
+  },
+  // The side hand with what could be played from outside the hand but can't right now (greyed):
+  // our commander, Lingering Souls' flashback, an adventure in exile; Faithless Looting can.
+  sidegrey: (s) => {
+    const [me] = players(s);
+    const looting = card("Faithless Looting", { typeLine: "Sorcery", oracleText: "Draw two cards, then discard two cards.\nFlashback {2}{R}" });
+    me!.graveyard = [card("Opt"), looting, card("Lingering Souls", { typeLine: "Sorcery", oracleText: "Create two 1/1 white Spirit creature tokens with flying.\nFlashback {1}{B}" })];
+    me!.exile = [card("Bonecrusher Giant", { typeLine: "Creature — Giant // Instant — Adventure" })];
+    me!.commandZone = [card("Kenrith, the Returned King", { isCommander: true, typeLine: "Legendary Creature — Human Noble" })];
+    s.pendingAction = { type: "PRIORITY", promptVersion: 22, cardOptions: [{ id: looting.id, zone: "GRAVEYARD", playableAbilities: [{ index: 0, description: "Flashback" }] }] };
   },
   // Emblems: ours (Chandra's), and the opponent's Narset emblem, which only weighs on us.
   emblem: (s) => {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createsTokens, tokensFromCard } from "../src/ui/board/relatedTokens";
+import { createsTokens, hasTwoPictures, tokensFromCard } from "../src/ui/board/relatedTokens";
 
 test("only cards whose text makes tokens are looked up", () => {
   assert.equal(createsTokens("Create two 1/1 white Soldier creature tokens."), true);
@@ -28,4 +28,12 @@ test("the tokens among a card's related cards, once each, at most three", () => 
   // A token's own entry isn't a token it makes.
   assert.deepEqual(tokensFromCard({ name: "Soldier", all_parts: [{ component: "token", name: "Soldier", id: "b" }] }), []);
   assert.deepEqual(tokensFromCard({ name: "Bolt" }), []);
+});
+
+test("only cards with a picture on each side have another face to show", () => {
+  const pic = { normal: "x" };
+  assert.equal(hasTwoPictures({ name: "Delver of Secrets // Insectile Aberration", card_faces: [{ image_uris: pic }, { image_uris: pic }] }), true);
+  // Split cards and adventures: two faces on one picture.
+  assert.equal(hasTwoPictures({ name: "Fire // Ice", card_faces: [{}, {}] }), false);
+  assert.equal(hasTwoPictures({ name: "Lightning Bolt" }), false);
 });

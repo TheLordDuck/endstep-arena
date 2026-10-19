@@ -2,7 +2,7 @@
 
 Everything that happens on the table looks as it does in Arena: spells, tokens, counters, deaths.
 
-**Phase status: Done** (23/23 done; t2-6, t2-26 and t2-27 rejected; t2-25 moved to [Phase 6](../phase-6-later/README.md))
+**Phase status: Done** (25/25 done; t2-6, t2-26 and t2-27 rejected; t2-25 moved to [Phase 6](../phase-6-later/README.md))
 
 ## Progress
 
@@ -32,6 +32,8 @@ Everything that happens on the table looks as it does in Arena: spells, tokens, 
 - [x] t2-24 · [An illustrated table](t2-24-illustrated-table.md) — Done
 - [ ] t2-26 · [Show prevented damage](t2-26-prevented-damage.md) — Rejected
 - [ ] t2-27 · [Piles of more than four that read](t2-27-readable-big-piles.md) — Rejected
+- [x] t2-28 · [Auras and Equipment behind their permanent, as in Arena](t2-28-attachments-behind-host.md) — Done
+- [x] t2-29 · [What an Aura exiles, under its creature](t2-29-aura-held-exile.md) — Done
 
 ## Features
 
@@ -63,3 +65,5 @@ Everything that happens on the table looks as it does in Arena: spells, tokens, 
 | t2-24 | [An illustrated table](t2-24-illustrated-table.md) | Feature | **Done** |
 | t2-26 | [Show prevented damage](t2-26-prevented-damage.md) | Feature | **Rejected** |
 | t2-27 | [Piles of more than four that read](t2-27-readable-big-piles.md) | Feature | **Rejected** |
+| t2-28 | [Auras and Equipment behind their permanent, as in Arena](t2-28-attachments-behind-host.md) | Feature | **Done** |
+| t2-29 | [What an Aura exiles, under its creature](t2-29-aura-held-exile.md) | Fix | **Done** |
