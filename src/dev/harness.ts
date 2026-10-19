@@ -1399,8 +1399,13 @@ const board = new Board(controller, {
   togglePhaseStop: (side, step) => { if (!stops[side].delete(step)) stops[side].add(step); saveStops(stops); },
   setTemporaryStops: (extra) => console.log("TEMP STOPS", JSON.stringify(extra)),
   // Endstep's table menu, as its best-of-three board offers it.
-  tableMenu: async () => ["Show decklist", "Auto-yields", "Settings", "Keyboard shortcuts", "Report a problem", "Reload", "Concede game", "Concede match"],
+  tableMenu: async () => ["Show decklist", "Auto-yields", "Settings", "Keyboard shortcuts", "Report a problem", "Report stalling", "Reload", "Concede game", "Concede match"],
   runTableItem: (label) => console.log("TABLE ITEM", label),
+  reportSubjects: async () => [{ userId: "u-opp", username: "Opponent" }],
+  sendReport: async (report) => {
+    console.log("REPORT", JSON.stringify({ ...report, images: report.images.length }));
+    return true;
+  },
   // A Burn deck, as Endstep's match info gives it (a name per copy).
   decklist: async () => parseDecklist({
     myDeck: [

@@ -2,7 +2,7 @@
 
 Shortcuts, settings and sound to play fast and comfortably.
 
-**Phase status: Done** (6/6 done; t4-7 rejected; t4-8 moved to [Phase 6](../phase-6-later/README.md))
+**Phase status: Done** (7/7 done; t4-7 rejected; t4-8 moved to [Phase 6](../phase-6-later/README.md))
 
 ## Progress
 
@@ -13,6 +13,7 @@ Shortcuts, settings and sound to play fast and comfortably.
 - [x] t4-5 · [The buttons on the right in Arena's order, colors and words](t4-5-arena-dock-buttons.md) — Done
 - [x] t4-6 · [Pass until my turn during the opponent's](t4-6-pass-to-my-turn.md) — Done
 - [ ] t4-7 · [The hand in a curved fan](t4-7-curved-hand-fan.md) — Rejected
+- [x] t4-9 · [The board turns on when a match starts](t4-9-board-on-at-match-start.md) — Done
 
 ## Features
 
@@ -25,3 +26,4 @@ Shortcuts, settings and sound to play fast and comfortably.
 | t4-5 | [The buttons on the right in Arena's order, colors and words](t4-5-arena-dock-buttons.md) | Feature | **Done** |
 | t4-6 | [Pass until my turn during the opponent's](t4-6-pass-to-my-turn.md) | Feature | **Done** |
 | t4-7 | [The hand in a curved fan](t4-7-curved-hand-fan.md) | Feature | **Rejected** |
+| t4-9 | [The board turns on when a match starts](t4-9-board-on-at-match-start.md) | Feature | **Done** |

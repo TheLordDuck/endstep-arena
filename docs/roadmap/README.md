@@ -19,11 +19,11 @@ approved, rejected and marked done there. These files mirror its state as of
 
 ## Summary
 
-Approved: 1 · To do: 1 · Done: 68 · Rejected: 9
+Approved: 1 · To do: 1 · Done: 69 · Rejected: 9
 
 **Approved:** t4-8.
 
-**Still open, for later (Phase 6):** t2-25 (to do: fixed in the code, to be checked in a real match), t4-8 (approved, 3 of its 8 items done).
+**Still open, for later (Phase 6):** t2-25 (to do: fixed in the code, to be checked in a real match), t4-8 (approved, 5 of its 8 items done).
 
 ## Phases
 
@@ -35,7 +35,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 | [Phase 1 · Prompts still answered in Endstep's UI](phase-1-prompts-still-in-endstep/README.md) | **Done** | 9/9 | Done: 9 · Rejected: 1 |
 | [Phase 2 · Combat and visual effects](phase-2-combat-and-effects/README.md) | **Done** | 25/25 | Done: 25 · Rejected: 3 |
 | [Phase 3 · Game information](phase-3-game-information/README.md) | **Done** | 20/20 | Done: 20 · Rejected: 2 |
-| [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md) | **Done** | 6/6 | Done: 6 · Rejected: 1 |
+| [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md) | **Done** | 7/7 | Done: 7 · Rejected: 1 |
 | [Phase 5 · Modes and platform](phase-5-modes-and-platform/README.md) | **Done** | 3/3 | Done: 3 · Rejected: 2 |
 | [Phase 6 · Later](phase-6-later/README.md) | **Not planned** | 0/2 | Approved: 1 · To do: 1 |
 
@@ -118,7 +118,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t3-21 · [Your off-hand cards, always beside your hand](phase-3-game-information/t3-21-own-off-hand-cards-always.md) — Done
 - [x] t3-22 · [The other face of double-faced cards](phase-3-game-information/t3-22-double-faced-other-face.md) — Done
 
-### [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md): Done (6/6)
+### [Phase 4 · Comfort and settings](phase-4-comfort-and-settings/README.md): Done (7/7)
 
 - [x] t4-1 · [Keyboard shortcuts panel](phase-4-comfort-and-settings/t4-1-shortcuts-panel.md) — Done
 - [x] t4-2 · [Extension settings](phase-4-comfort-and-settings/t4-2-extension-settings.md) — Done
@@ -127,6 +127,7 @@ A phase is **Done** when every feature in it (rejected ones aside) is done, and 
 - [x] t4-5 · [The buttons on the right in Arena's order, colors and words](phase-4-comfort-and-settings/t4-5-arena-dock-buttons.md) — Done
 - [x] t4-6 · [Pass until my turn during the opponent's](phase-4-comfort-and-settings/t4-6-pass-to-my-turn.md) — Done
 - [ ] t4-7 · [The hand in a curved fan](phase-4-comfort-and-settings/t4-7-curved-hand-fan.md) — Rejected
+- [x] t4-9 · [The board turns on when a match starts](phase-4-comfort-and-settings/t4-9-board-on-at-match-start.md) — Done
 
 ### [Phase 5 · Modes and platform](phase-5-modes-and-platform/README.md): Done (3/3)
 

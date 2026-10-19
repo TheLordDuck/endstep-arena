@@ -2920,6 +2920,71 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
   animation: fade-in 0.2s ease;
 }
 .settings.open { display: flex; }
+
+/* Report a problem / Report stalling (table menu): Endstep's form, in the settings' style. */
+.report {
+  position: absolute;
+  inset: 0;
+  z-index: 97;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 16px;
+  background: radial-gradient(ellipse 80% 70% at 50% 45%, rgba(10, 8, 6, 0.75), rgba(4, 3, 2, 0.92));
+  backdrop-filter: blur(2px);
+  animation: fade-in 0.2s ease;
+}
+.report.open { display: flex; }
+.report .phead p { max-width: 560px; }
+.rep-body {
+  display: grid;
+  gap: 14px;
+  width: min(600px, 100%);
+  max-height: 62vh;
+  overflow: auto;
+  padding: 22px 26px;
+  border-radius: 14px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+.rep-row { display: flex; align-items: center; gap: 16px; }
+.rep-row > span, .rep-field > span { font: 600 13px var(--font); color: var(--text); letter-spacing: 0.02em; }
+.rep-row > b { font: 600 14px var(--font); color: var(--gold-hi); }
+.rep-field { display: grid; gap: 8px; }
+.rep-field small, .rep-diag { font: 12px var(--font); color: var(--muted); margin: 0; }
+.report textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 110px;
+  padding: 10px 12px;
+  border: 1px solid rgba(232, 198, 120, 0.35);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--text);
+  font: 14px/1.45 var(--font);
+}
+.report textarea:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 2px rgba(232, 198, 120, 0.25); }
+.rep-imgs { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.rep-imgs li { position: relative; width: 96px; height: 64px; }
+.rep-imgs img { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; border: 1px solid var(--glass-line); }
+.rep-imgs .x {
+  position: absolute; top: -7px; right: -7px; width: 20px; height: 20px; padding: 0;
+  border: 0; border-radius: 50%; background: rgba(20, 16, 10, 0.95); color: var(--muted); font-size: 11px; cursor: pointer;
+}
+.rep-imgs .x:hover { color: var(--text); }
+.rep-add {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  width: 100%; height: 100%; box-sizing: border-box;
+  border: 1px dashed rgba(232, 198, 120, 0.45); border-radius: 8px;
+  color: var(--gold-hi); font: 600 16px var(--font); cursor: pointer;
+}
+.rep-add span { font: 600 11px var(--font); }
+.rep-add:hover { background: rgba(232, 198, 120, 0.08); }
+.rep-err { margin: 0; font: 600 13px var(--font); color: #ff9c86; }
 .set-rows {
   display: grid;
   grid-template-columns: auto auto;

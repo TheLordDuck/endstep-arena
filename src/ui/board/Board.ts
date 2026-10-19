@@ -35,6 +35,7 @@ import { damageDealt } from "../../game/spellDamage";
 import { blowsOf, toldFight, trampleExcess, turnLog, type ToldFight } from "../../game/combatEvents";
 import { waitingFor, type Waiting } from "../../game/waiting";
 import { PASS_TARGETS, passLabel, passUntilStep, passUntilStops, startPassUntil, type PassTarget, type PassUntil } from "../../game/passUntil";
+import { REPORT_MAX_IMAGES, REPORT_MAX_TEXT, type Report, type ReportImage, type ReportKind, type ReportSubject } from "../../game/endstep/reports";
 
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 /** Animations turned off in the board's settings (as "reduce motion" does). */
@@ -126,6 +127,10 @@ export interface BoardHooks {
   runTableItem(label: string): void;
   /** The deck the player registered for this match (Endstep's "Show decklist"), or null. */
   decklist(matchId: string): Promise<Decklist | null>;
+  /** Who can be reported for stalling in this match (Endstep's "Report stalling"). */
+  reportSubjects(matchId: string): Promise<ReportSubject[]>;
+  /** Sends a report to Endstep ("Report a problem", "Report stalling"); true when it took it. */
+  sendReport(report: Report): Promise<boolean>;
   /** Drives the replay being watched (play, step, seek…). */
   replay(cmd: ReplayCommand): void;
   leaveReplay(): void;
@@ -411,6 +416,7 @@ export class Board {
       <div class="reveals" aria-live="polite"></div>
       <div class="menu" role="menu"></div>
       <div class="confirm" role="dialog"></div>
+      <div class="report" role="dialog"></div>
       <div class="settings" role="dialog" aria-label="Arena UI settings"></div>
       <div class="viewer"></div>
       <div class="banner"></div>
@@ -5041,6 +5047,28 @@ export class Board {
   private bindEvents(): void {
     const el = this.el;
     el.addEventListener("click", (e) => this.onClick(e));
+    // The report: its text kept as it's typed, images chosen or pasted.
+    const report = this.q(".report");
+    report.addEventListener("input", (e) => {
+      const t = e.target as HTMLElement;
+      if (this.report && t instanceof HTMLTextAreaElement) this.report.text = t.value;
+    });
+    report.addEventListener("change", (e) => {
+      const t = e.target as HTMLInputElement;
+      if (t.dataset.reportFile !== undefined && t.files) void this.addReportImages([...t.files], "image");
+    });
+    // No key typed in it reaches Endstep's shortcuts (Space would pass priority); Esc closes it.
+    for (const type of ["keydown", "keyup", "keypress"]) {
+      report.addEventListener(type, (e) => {
+        if (!(e.target as HTMLElement).matches("textarea")) return;
+        e.stopPropagation();
+        if (type === "keydown" && (e as KeyboardEvent).key === "Escape" && !this.report?.sending) this.closeReport();
+      });
+    }
+    report.addEventListener("paste", (e) => {
+      const files = [...(e.clipboardData?.items ?? [])].filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter((f): f is File => !!f);
+      if (files.length) { e.preventDefault(); void this.addReportImages(files, "pasted"); }
+    });
     // The board and its full-screen choices never scroll; a browser bringing a text box into
     // view (the "name a card" search) is put back at once.
     el.addEventListener("scroll", (e) => {
@@ -5299,6 +5327,7 @@ export class Board {
         if (m.kind === "attackers" && m.aiming) this.setMode({ ...m, aiming: null });
         this.hideMenu();
         this.hideConfirm();
+        if (!this.report?.sending) this.closeReport();
         this.q(".settings").classList.remove("open");
         this.closeViewer();
         this.hideZoom();
@@ -5382,6 +5411,7 @@ export class Board {
       if (btn.dataset.ui === "end-peek") { this.endPeek = !this.endPeek; this.render(state); }
       if (btn.dataset.ui === "peek") { this.peeking = !this.peeking; this.render(state); }
       if (btn.dataset.ui === "confirm-cancel") this.hideConfirm();
+      if (btn.dataset.ui === "report-cancel") this.closeReport();
       if (btn.dataset.ui === "settings-close") this.q(".settings").classList.remove("open");
       if (btn.dataset.ui === "log") this.setPref({ logOpen: !this.prefs.logOpen });
       if (btn.dataset.ui === "chat") this.toggleChat();
@@ -5389,6 +5419,7 @@ export class Board {
       if (btn.dataset.ui === "ability-cancel") { this.abilityPick = null; this.peeking = false; this.render(state); }
       return;
     }
+    if (btn && this.reportClick(btn)) return;
     if (btn?.dataset.revealClose) {
       this.dismissedReveals.add(btn.dataset.revealClose);
       this.render(state);
@@ -6266,19 +6297,120 @@ export class Board {
   /** The items of the table menu, by index (their labels are Endstep's). */
   private tableItems: string[] = [];
 
+  /** The report being written (table menu → Report a problem / Report stalling), as Endstep's
+      form has it: sent to Endstep from here, never through its window. */
+  private report: { kind: ReportKind; text: string; images: ReportImage[]; subjects: ReportSubject[]; subject: string | null;
+    sending: boolean; failed: boolean; missing: boolean } | null = null;
+
+  private async openReport(stalling: boolean): Promise<void> {
+    this.report = { kind: stalling ? "stalling" : "bug", text: "", images: [], subjects: [], subject: null, sending: false, failed: false, missing: false };
+    this.renderReport();
+    this.q<HTMLTextAreaElement>(".report textarea")?.focus();
+    const matchId = this.state?.matchId;
+    if (!stalling || !matchId) return;
+    const subjects = await this.hooks.reportSubjects(matchId);
+    if (this.report?.kind !== "stalling") return;
+    this.report.subjects = subjects;
+    this.report.subject = subjects.length === 1 ? subjects[0]!.userId : null;
+    this.renderReport();
+  }
+
+  /** Endstep's report form, in this board's style. Rebuilt on each change but the typing, which
+      only keeps the text (see the input listener). */
+  private renderReport(): void {
+    const r = this.report;
+    const box = this.q(".report");
+    if (!r) return box.classList.remove("open");
+    const stalling = r.kind === "stalling";
+    const typing = !!box.querySelector("textarea:focus");
+    const seg = (attr: string, options: { value: string; label: string }[], value: string | null) =>
+      `<div class="seg">${options.map((o) => `<button class="${o.value === value ? "on" : ""}" ${attr}="${esc(o.value)}"${r.sending ? " disabled" : ""}>${esc(o.label)}</button>`).join("")}</div>`;
+    const who = r.subjects.length > 1
+      ? `<div class="rep-row"><span>Player</span>${seg("data-report-subject", r.subjects.map((p) => ({ value: p.userId, label: p.username })), r.subject)}</div>`
+      : r.subjects.length === 1 ? `<div class="rep-row"><span>Player</span><b>${esc(r.subjects[0]!.username)}</b></div>` : "";
+    const label = stalling || r.kind === "bug" ? "What happened?" : "What would you change?";
+    const room = REPORT_MAX_IMAGES - r.images.length;
+    box.innerHTML = `<div class="phead"><h2>${stalling ? "Report stalling" : "Report a problem"}</h2>
+        <p>${stalling ? "Tell us what happened. The server will attach the match timing record for review." : "Goes to the Endstep team."}</p></div>
+      <div class="rep-body">
+        ${stalling ? who : `<div class="rep-row"><span>Kind</span>${seg("data-report-kind", [{ value: "bug", label: "Bug" }, { value: "suggestion", label: "Suggestion" }], r.kind)}</div>`}
+        ${stalling && !r.subjects.length ? '<p class="rep-err">Looking for who to report… (Endstep only lets you report another player, not a bot.)</p>' : ""}
+        <label class="rep-field"><span>${label}</span><textarea rows="5" maxlength="${REPORT_MAX_TEXT}"${r.sending ? " disabled" : ""}>${esc(r.text)}</textarea></label>
+        ${r.missing ? '<p class="rep-err" role="alert">Describe it first.</p>' : ""}
+        <div class="rep-field"><span>Images${r.images.length ? ` · ${r.images.length} of ${REPORT_MAX_IMAGES}` : ""}</span>
+          <ul class="rep-imgs">${r.images.map((img, i) => `<li><img src="${esc(img.dataUrl)}" alt=""><button class="x" data-report-rm="${i}" title="Remove">✕</button></li>`).join("")}
+            ${room > 0 ? '<li><label class="rep-add">＋<span>Add image</span><input type="file" accept="image/*" multiple hidden data-report-file></label></li>' : ""}</ul>
+          <small>Up to ${REPORT_MAX_IMAGES}. Paste a screenshot with Ctrl+V.</small></div>
+        <p class="rep-diag">Diagnostics attached: the page, your browser and screen, the game's state, and this extension's version.</p>
+      </div>
+      ${r.failed ? `<p class="rep-err" role="alert">Couldn't send. Your report is kept.</p>` : ""}
+      <div class="choices big"><button class="opt" data-ui="report-cancel"${r.sending ? " disabled" : ""}>Cancel</button>
+        <button class="opt primary" data-report-send${r.sending || (stalling && !r.subject) ? " disabled" : ""}>${r.sending ? "Sending…" : r.failed ? "Try again" : "Send report"}</button></div>`;
+    box.classList.add("open");
+    if (typing) box.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+  }
+
+  private closeReport(): void {
+    this.report = null;
+    this.renderReport();
+  }
+
+  /** A click in the report: its kind, the player, an image removed, Send. */
+  private reportClick(btn: HTMLElement): boolean {
+    const r = this.report;
+    if (!r || !btn.closest(".report")) return false;
+    if (btn.dataset.reportKind) r.kind = btn.dataset.reportKind as ReportKind;
+    else if (btn.dataset.reportSubject) r.subject = btn.dataset.reportSubject;
+    else if (btn.dataset.reportRm) r.images.splice(Number(btn.dataset.reportRm), 1);
+    else if (btn.dataset.reportSend !== undefined) { void this.sendReport(); return true; }
+    else return false;
+    this.renderReport();
+    return true;
+  }
+
+  private async sendReport(): Promise<void> {
+    const r = this.report;
+    if (!r || r.sending) return;
+    r.missing = !r.text.trim();
+    if (r.missing || (r.kind === "stalling" && !r.subject)) return this.renderReport();
+    r.sending = true;
+    r.failed = false;
+    this.renderReport();
+    const ok = await this.hooks.sendReport({ kind: r.kind, description: r.text, images: r.images, ...(r.subject ? { subjectUserId: r.subject } : {}) });
+    if (this.report !== r) return;
+    r.sending = false;
+    if (!ok) { r.failed = true; return this.renderReport(); }
+    this.closeReport();
+    this.toast("Report sent. Thank you.");
+  }
+
+  /** Images added to the report (chosen or pasted), made smaller (see shrinkImage). */
+  private async addReportImages(files: File[], kind: ReportImage["kind"]): Promise<void> {
+    const r = this.report;
+    if (!r) return;
+    for (const file of files.filter((f) => f.type.startsWith("image/"))) {
+      if (r.images.length >= REPORT_MAX_IMAGES) break;
+      const dataUrl = await shrinkImage(file);
+      if (dataUrl && this.report === r) r.images.push({ kind, dataUrl });
+    }
+    if (this.report === r) this.renderReport();
+  }
+
   /** The game menu, in this board's style: the board's own items, then Endstep's concede items
       (Concede asks here first). */
   private async openTableMenu(x: number, y: number): Promise<void> {
     const labels = (await this.hooks.tableMenu()) ?? ["Reload", "Concede"];
     this.tableItems = labels;
-    // Of Endstep's items, those the board does itself: the decklist, reloading, conceding. The
-    // others (auto-yields, settings, reports, macros) would open Endstep's own UI over the board,
-    // so they're left out until the board has its own; its keyboard shortcuts are in the board's.
+    // Of Endstep's items, those the board does itself: the decklist, the reports, reloading,
+    // conceding. The others (auto-yields, settings, macros) would open Endstep's own UI over the
+    // board, so they're left out until the board has its own; its keyboard shortcuts are in the board's.
     const items: { label: string; hint?: string; data: string; cls?: string }[] = labels.flatMap((label) => {
       const concede = /^concede( game| match)?$/i.exec(label);
       if (concede) return [{ label, data: `concede:${concede[1]?.trim().toLowerCase() ?? "single"}`, cls: "danger" }];
       if (label === "Show decklist") return [{ label, data: "arena:decklist" }];
       if (label === "Reload") return [{ label, data: "arena:reload" }];
+      if (label === "Report a problem") return [{ label, data: "arena:report-problem" }];
+      if (label === "Report stalling") return [{ label, data: "arena:report-stalling" }];
       return [];
     });
     // This board's own items come first.
@@ -6343,6 +6475,7 @@ export class Board {
       if (id === "log") this.setPref({ logOpen: !this.prefs.logOpen });
       if (id === "decklist") void this.renderDecklist();
       if (id === "reload") location.reload();
+      if (id === "report-problem" || id === "report-stalling") void this.openReport(id === "report-stalling");
       return;
     }
     if (cmd === "pass") {

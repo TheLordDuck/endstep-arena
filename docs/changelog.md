@@ -16,6 +16,11 @@ On top of `b4c5728`. All 162 tests pass. Checked in the harness, not yet in a li
    `auras-target`.
 5. **What an Aura exiles** (Sheltered by Ghosts) peeks out under its creature instead of
    disappearing (t2-29). Harness: `sheltered`.
+6. **Report a problem and Report stalling** are back in the game menu, as the board's own form:
+   kind or the player who stalls, what happened, images (chosen or pasted) and diagnostics, sent to
+   Endstep as its form sends them (`POST /api/bug-reports`) (t4-8, 5 of 8). Tests in
+   `tests/reports.test.ts`.
+7. **The board turns on when a match starts,** even if it was turned off before (t4-9).
 
 ## Release 0.8.0 (2026-10-16)
 

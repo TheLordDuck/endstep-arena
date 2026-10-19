@@ -18,6 +18,7 @@ import { StatePacer } from "./StatePacer";
 import type { GameState } from "../game/GameState";
 import { endstepWindowOpen, readBoardMenu, runBoardMenuItem } from "../game/endstep/boardMenu";
 import { fetchDecklist } from "../game/endstep/decklist";
+import { fetchReportSubjects, reportBody, reportDiagnostics, sendReport } from "../game/endstep/reports";
 import { COMMAND_TAG, type DamageSoundCommand } from "../shared/protocol";
 
 export type SocketStatus = "none" | "open" | "closed";
@@ -67,6 +68,8 @@ export class Overlay {
   /** Whether Endstep's damage sound is being held back for the board's hits (as last told). */
   private damageHold = false;
   private endHold = false;
+  /** The match last shown: a new one turns the board on, even if it was turned off before. */
+  private matchId: string | null = null;
 
   constructor(
     private readonly adapter: EndstepAdapter,
@@ -129,14 +132,22 @@ export class Overlay {
       dwellMs: () => this.board?.dwellMs() ?? 0,
     });
     this.adapter.subscribe((state) => {
-      if (state) this.ensureBoard();
+      if (state) this.onMatch(state);
       this.pacer.push(state);
     });
     const state = this.adapter.getGameState();
-    if (state) this.ensureBoard();
+    if (state) this.onMatch(state);
     this.pacer.push(state);
     this.adapter.subscribe(() => this.invalidate());
     this.render();
+  }
+
+  /** A state of a match: the board is made if it isn't yet, and a match starting turns it on. */
+  private onMatch(state: GameState): void {
+    this.ensureBoard();
+    if (state.matchId === this.matchId) return;
+    this.matchId = state.matchId;
+    if (!this.settings.enabled) this.setEnabled(true);
   }
 
   /** The board, with its stylesheet, put up the first time there's a match. */
@@ -154,6 +165,12 @@ export class Overlay {
       tableMenu: () => readBoardMenu(),
       runTableItem: (label) => this.runTableItem(label),
       decklist: (matchId) => fetchDecklist(matchId),
+      reportSubjects: (matchId) => fetchReportSubjects(matchId),
+      sendReport: (report) => {
+        const raw = this.adapter.getRawState();
+        const diagnostics = reportDiagnostics(raw, chrome.runtime.getManifest().version, this.adapter.getGameState()?.viewerSeat);
+        return sendReport(reportBody(report, raw, diagnostics));
+      },
       replay: (cmd) => this.replays.command(cmd),
       leaveReplay: () => {
         // Endstep's own way out of the replay (back to where it was opened from).
