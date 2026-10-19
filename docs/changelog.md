@@ -1,5 +1,23 @@
 # Changelog
 
+## Release 0.9.0 (2026-10-19)
+
+On top of `66f4e08`. All 166 tests pass. `pnpm visual`: the changed scenarios are the expected
+ones (Pacifism on Grizzly Bears now peeks out from its left edge, so that row sits a little
+higher; the old baseline still had the opponent's commander at the top centre), taken as the new
+baseline, with the new `sidegrey`, `auras`, `auras-target` and `sheltered`. Everything in the
+session below (2026-10-19); `package.json` and `public/manifest.json` at 0.9.0.
+
+1. **The opponent's revealed cards** show big when you point at them.
+2. **Your off-hand cards** (commander, flashback, adventure…) always beside your hand, greyed
+   while you can't play them, without moving around.
+3. **Double-faced cards** show their other face when pointed at.
+4. **Auras and Equipment** behind their permanent, peeking out from its left edge; with several,
+   a click opens them in a fan to pick one, for targeting too.
+5. **What an Aura exiles** (Sheltered by Ghosts) peeks out under its creature.
+6. **Report a problem and Report stalling** in the board's own form.
+7. **The board turns on when a match starts.**
+
 ## Session of 2026-10-19
 
 On top of `b4c5728`. All 162 tests pass. Checked in the harness, not yet in a live match.
