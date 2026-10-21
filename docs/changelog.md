@@ -1,5 +1,18 @@
 # Changelog
 
+## Release 0.10.0 (2026-10-21)
+
+On top of `7cadcf5`. All 174 tests pass. `pnpm visual`: the changed scenarios are the expected
+ones (the baseline was still from 2026-10-16, before 0.9.0's Auras: Pacifism peeking out behind
+Grizzly Bears moves that row a little), taken as the new baseline, with the new `yields`,
+`arrange-bottom` and `replacement`. `package.json` and `public/manifest.json` at 0.10.0.
+
+1. **Auto-yields on the board**, checked in a live match (session of 2026-10-21 below).
+2. **Cards put on the bottom of the library, into the graveyard or exile** in an order are
+   arranged in a pile named after where they go, the first tagged *Bottom* or *1st*, as Endstep
+   names them; **two replacement effects** are ordered as *Order Replacement Effects*, *Applies
+   first* (t1-11, `f022689`, 2026-10-19). Harness: `arrange-bottom`, `replacement`.
+
 ## Session of 2026-10-21
 
 On top of `f022689`. All 174 tests pass. Checked in the harness and in a live match.
