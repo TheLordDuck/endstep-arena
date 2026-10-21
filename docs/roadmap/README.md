@@ -5,7 +5,7 @@ What's left for the extension to feel like MTG Arena, in phases. Each phase is a
 
 **Where decisions are made:** the tracker page https://claude.ai/artifact/43uFfdsXsZiFrf2YzYu4T9 (private to its owner). Features are
 approved, rejected and marked done there. These files mirror its state as of
-**2026-10-19** and are regenerated from it, not edited by hand.
+**2026-10-21** and are regenerated from it, not edited by hand.
 
 ## Statuses
 
@@ -23,7 +23,7 @@ Approved: 1 · To do: 2 · Done: 70 · Rejected: 9
 
 **Approved:** t4-8.
 
-**Still open, for later (Phase 6):** t1-12 (to do: check the prompts in real matches), t2-25 (to do: fixed in the code, to be checked in a real match), t4-8 (approved, 5 of its 8 items done).
+**Still open, for later (Phase 6):** t1-12 (to do: check the prompts in real matches), t2-25 (to do: fixed in the code, to be checked in a real match), t4-8 (approved, 6 of its 8 items done).
 
 ## Phases
 

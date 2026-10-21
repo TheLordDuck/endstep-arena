@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | **Approved** (in progress: 5 of 8) |
+| Status | **Approved** (in progress: 6 of 8) |
 | Phase | [Phase 6 · Later](README.md) |
 | Type | Feature |
 | Needs approval | Yes |
@@ -20,7 +20,8 @@ The menu had the game log, this board's settings and shortcuts, and Concede (gam
 - **Reload:** reloads the page.
 - **Keyboard shortcuts:** the board's list ends with Endstep's keys and your rebinds (`src/ui/board/endstepKeys.ts`).
 - **Report a problem** and **Report stalling** (2026-10-19, not yet in a live match): back in the menu (when Endstep offers them), as the board's own form in its style: kind (bug or suggestion) or the player who stalls (from the match's participants, `GET /api/matches/:id`), what happened, up to 6 images (chosen or pasted), and diagnostics (the page, the browser, a summary of the game, this extension's version). Sent as Endstep's form sends it, `POST /api/bug-reports` (`src/game/endstep/reports.ts`). Endstep's automatic screenshot of its page isn't taken; images are added by hand.
-- Still left out: Auto-yields (Endstep keeps that state itself and sends it), Settings (Endstep's own), Record a macro.
+- **Auto-yields** (2026-10-21, checked in a live match, Creeping Chill included): right-click an ability on the stack for **Auto-yield** (marking the one on top while you have priority passes it at once), and on a "you may" trigger **Always yes** / **Always no**; **Disable auto-yields** pauses them. The menu's item opens a panel in the settings' style: on or paused, how long they're remembered (this game, this match, this device, under Endstep's own `localStorage` keys), the yielded abilities and trigger answers to forget, and the orders saved with "OK & remember" to forget (`CLEAR_REMEMBERED_ORDERS`). Sent with `SET_AUTO_YIELDS` as Endstep's client sends them, and sent again when its client sends its own copy; holding priority (H) pauses them (`src/game/endstep/autoYields.ts`, `src/game/AutoYieldSync.ts`).
+- Still left out: Settings (Endstep's own), Record a macro.
 
 ## What it involves
 
@@ -36,3 +37,4 @@ The menu had the game log, this board's settings and shortcuts, and Concede (gam
 - 2026-10-16: approved; decklist, reload and keyboard shortcuts done on the board.
 - 2026-10-16: moved to Phase 6 · Later (to be done in the future).
 - 2026-10-19: Report a problem and Report stalling done.
+- 2026-10-21: Auto-yields done and checked in a live match.

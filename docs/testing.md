@@ -16,8 +16,9 @@ Useful parameters:
 - `?step=<ms>`: a scenario's follow-up states come that far apart instead of all at once.
 - `?point=x,y` / `?click=x,y`: moves the pointer or clicks once the board is up. The click runs
   before full-screen choices appear, so it can't drive them.
-- `?open=menu|decklist|shortcuts`: opens the table menu (in the middle of the board), the
-  decklist (a Burn deck) or the keyboard shortcuts; `?point=` points again once it's up.
+- `?open=menu|decklist|shortcuts|yields`: opens the table menu (in the middle of the board), the
+  decklist (a Burn deck), the keyboard shortcuts or the auto-yields panel (with a few abilities and
+  trigger answers to forget); `?point=` points again once it's up.
 
 ### Scenarios added on 2026-10-07
 
@@ -173,3 +174,9 @@ Added on 2026-10-19:
 | --- | --- |
 | `arrange-bottom` | Cards put on the bottom of the library in any order: *Bottom of Library*, the first tagged *Bottom* |
 | `replacement` | Two replacement effects (Doubling Season, Anointed Procession): *Order Replacement Effects*, *Applies first* |
+
+Added on 2026-10-21:
+
+| Scenario | Shows |
+| --- | --- |
+| `yields` | An opponent's Arid Mesa and your Thragtusk's "you may" trigger on the stack: right-click either for *Auto-yield* (and *Always yes* / *Always no* on the trigger) |

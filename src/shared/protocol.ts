@@ -84,11 +84,14 @@ export function isDamageSoundCommand(v: unknown): v is DamageSoundCommand {
 
 /**
  * The only action types the Arena UI may send: exactly the in-game choices
- * Endstep's own UI offers, plus its phase-stop setting. No CHEAT. Conceding is only sent after
- * the player confirms it in the board's concede dialog.
+ * Endstep's own UI offers, plus its phase-stop and auto-yield settings. No CHEAT. Conceding is only
+ * sent after the player confirms it in the board's concede dialog.
  */
 export const ALLOWED_ACTIONS = new Set([
   "SET_PHASE_STOPS",
+  // Auto-yields (the stack's right-click menu and the table menu's panel), and forgetting the
+  // orders saved with "OK & remember".
+  "SET_AUTO_YIELDS", "CLEAR_REMEMBERED_ORDERS",
   "PASS_PRIORITY", "PLAY_CARD", "TAP_MANA", "AUTO_PAY", "CANCEL", "UNDO",
   "DECLARE_ATTACKERS", "DECLARE_BLOCKERS", "CHOOSE_TARGETS", "CHOOSE_CARDS",
   "CHOOSE_MODE", "CHOOSE_COLOR", "CHOOSE_TYPE", "CHOOSE_NUMBER", "CHOOSE_MANA",

@@ -13,6 +13,8 @@ import { arrangeMove, canConfirm, clickInMode, deckColumns, defenderForKey, deri
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
 import { currentStep, stepIndex, stepLabel, TURN_STEPS } from "./phases";
 import type { PhaseStops, StopSide } from "../../game/endstep/phaseStops";
+import type { AutoYieldSync } from "../../game/AutoYieldSync";
+import type { YieldScope } from "../../game/endstep/autoYields";
 import { REPLAY_SPEEDS, type ReplayCommand, type ReplayStatus } from "../../game/ReplayPlayer";
 import { avatarPicture } from "../../game/endstep/avatars";
 import { ExileLinks } from "../../game/exileLinks";
@@ -121,6 +123,8 @@ export interface BoardHooks {
   togglePhaseStop(side: StopSide, step: string): void;
   /** Stops added for a while on top of the player's ("Pass until…"), or null to drop them. */
   setTemporaryStops(extra: Partial<Record<StopSide, string[]>> | null): void;
+  /** The auto-yields (Endstep's "Auto-yields"): read and changed from the stack and the table menu. */
+  autoYields(): AutoYieldSync;
   /** The items of Endstep's own table menu (decklist, settings, concede…), or null without one. */
   tableMenu(): Promise<string[] | null>;
   /** Runs one of those items through Endstep's menu (its window shows while the board steps aside). */
@@ -668,6 +672,74 @@ export class Board {
         `<div class="key-row"><span class="kk">${key(k)}</span><span>${esc(what)}</span></div>`).join("")}</section>`).join("")}</div>
       <div class="choices big"><button class="opt primary" data-ui="settings-close">Done</button></div>`;
     box.classList.add("open");
+  }
+
+  /** The keys listed in the auto-yields panel, by their place (see renderYields). */
+  private yieldRows: { abilities: string[]; answers: string[] } = { abilities: [], answers: [] };
+  /** The remembered orders were forgotten (said in the panel until it's closed). */
+  private ordersForgotten = false;
+
+  /** Endstep's "Auto-yields" (table menu), in the settings' panel: auto-yields on or paused, how
+      long they're kept, and the abilities and trigger answers to forget. */
+  private renderYields(): void {
+    const sync = this.hooks.autoYields();
+    const y = sync.get();
+    const box = this.q(".settings");
+    if (box.dataset.panel !== "yields") this.ordersForgotten = false;
+    box.dataset.panel = "yields";
+    const abilities = [...y.abilities].sort((a, b) => a.localeCompare(b));
+    const answers = [...new Set([...y.decline, ...y.accept])].sort((a, b) => a.localeCompare(b));
+    this.yieldRows = { abilities, answers };
+    const status = y.paused ? "Paused. Yielded abilities wait for you." + (answers.length ? " Trigger answers still apply." : "")
+      : this.holdPriority ? "Paused while you hold priority. Resumes when you let it go."
+      : "Active. Marked abilities resolve on their own.";
+    const scopes: { value: YieldScope; label: string; note: string }[] = [
+      { value: "game", label: "This game", note: "Cleared when this game ends." },
+      { value: "match", label: "This match", note: "Kept through the match, cleared when it ends." },
+      { value: "device", label: "This device", note: "Saved on this device until you forget them." },
+    ];
+    const row = (text: string, data: string, tag = "") => `<li>${tag}<span class="yl-text" title="${esc(text)}">${esc(text.trim() || "Unnamed ability")}</span>
+      <button class="x" data-yield="${data}" aria-label="Forget">✕</button></li>`;
+    const live = !!this.state && !this.state.replay && !this.state.spectating;
+    box.innerHTML = `<div class="phead"><h2>Auto-yields</h2><p>Abilities that resolve without stopping for your priority, and “you may” triggers answered for good.</p></div>
+      <div class="yields">
+        <div class="set-rows">
+          <div class="set-row"><span>Auto-yields</span><div class="seg">
+            <button class="${y.paused ? "" : "on"}" data-yield="pause:off">On</button><button class="${y.paused ? "on" : ""}" data-yield="pause:on">Paused</button></div></div>
+          <div class="set-row"><span></span><small class="yl-note">${esc(status)}</small></div>
+          <div class="set-row"><span>Remember for</span><div class="seg">${scopes.map((s) =>
+            `<button class="${y.scope === s.value ? "on" : ""}" data-yield="scope:${s.value}">${esc(s.label)}</button>`).join("")}</div></div>
+          <div class="set-row"><span></span><small class="yl-note">${esc(scopes.find((s) => s.value === y.scope)!.note)}</small></div>
+        </div>
+        ${!abilities.length && !answers.length ? `<div class="yl-empty"><p>No auto-yields or trigger answers.</p>
+          <small>Right-click an ability on the stack and choose Auto-yield to let it resolve without stopping for you.</small></div>` : ""}
+        ${abilities.length ? `<section><h3>Yielded abilities <span>${abilities.length}</span><button class="yl-all" data-yield="forget-abilities">Forget all</button></h3>
+          <ul class="yl-list">${abilities.map((k, i) => row(k, `ability:${i}`)).join("")}</ul></section>` : ""}
+        ${answers.length ? `<section><h3>Trigger answers <span>${answers.length}</span><button class="yl-all" data-yield="forget-answers">Clear all</button></h3>
+          <ul class="yl-list">${answers.map((k, i) => row(k, `answer:${i}`, y.accept.has(k) ? '<b class="yl-tag yes">Yes</b>' : '<b class="yl-tag">No</b>')).join("")}</ul></section>` : ""}
+        ${live ? `<section class="yl-orders"><div><b>Remembered orders</b><small>${this.ordersForgotten ? "Forgotten. The next ordering question will ask you again."
+          : "Orders you saved with “OK & remember” are used without asking for the rest of this game."}</small></div>
+          <button class="yl-all" data-yield="forget-orders">Forget</button></section>` : ""}
+      </div>
+      <div class="choices big"><button class="opt primary" data-ui="settings-close">Done</button></div>`;
+    box.classList.add("open");
+  }
+
+  /** A button of the auto-yields panel. */
+  private onYieldPanel(data: string): void {
+    const sync = this.hooks.autoYields();
+    const [what, arg] = data.split(":");
+    if (what === "pause") sync.setPaused(arg === "on");
+    else if (what === "scope") sync.setScope(arg as YieldScope);
+    else if (what === "ability") sync.forgetAbility(this.yieldRows.abilities[Number(arg)] ?? "");
+    else if (what === "answer") sync.forgetAnswer(this.yieldRows.answers[Number(arg)] ?? "");
+    else if (what === "forget-abilities") sync.forgetAbility(null);
+    else if (what === "forget-answers") sync.forgetAnswer(null);
+    else if (what === "forget-orders") {
+      this.controller.clearRememberedOrders();
+      this.ordersForgotten = true;
+    }
+    this.renderYields();
   }
 
   /** The deck asked for, by match (fetched once). */
@@ -5320,7 +5392,7 @@ export class Board {
       if ((e.key === "h" || e.key === "H") && this.el.classList.contains("live") && !e.ctrlKey && !e.altKey && !e.metaKey && !(e.target as HTMLElement | null)?.closest?.("input, textarea, [contenteditable]")) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        this.holdPriority = !this.holdPriority;
+        this.setHoldPriority(!this.holdPriority);
         this.toast(this.holdPriority ? "Holding priority" : "Priority passes after you cast");
         if (this.state) this.render(this.state);
         return;
@@ -5336,6 +5408,12 @@ export class Board {
         this.zoomPinned = false;
       }
     }, true);
+  }
+
+  /** Hold priority on or off; while it's on, auto-yields wait (as Endstep's Hold priority does). */
+  private setHoldPriority(on: boolean): void {
+    this.holdPriority = on;
+    this.hooks.autoYields().setHolding(on);
   }
 
   private keyFromTarget(t: HTMLElement): string | null {
@@ -5388,6 +5466,10 @@ export class Board {
 
     if (btn?.dataset.pref) {
       this.onPrefButton(btn);
+      return;
+    }
+    if (btn?.dataset.yield) {
+      this.onYieldPanel(btn.dataset.yield);
       return;
     }
     if (btn?.dataset.stop) {
@@ -5585,7 +5667,7 @@ export class Board {
         break;
       }
       case "hold":
-        this.holdPriority = !this.holdPriority;
+        this.setHoldPriority(!this.holdPriority);
         if (this.state) this.render(this.state);
         return;
       case "end-turn":
@@ -6287,8 +6369,57 @@ export class Board {
         : "Select";
       items.push({ label, data: `select:${key}` });
     }
+    items.push(...this.yieldItems(el));
     if (items.length) this.showMenu(e.clientX, e.clientY, items, c?.name);
     else this.hideMenu();
+  }
+
+  /** An ability on the stack: let it resolve without stopping for you from now on (auto-yield),
+      or answer its "you may" for good, as Endstep's own stack menu offers. */
+  private yieldItems(el: HTMLElement | undefined): { label: string; hint?: string; data: string }[] {
+    const state = this.state;
+    if (!el?.closest(".stack") || !state || state.replay || state.spectating) return [];
+    const i = state.stack.findIndex((s) => `ab:${s.id}` === el.dataset.id);
+    const item = state.stack[i];
+    if (!item?.isAbility || !item.yieldKey) return [];
+    const y = this.hooks.autoYields().get();
+    const tick = (on: boolean) => (on ? "✓" : undefined);
+    const items = [{ label: "Auto-yield", hint: tick(y.abilities.has(item.yieldKey)), data: `yield:ability:${i}` }];
+    if (item.optionalTrigger && item.triggerId) {
+      items.push({ label: "Always yes", hint: tick(y.accept.has(item.yieldKey)), data: `yield:yes:${i}` },
+        { label: "Always no", hint: tick(y.decline.has(item.yieldKey)), data: `yield:no:${i}` });
+    }
+    items.push({ label: "Disable auto-yields", hint: tick(y.paused), data: "yield:pause:-" });
+    return items;
+  }
+
+  /** One of those, chosen. Marking the ability on top while you have priority passes it now, and
+      always answering the trigger that's asking answers it now, as Endstep does. */
+  private onYieldItem(what: string, index: number): void {
+    const sync = this.hooks.autoYields();
+    const y = sync.get();
+    if (what === "pause") return sync.setPaused(!y.paused);
+    const state = this.state;
+    const item = state?.stack[index];
+    const key = item?.yieldKey;
+    if (!state || !item || !key) return;
+    const p = state.pending;
+    if (what === "ability") {
+      const now = !y.abilities.has(key) && !y.paused && !this.holdPriority && p?.type === "PRIORITY" && !this.awaiting && state.stack[0]?.isAbility && state.stack[0].yieldKey === key;
+      sync.toggleAbility(key);
+      if (now) {
+        this.controller.passPriority();
+        this.setAwaiting(true);
+      }
+      return;
+    }
+    const yes = what === "yes";
+    const now = !(yes ? y.accept : y.decline).has(key) && !y.paused && p?.type === "YES_NO" && !this.awaiting && !!item.triggerId && p.triggerId === item.triggerId;
+    sync.toggleAnswer(key, yes);
+    if (now) {
+      this.controller.answer(yes);
+      this.setAwaiting(true);
+    }
   }
 
   private pinZoom(c: CardView, extra?: string): void {
@@ -6403,13 +6534,14 @@ export class Board {
   private async openTableMenu(x: number, y: number): Promise<void> {
     const labels = (await this.hooks.tableMenu()) ?? ["Reload", "Concede"];
     this.tableItems = labels;
-    // Of Endstep's items, those the board does itself: the decklist, the reports, reloading,
-    // conceding. The others (auto-yields, settings, macros) would open Endstep's own UI over the
+    // Of Endstep's items, those the board does itself: the decklist, auto-yields, the reports,
+    // reloading, conceding. The others (settings, macros) would open Endstep's own UI over the
     // board, so they're left out until the board has its own; its keyboard shortcuts are in the board's.
     const items: { label: string; hint?: string; data: string; cls?: string }[] = labels.flatMap((label) => {
       const concede = /^concede( game| match)?$/i.exec(label);
       if (concede) return [{ label, data: `concede:${concede[1]?.trim().toLowerCase() ?? "single"}`, cls: "danger" }];
       if (label === "Show decklist") return [{ label, data: "arena:decklist" }];
+      if (label === "Auto-yields") return [{ label, data: "arena:yields" }];
       if (label === "Reload") return [{ label, data: "arena:reload" }];
       if (label === "Report a problem") return [{ label, data: "arena:report-problem" }];
       if (label === "Report stalling") return [{ label, data: "arena:report-stalling" }];
@@ -6471,11 +6603,13 @@ export class Board {
       return;
     }
     if (cmd === "concede") return this.showConcede(id);
+    if (cmd === "yield") return this.onYieldItem(id, Number(arg));
     if (cmd === "arena") {
       if (id === "settings") this.renderSettings();
       if (id === "shortcuts") this.renderShortcuts();
       if (id === "log") this.setPref({ logOpen: !this.prefs.logOpen });
       if (id === "decklist") void this.renderDecklist();
+      if (id === "yields") this.renderYields();
       if (id === "reload") location.reload();
       if (id === "report-problem" || id === "report-stalling") void this.openReport(id === "report-stalling");
       return;

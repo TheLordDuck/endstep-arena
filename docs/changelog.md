@@ -1,5 +1,24 @@
 # Changelog
 
+## Session of 2026-10-21
+
+On top of `f022689`. All 174 tests pass. Checked in the harness and in a live match.
+
+1. **Auto-yields on the board** (t4-8, 6 of 8): right-click an ability on the stack for
+   *Auto-yield* (the one on top passes at once while you have priority), and a "you may" trigger
+   for *Always yes* / *Always no*; *Disable auto-yields* pauses them. *Auto-yields* is back in the
+   table menu as the board's own panel: on or paused, remembered for this game, this match or this
+   device (Endstep's own `localStorage` keys), the abilities and trigger answers to forget, and
+   forgetting the orders saved with "OK & remember". Sent to the server with `SET_AUTO_YIELDS` as
+   Endstep's client sends them, and again if its client sends its own copy; holding priority (H)
+   pauses them. Tests in `tests/autoYields.test.ts`. Harness: `yields`, `?open=yields`.
+   - Tried in a live match: the page's action filter dropped `SET_AUTO_YIELDS` (and
+     `CLEAR_REMEMBERED_ORDERS`); both are now allowed.
+   - Creeping Chill's trigger doesn't ask "Use triggered ability?" (what the server answers from
+     *Always yes / no*): its effect asks "Exile Creeping Chill?" with no trigger id. The board
+     answers that question itself when it comes from the card of the trigger resolving on top of
+     the stack.
+
 ## Release 0.9.0 (2026-10-19)
 
 On top of `66f4e08`. All 166 tests pass. `pnpm visual`: the changed scenarios are the expected

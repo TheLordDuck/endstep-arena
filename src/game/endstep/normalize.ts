@@ -21,6 +21,7 @@ import type {
   RevealView,
   StackItemView,
 } from "../GameState";
+import { yieldKeyOf } from "./autoYields";
 
 export type Raw = Record<string, unknown>;
 
@@ -226,6 +227,9 @@ function toStackItem(v: unknown, index: number): StackItemView | null {
     ...optional("description", isAbility ? undefined : str(v.abilityDescription ?? v.description)),
     // "Name (id): {T}, Pay 1 life, Sacrifice …: Search …": the ability after its source's name.
     ...optional("abilityText", typeof v.yieldKey === "string" ? str(v.yieldKey.replace(/^[^:]*?\(\d+\):\s*/, "")) : undefined),
+    ...optional("yieldKey", typeof v.yieldKey === "string" && v.yieldKey ? yieldKeyOf(v.yieldKey) : undefined),
+    ...(v.optionalTrigger === true ? { optionalTrigger: true } : {}),
+    ...optional("triggerId", str(v.triggerId)),
     ...modesOf(v.chosenModes ?? v.selectedModes ?? v.modeIndices),
   };
 }
@@ -318,6 +322,7 @@ function toPending(v: unknown, meta: Pick<FrameMeta, "serverSkew" | "frozen"> = 
     ...(v.type === "PAY_MANA" && v.phyrexianMana === true ? { phyrexian: true } : {}),
     canUndo: v.canUndo === true,
     cancellable: v.cancellable === true,
+    ...optional("triggerId", v.type === "YES_NO" ? str(v.triggerId) : undefined),
     ...numberRange(v),
     ...(v.type === "ASSIGN_DAMAGE" || v.type === "DIVIDE_SHIELD" ? { divide: toDivide(v, options, raw) } : {}),
     ...(v.type === "CHOOSE_PILE" ? { piles: arr(v.piles).filter(isObj).map(toPile).filter((x): x is PileView => !!x) } : {}),

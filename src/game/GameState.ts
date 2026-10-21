@@ -140,6 +140,12 @@ export interface StackItemView {
   description?: string;
   /** The ability as printed, cost included ("+1: Draw a card."), from Endstep's yieldKey. */
   abilityText?: string;
+  /** The key Endstep auto-yields this ability by (its yieldKey without the source). */
+  yieldKey?: string;
+  /** An optional trigger ("you may"): it can be answered Yes or No for good. Its trigger id
+      names it in the YES_NO question it asks. */
+  optionalTrigger?: boolean;
+  triggerId?: string;
   /** The modes chosen (indexes into the card's "•" lines), when Endstep sends them. */
   modes?: number[];
 }
@@ -203,6 +209,8 @@ export interface PendingActionView {
   canUndo: boolean;
   /** CHOOSE_MANA: the choice can be backed out of (DECLINE). */
   cancellable: boolean;
+  /** YES_NO asked by an optional trigger: its trigger id (as on the stack). */
+  triggerId?: string;
   /** CHOOSE_NUMBER (X costs, "choose a number"): the range, and the only values allowed when
       Endstep lists them (minValue / maxValue / allowedValues). */
   numberMin: number;

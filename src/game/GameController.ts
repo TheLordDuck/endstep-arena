@@ -23,7 +23,7 @@ export const playerTargetKey = (index: number) => `player:${index}`;
 const wireTarget = (key: string) => (key.startsWith("player:") ? -(Number(key.slice(7)) + 1) : wireId(key));
 
 // Types Endstep never stamps with the prompt version (its `mS` helper).
-const UNVERSIONED = new Set(["SET_PHASE_STOPS", "SET_AUTO_YIELDS", "CHEAT", "CONCEDE", "CONCEDE_MATCH"]);
+const UNVERSIONED = new Set(["SET_PHASE_STOPS", "SET_AUTO_YIELDS", "CLEAR_REMEMBERED_ORDERS", "CHEAT", "CONCEDE", "CONCEDE_MATCH"]);
 
 /** How long a second combat declaration for the same prompt is held back (see firstDeclaration). */
 const DECLARE_AGAIN_MS = 3000;
@@ -63,6 +63,16 @@ export class GameController {
 
   setPhaseStops(stops: PhaseStops): void {
     this.send(stopsAction(stops));
+  }
+
+  /** The auto-yields as Endstep's client sends them (see endstep/autoYields.ts). */
+  setAutoYields(action: WireAction): void {
+    this.send(action);
+  }
+
+  /** Forgets the orders saved with "OK & remember": the next ordering question asks again. */
+  clearRememberedOrders(): void {
+    this.send({ type: "CLEAR_REMEMBERED_ORDERS" });
   }
 
   passPriority(): void {

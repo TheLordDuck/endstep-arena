@@ -9,6 +9,7 @@ import { decodeReplay } from "../game/endstep/replay";
 import { ReplayPlayer } from "../game/ReplayPlayer";
 import { GameController } from "../game/GameController";
 import { PhaseStopSync } from "../game/PhaseStopSync";
+import { AutoYieldSync } from "../game/AutoYieldSync";
 import { Overlay, type NetworkEntry, type SocketStatus } from "../ui/Overlay";
 import { loadSettings } from "./settings";
 import { devReport } from "../dev/devReport";
@@ -77,6 +78,8 @@ const controller = new GameController(
 
 const stops = new PhaseStopSync(controller);
 adapter.subscribe(() => stops.onState(adapter.getGameState()));
+const yields = new AutoYieldSync(controller);
+adapter.subscribe(() => yields.onState(adapter.getGameState()));
 
 // Prompts the board hands to Endstep's own UI: recorded for the debug panel (and .devlog).
 const unsupported = new UnsupportedLog();
@@ -134,12 +137,17 @@ window.addEventListener("message", (ev) => {
       // Keep payloads only for (small) outbound actions: they document the action protocol.
       network.push({ t: msg.t, dir: outbound ? "out" : "in", label: describe(frame), bytes: msg.data.length, detail: outbound ? frame : undefined });
       if (msg.kind === "ws-in") adapter.handleFrame(frame);
-      else stops.onOutbound((frame as { payload?: object }).payload ?? {});
+      else {
+        const payload = (frame as { payload?: Record<string, unknown> }).payload ?? {};
+        stops.onOutbound(payload);
+        yields.onOutbound(payload);
+      }
       break;
     }
     case "ws-open":
       socket = "open";
       stops.onSocketOpen();
+      yields.onSocketOpen();
       break;
     case "ws-close":
       socket = "closed";
@@ -170,7 +178,7 @@ window.addEventListener("message", (ev) => {
 
 async function mount() {
   const settings = await loadSettings();
-  overlay = new Overlay(adapter, network, settings, controller, stops, replays, unsupported);
+  overlay = new Overlay(adapter, network, settings, controller, stops, yields, replays, unsupported);
   overlay.setSocketStatus(socket);
   overlay.mount();
 }

@@ -11,6 +11,7 @@ import type { GameState, LogEntry, RevealView } from "../game/GameState";
 import { ReplayPlayer, type ReplayStatus } from "../game/ReplayPlayer";
 import { decodeReplay } from "../game/endstep/replay";
 import { loadStops, saveStops } from "../game/endstep/phaseStops";
+import { AutoYieldSync } from "../game/AutoYieldSync";
 import { cleanPrefs } from "../ui/board/prefs";
 import { StatePacer } from "../ui/StatePacer";
 import { EndstepAdapter } from "../game/endstep/EndstepAdapter";
@@ -1111,6 +1112,24 @@ const scenarios: Record<string, Scenario> = {
     s.priorityPlayerId = "0";
     s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
   },
+  // Auto-yields: right-click an ability on the stack (the opponent's activated one, your "you may"
+  // trigger) for Auto-yield, Always yes / Always no and Disable auto-yields.
+  yields: (s) => {
+    const [me, opp] = players(s);
+    const mesa = { id: 970, name: "Arid Mesa", controllerId: "1", types: ["Land"], typeLine: "Land", color: "C",
+      oracleText: "{T}, Pay 1 life, Sacrifice Arid Mesa: Search your library for a Mountain or Plains card, put it onto the battlefield, then shuffle." };
+    const tusk = { id: 971, name: "Thragtusk", controllerId: "0", types: ["Creature"], typeLine: "Creature — Beast", color: "G", power: 5, toughness: 3,
+      oracleText: "When Thragtusk enters, you may gain 5 life.\nWhen Thragtusk leaves the battlefield, create a 3/3 green Beast creature token." };
+    s.stack = [
+      { stackTargetId: 973, isAbility: true, optionalTrigger: true, triggerId: 55, abilityDescription: "When Thragtusk enters, you may gain 5 life.",
+        yieldKey: "Thragtusk (971): When Thragtusk enters, you may gain 5 life.", sourceCard: tusk },
+      { stackTargetId: 972, isAbility: true, abilityDescription: "Arid Mesa (970) - Opponent searches their library for a Mountain or Plains card, puts it onto the battlefield, then shuffles.",
+        yieldKey: "Arid Mesa (970): {T}, Pay 1 life, Sacrifice Arid Mesa: Search your library for a Mountain or Plains card, put it onto the battlefield, then shuffle.", sourceCard: mesa },
+    ];
+    void me; void opp;
+    s.priorityPlayerId = "0";
+    s.pendingAction = { type: "PRIORITY", promptVersion: 4, cardOptions: [] };
+  },
   // A modal spell on the stack: the modes not chosen dimmed, told by what Endstep's description
   // says it does.
   modal: (s) => {
@@ -1406,12 +1425,14 @@ const controller = new GameController(() => state, (matchId, action) => {
 });
 (window as unknown as { __actions: unknown[] }).__actions = [];
 const stops = loadStops();
+const yields = new AutoYieldSync(controller);
 let prefs = cleanPrefs((() => { try { return JSON.parse(new URLSearchParams(location.search).get("prefs") ?? "null") ?? undefined; } catch { return undefined; } })());
 const board = new Board(controller, {
   onToggleDebug: () => {}, onHide: () => {},
   phaseStops: () => stops,
   togglePhaseStop: (side, step) => { if (!stops[side].delete(step)) stops[side].add(step); saveStops(stops); },
   setTemporaryStops: (extra) => console.log("TEMP STOPS", JSON.stringify(extra)),
+  autoYields: () => yields,
   // Endstep's table menu, as its best-of-three board offers it.
   tableMenu: async () => ["Show decklist", "Auto-yields", "Settings", "Keyboard shortcuts", "Report a problem", "Report stalling", "Reload", "Concede game", "Concede match"],
   runTableItem: (label) => console.log("TABLE ITEM", label),
@@ -1579,11 +1600,19 @@ pointAt();
 const play = new URLSearchParams(location.search).get("play");
 if (play) setTimeout(() => (board as unknown as { tryPlay(id: string): boolean }).tryPlay(play), 50);
 
-// Dev hook: `?open=menu|decklist|shortcuts` opens the table menu (in the middle) or that panel.
+// Dev hook: `?open=menu|decklist|shortcuts|yields` opens the table menu (in the middle) or that
+// panel (auto-yields with a few abilities and trigger answers to forget).
 const open = new URLSearchParams(location.search).get("open");
 if (open) {
-  const b = board as unknown as { openTableMenu(x: number, y: number): Promise<void>; renderDecklist(): Promise<void>; renderShortcuts(): void };
-  setTimeout(() => void Promise.resolve(open === "menu" ? b.openTableMenu(innerWidth / 2, innerHeight / 3) : open === "decklist" ? b.renderDecklist() : b.renderShortcuts()).then(pointAt), 50);
+  const b = board as unknown as { openTableMenu(x: number, y: number): Promise<void>; renderDecklist(): Promise<void>; renderShortcuts(): void; renderYields(): void };
+  if (open === "yields") {
+    yields.toggleAbility("{T}, Pay 1 life, Sacrifice Arid Mesa: Search your library for a Mountain or Plains card, put it onto the battlefield, then shuffle.");
+    yields.toggleAbility("−1: Create a 3/3 green Beast creature token.");
+    yields.toggleAnswer("When Thragtusk enters, you may gain 5 life.", true);
+    yields.toggleAnswer("Whenever a creature you control dies, you may draw a card.", false);
+  }
+  setTimeout(() => void Promise.resolve(open === "menu" ? b.openTableMenu(innerWidth / 2, innerHeight / 3) : open === "decklist" ? b.renderDecklist()
+    : open === "yields" ? b.renderYields() : b.renderShortcuts()).then(pointAt), 50);
 }
 
 // Dev hook: the board itself, to open its panels from a test script.

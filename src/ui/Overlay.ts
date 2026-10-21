@@ -8,6 +8,7 @@ import boardCss from "../styles/board.css";
 import type { EndstepAdapter } from "../game/endstep/EndstepAdapter";
 import type { GameController } from "../game/GameController";
 import type { PhaseStopSync } from "../game/PhaseStopSync";
+import type { AutoYieldSync } from "../game/AutoYieldSync";
 import type { ReplayPlayer } from "../game/ReplayPlayer";
 import type { RingBuffer } from "../shared/RingBuffer";
 import { saveSettings, type DebugTab, type Settings } from "../content/settings";
@@ -77,6 +78,7 @@ export class Overlay {
     private readonly settings: Settings,
     private readonly controller: GameController,
     private readonly stops: PhaseStopSync,
+    private readonly yields: AutoYieldSync,
     private readonly replays: ReplayPlayer,
     private readonly unsupported: UnsupportedLog,
   ) {}
@@ -162,6 +164,7 @@ export class Overlay {
       phaseStops: () => this.stops.get(),
       togglePhaseStop: (side, step) => this.stops.toggle(side, step),
       setTemporaryStops: (extra) => this.stops.setTemporary(extra),
+      autoYields: () => this.yields,
       tableMenu: () => readBoardMenu(),
       runTableItem: (label) => this.runTableItem(label),
       decklist: (matchId) => fetchDecklist(matchId),
