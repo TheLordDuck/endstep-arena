@@ -26,6 +26,15 @@ Edge works the same way: `edge://extensions`, **Developer mode** (left), **Load 
 click the reload icon on the extension's card in `chrome://extensions` and refresh the
 endstep.cc tab.
 
+## Found a bug? Want to help?
+
+* **Bugs and ideas:** open an [issue](https://github.com/TheLordDuck/endstep-arena/issues/new/choose),
+  or right-click the table → *Report an Arena UI bug* (it fills in your version). If it also
+  happens in Endstep's own UI (**Alt+Shift+A**), report it to Endstep instead.
+* **Pull requests** are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Licensed under the [MIT License](LICENSE).
+
 ## Install (development)
 
 ```sh
@@ -107,6 +116,7 @@ rope crosses the table on their side and burns down with their time.
 | Replays: drag the **⠿** grip of the control bar | Move the bar anywhere on the board (remembered); double-click the grip to put it back |
 | **L**, *Log* (top right) or the table menu | The game log: what happened, a line per event and one per turn; point at a line to light up its cards, at a card name to see it |
 | **?** or table menu → *Arena UI shortcuts* | The list of this board's keyboard shortcuts |
+| Table menu → *Report an Arena UI bug* | Open this repository's bug form, with your version filled in |
 | Waiting (not your move) | Who the game waits on and for what ("Opponent can respond to Lightning Bolt", "is declaring blockers"…); their picture glows |
 | Right-click the table → *Arena UI settings* | Animations on/off and their speed, card size, the table (your deck's color, one of five 3D scenes, or plain), sounds on/off and volume (kept for every game) |
 | **C** or *Chat* (top right) | The match chat: the conversation and a box to write in (Enter sends, Esc closes); a new message also shows for a moment in a bubble by its writer's picture, and the button counts the unread ones. See [docs/features/match-chat.md](docs/features/match-chat.md) |

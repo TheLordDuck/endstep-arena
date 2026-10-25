@@ -6552,6 +6552,7 @@ export class Board {
       { label: this.prefs.logOpen ? "Hide game log" : "Game log", hint: "L", data: "arena:log" },
       { label: "Arena UI settings", data: "arena:settings" },
       { label: "Arena UI shortcuts", hint: "?", data: "arena:shortcuts" },
+      { label: "Report an Arena UI bug", data: "arena:bug" },
     );
     // Conceding sits apart, at the bottom.
     const first = items.findIndex((i) => i.cls === "danger");
@@ -6611,6 +6612,7 @@ export class Board {
       if (id === "decklist") void this.renderDecklist();
       if (id === "yields") this.renderYields();
       if (id === "reload") location.reload();
+      if (id === "bug") openBugReport();
       if (id === "report-problem" || id === "report-stalling") void this.openReport(id === "report-stalling");
       return;
     }
@@ -7175,4 +7177,14 @@ function onOpponents(fx: CardView): boolean {
 /** "Name: what it does" for an effect/emblem. */
 function effectText(fx: CardView): string {
   return fx.oracleText ? `${fx.name}: ${fx.oracleText}` : fx.name;
+}
+
+/** The repository's bug form in a new tab, with this extension's version filled in (the
+    harness has no `chrome.runtime`, so there it's left blank). */
+function openBugReport(): void {
+  const version = typeof chrome !== "undefined" ? chrome.runtime?.getManifest?.().version : undefined;
+  const url = new URL("https://github.com/TheLordDuck/endstep-arena/issues/new");
+  url.searchParams.set("template", "bug_report.yml");
+  if (version) url.searchParams.set("version", version);
+  window.open(url, "_blank", "noopener");
 }

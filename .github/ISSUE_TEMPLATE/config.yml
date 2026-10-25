@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Problem with Endstep itself
+    url: https://endstep.cc/
+    about: If it also happens in Endstep's own UI (Alt+Shift+A), report it to Endstep with its "Report a problem".

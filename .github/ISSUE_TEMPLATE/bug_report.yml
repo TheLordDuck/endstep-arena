@@ -1,0 +1,56 @@
+name: Bug report
+description: Something on the Arena board looks wrong, doesn't work, or gets stuck.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! This is for problems with **the extension** (the Arena board).
+        If the same thing happens with the extension off (**Alt+Shift+A** switches to Endstep's own UI),
+        it's Endstep's: use its *Report a problem* instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen
+      description: The cards and the moment in the game (the step, what was on the stack, what you clicked).
+      placeholder: |
+        1. Opponent cast Lightning Bolt targeting my creature
+        2. I clicked …
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: unsupported
+    attributes:
+      label: Debug panel
+      description: >
+        If a prompt stepped aside to Endstep's UI, open the debug panel (**Alt+Shift+D**) and paste what its
+        *Unsupported* tab shows. Anything in the browser console (F12) helps too.
+      render: text
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or video
+      description: Drag images or a short recording here.
+  - type: input
+    id: version
+    attributes:
+      label: Extension version
+      description: On its card in `chrome://extensions`.
+      placeholder: "0.10.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser
+      options: [Chrome, Edge, Brave, Opera, Other Chromium]
+    validations:
+      required: true

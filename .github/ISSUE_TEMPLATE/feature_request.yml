@@ -1,0 +1,16 @@
+name: Feature request
+description: Something Arena does that the board should do too, or an idea to make it better.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like?
+      description: Describe it, and the situation in a game where you'd use it.
+    validations:
+      required: true
+  - type: textarea
+    id: arena
+    attributes:
+      label: How Arena (or another client) does it
+      description: Screenshots of Arena are very welcome.
