@@ -44,7 +44,7 @@ body:
     attributes:
       label: Extension version
       description: On its card in `chrome://extensions`.
-      placeholder: "0.10.0"
+      placeholder: "0.10.1"
     validations:
       required: true
   - type: dropdown

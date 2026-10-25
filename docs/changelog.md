@@ -1,5 +1,14 @@
 # Changelog
 
+## Release 0.10.1 (2026-10-25)
+
+On top of `cab5db1`. All 174 tests pass. `package.json` and `public/manifest.json` at 0.10.1.
+
+1. **Report an Arena UI bug** in the table menu: opens this repository's bug form in a new tab,
+   with the extension's version filled in.
+2. **Contributing:** MIT license, bug report and feature request forms, a pull request template,
+   CONTRIBUTING.md, and CI (typecheck, tests and build on every pull request).
+
 ## Release 0.10.0 (2026-10-21)
 
 On top of `7cadcf5`. All 174 tests pass. `pnpm visual`: the changed scenarios are the expected
