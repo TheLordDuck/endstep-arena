@@ -1,5 +1,18 @@
 # Changelog
 
+## Release 0.10.2 (2026-10-28)
+
+On top of `d40594d`. All 179 tests pass. `package.json` and `public/manifest.json` at 0.10.2.
+
+1. **Hotfix: cards stayed where they were.** Endstep now sends the stack and each player's zones
+   (battlefield, graveyard, exile, command zone) and hand as patches of their own (`hashV` 3/4
+   deltas); they're applied as Endstep's client does, so played lands and spells show up again.
+2. **Transformed cards show their other face:** hovering one named by its back face (Insectile
+   Aberration) shows its front beside it, not the same face twice.
+3. **Cards the opponent exiled to play** (Wrenn's Resolve, Light Up the Stage…) hang by their hand
+   in front of the rest, lower and lit in orange, named by the spell, until played or their time
+   runs out. Harness scenario `impulse`.
+
 ## Release 0.10.1 (2026-10-25)
 
 On top of `cab5db1`. All 174 tests pass. `package.json` and `public/manifest.json` at 0.10.1.
