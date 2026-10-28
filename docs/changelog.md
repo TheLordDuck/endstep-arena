@@ -1,5 +1,18 @@
 # Changelog
 
+## Release 0.10.3 (2026-10-28)
+
+On top of `d07a372`. All 183 tests pass. `package.json` and `public/manifest.json` at 0.10.3.
+
+1. **Audit of Endstep's late-October deploy** (docs/ENDSTEP_ANALYSIS.md, section 12): actions,
+   prompts, frames and fields unchanged; the delta format was the one break (fixed in 0.10.2).
+2. **Endstep's check of each update, ported** (`stateHash.ts`, matching all 1049 recorded deltas):
+   an update that doesn't give the state Endstep checks for, or of a version it doesn't know, marks
+   the match out of sync (Debug view) and warns once in the console. It's still applied, so the
+   board never freezes on it.
+3. **Replays:** after a gap in the recording, changes wait for the next full frame instead of
+   being applied to the state from before it.
+
 ## Release 0.10.2 (2026-10-28)
 
 On top of `d40594d`. All 179 tests pass. `package.json` and `public/manifest.json` at 0.10.2.
