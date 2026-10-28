@@ -253,3 +253,22 @@ All on the game socket; a frame's chat is a match's when `payload.matchId` (or t
 * `CHAT_REFUSED`: `payload = { reason, clientMessageId?, matchId?, mutedUntil?, remainingMs? }`,
   reasons `quick_replies_only`, `quick_reply_too_soon`, `quick_reply_repeat`, `spectator_muted`,
   `unknown_quick_reply`. `CHAT_MUTE`: `payload.mute = { reason, mutedUntil, … }` or null.
+
+## 12. Audit after the late-October deploy (from `main-6IcZqsvm.js` / `GameView-DcVpWPDp.js` and every chunk they load, 2026-10-28)
+
+* **Deltas:** `hashV` 3 and 4 patch the stack, zones and private cards on their own (see section 1).
+  Anything other than 2, 3 or 4 makes the client resync.
+* **The check:** a delta is applied only if the result hashes to `stateHash` (FNV-1a over the top
+  level fields, each player's counted fields, each zone's `id:tapped:faceDown` and, from hashV 3,
+  each card's and stack item's whole canonical JSON; from hashV 4 also `stormCount`) and, from
+  hashV 3, to `privHash` (each player's `hand`, `libraryTop`, `exilePeek`, `battlefieldPeek`, then
+  `keywordReminders`). On a mismatch the client sends `PING { matchId, seq, cause }` and the
+  server answers with a full `GAME_STATE` on the socket. Ported as `stateHash.ts`; it matches all
+  1049 deltas of the recorded fixtures.
+* **On load** the page reads the state from `GET /matches/:id/state` (its `stateSeq` is the seq);
+  the socket's own `GAME_STATE` still follows, which is what the extension starts from.
+* **Replays:** records `key`, `diff`, `event`, `action`, `rejected`, `chapter`, `gap`. After a
+  `gap`, diffs have no baseline until the next `key`.
+* **Unchanged:** every outbound action type, every prompt type, the frame types, the card, player
+  and state fields the adapter reads, the avatar and card image URLs. New fields not used yet:
+  `stormCount`, `isPrepared`, `manaRestrictions`, `keywordReminders`.

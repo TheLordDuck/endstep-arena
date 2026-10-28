@@ -38,6 +38,13 @@ test("each key or diff is a frame; events and other records aren't", () => {
   assert.equal((r.frames[3]!.raw.players as { life: number }[])[0]!.life, 15);
 });
 
+test("after a gap in the recording, diffs wait for the next keyframe", () => {
+  const gapped = [header, key(0, 1), lifeDiff(10, 17), JSON.stringify({ t: 15, k: "gap" }), turnDiff(20, 2), key(30, 3), lifeDiff(40, 12)].join("\n");
+  const r = parseReplay(gapped);
+  assert.deepEqual(r.frames.map((f) => [f.t, f.turn]), [[0, 1], [10, 1], [30, 3], [40, 3]]);
+  assert.equal((r.frames[3]!.raw.players as { life: number }[])[0]!.life, 12);
+});
+
 test("a gzipped file decodes; anything else is refused", async () => {
   const gz = gzipSync(file);
   const r = await decodeReplay(gz.buffer.slice(gz.byteOffset, gz.byteOffset + gz.byteLength) as ArrayBuffer);

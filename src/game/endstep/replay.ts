@@ -89,6 +89,12 @@ export function parseReplay(text: string): Replay {
       events.push({ frame: Math.max(0, frames.length - 1), event: rec.event });
       continue;
     }
+    // Part of the recording is missing: the diffs after it have nothing to apply to until the next
+    // keyframe, as Endstep's player reads them.
+    if (isObj(rec) && rec.k === "gap") {
+      raw = undefined;
+      continue;
+    }
     if (!isObj(rec) || (rec.k !== "key" && rec.k !== "diff")) continue;
     if (rec.k === "key") {
       if (!isObj(rec.state)) continue;

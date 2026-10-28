@@ -8,6 +8,7 @@ import { RingBuffer } from "../../shared/RingBuffer";
 import { normalize, toLogEntry, toReveal, type Raw } from "./normalize";
 import { MatchChat } from "./chat";
 import { applyReplayPatch } from "./replay";
+import { deltaMatches, isKnownHashVersion } from "./stateHash";
 
 /** How many recent reveals are kept (for the popups and for cards known in a hand). */
 const MAX_REVEALS = 20;
@@ -48,6 +49,8 @@ export class EndstepAdapter {
   private viewerSeat = 0;
   private seq: number | undefined;
   private desynced = false;
+  /** The console was told this match's updates don't check out (once). */
+  private warnedHash = false;
   private state: GameState | null = null;
   private routeMatchId: string | null = null;
   /** On a replay page the board shows the replay, and live frames are ignored. */
@@ -236,7 +239,14 @@ export class EndstepAdapter {
     }
     this.raw = applyDelta(this.raw, d, patch);
     if (typeof f.seq === "number") this.seq = f.seq;
-    this.desynced = false;
+    // Endstep refuses a delta of a version it doesn't know, or whose result doesn't match its hash,
+    // and asks for the full state. It's applied here all the same (a fault of ours mustn't freeze
+    // the board), marked out of sync until the full state comes.
+    this.desynced = !isKnownHashVersion(d.hashV) || !deltaMatches(this.raw, d);
+    if (this.desynced && !this.warnedHash) {
+      this.warnedHash = true;
+      console.warn(`[Endstep Arena] A game update (hashV ${String(d.hashV)}) doesn't give the state Endstep checks for: its update format may have changed.`);
+    }
     this.publish();
   }
 
@@ -245,6 +255,7 @@ export class EndstepAdapter {
     this.matchId = null;
     this.seq = undefined;
     this.desynced = false;
+    this.warnedHash = false;
     this.state = null;
     this.reveals = [];
     this.log = [];
