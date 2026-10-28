@@ -7,7 +7,7 @@
 import { winsNeeded } from "../../game/GameState";
 import type { AbilityOption, CardView, ChatMessage, CombatLink, DivideOption, DivideView,GameState, LogEntry, PendingActionView, PileView, PlayerView, SideboardView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
-import { createsTokens, isDoubleFaced, knownDoubleFaced, relatedTokens } from "./relatedTokens";
+import { createsTokens, isDoubleFaced, knownDoubleFaced, otherFace, relatedTokens } from "./relatedTokens";
 import { CARD_BACK_URL, chosenLabels, createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
 import { arrangeMove, canConfirm, clickInMode, deckColumns, defenderForKey, deriveMode, discardInHand, isProliferate, divideLeft, splitAsk, divideLocked, divideReady, divideShort, divideStart, divideStep, humanize, keyForDefender, learnStep, manaValue, promptKey, sideboardChanged, sideboardCheck, sideboardMove, sideboardStacks, stepNumber, type Mode, type SideboardStack } from "./modes";
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
@@ -18,6 +18,7 @@ import type { YieldScope } from "../../game/endstep/autoYields";
 import { REPLAY_SPEEDS, type ReplayCommand, type ReplayStatus } from "../../game/ReplayPlayer";
 import { avatarPicture } from "../../game/endstep/avatars";
 import { ExileLinks } from "../../game/exileLinks";
+import { ImpulseExile, type ImpulseCard } from "../../game/impulseExile";
 import { HandKnowledge } from "../../game/handKnowledge";
 import { counterNotes, keywordNotes, type KeywordNote } from "./keywords";
 import { MULLIGAN_RULE, mulliganCost, mulliganHint, mulliganStatus } from "./mulligan";
@@ -182,6 +183,9 @@ export class Board {
   private emblems = new Map<string, { fx: CardView; owner: PlayerView }[]>();
   /** Cards exiled "until this leaves the battlefield", drawn under the permanent holding them. */
   private exileLinks = new ExileLinks(sessionStore());
+  /** Cards exiled to be played for a while (Wrenn's Resolve…), shown beside the opponent's hand. */
+  private impulse = new ImpulseExile();
+  private impulseCards: ReadonlyMap<string, ImpulseCard> = new Map();
   private linked: ReadonlyMap<string, string> = new Map();
   /** Holding permanent → the exiled cards under it. */
   private held = new Map<string, CardView[]>();
@@ -456,6 +460,7 @@ export class Board {
     this.el.classList.add("live");
     if (prev?.seq !== state.seq) this.setAwaiting(false);
     this.linked = this.exileLinks.update(prev, state);
+    this.impulseCards = this.impulse.update(prev, state);
     this.knownHands = this.handKnowledge.update(state);
 
     const key = promptKey(state);
@@ -2252,17 +2257,23 @@ export class Board {
 
   /** Beside the opponent's hand, as yours has its side hand: what they can play from outside it
       (their commander, flashback and escape cards in their graveyard, adventures and foretold
-      cards in exile…), read from the cards (see oppCastables). Not while you play for them. */
+      cards in exile…), read from the cards (see oppCastables), and the cards they exiled to play
+      for a while (see ImpulseExile), in front and lit up. Not while you play for them. */
   private renderOppSide(state: GameState, opp: PlayerView | null): void {
     const yours = state.pending?.type === "PRIORITY" && state.pending.playable.some((o) => opp?.graveyard.some((c) => c.id === o.cardId) || opp?.exile.some((c) => c.id === o.cardId));
-    const els = (yours || state.spectating ? [] : offHandCards(opp)).map(({ card, how }) => {
+    const side = yours || state.spectating ? [] : offHandCards(opp, this.impulseCards);
+    const els = side.map(({ card, how, impulse }, i) => {
       this.sideIds.add(card.id);
       const el = this.card(card, false);
       el.dataset.from = how;
-      el.title = `${card.name}: ${how}`;
+      el.classList.toggle("impulse", !!impulse);
+      // Cards exiled by the same spell side by side: its name once, under the last of them.
+      el.classList.toggle("same-from", !!impulse && side[i + 1]?.impulse === true && side[i + 1]!.how === how);
+      const until = this.impulseCards.get(card.id)?.lastTurn;
+      el.title = impulse ? `${card.name}: exiled by ${how}, playable ${until !== undefined && until > (state.turnNumber ?? until) ? "until the end of their next turn" : "this turn"}` : `${card.name}: ${how}`;
       return el;
     });
-    for (const el of this.q(".opp-side").children) if (!els.includes(el as HTMLElement)) { delete (el as HTMLElement).dataset.from; (el as HTMLElement).removeAttribute("title"); }
+    for (const el of this.q(".opp-side").children) if (!els.includes(el as HTMLElement)) { delete (el as HTMLElement).dataset.from; (el as HTMLElement).classList.remove("impulse", "same-from"); (el as HTMLElement).removeAttribute("title"); }
     reconcile(this.q(".opp-side"), els);
   }
 
@@ -6098,15 +6109,15 @@ export class Board {
     const zoom = this.q(".zoom");
     if (!zoom.classList.contains("show")) return;
     const id = this.hoverPerm;
-    const other = !c.isToken || c.isCopyOfRealCard ? imageUrl({ ...c, backFace: !c.backFace }, "large") : null;
-    const known = other ? knownDoubleFaced(c.name) : false;
-    if (known) this.addOtherFace(zoom, c, other!);
+    const has = !c.isToken || c.isCopyOfRealCard;
+    const known = has ? knownDoubleFaced(c.name) : false;
+    if (known) this.addOtherFace(zoom, c, otherFaceUrl(c));
     this.placeHoverZoom(zoom, anchor);
     // Not known yet: Scryfall says, and the face is added if that card is still the one shown.
-    if (other && known === undefined) {
+    if (has && known === undefined) {
       void isDoubleFaced(c.name).then((two) => {
         if (!two || this.hoverPerm !== id || this.zoomPinned || zoom.dataset.card !== c.name || !zoom.classList.contains("show") || !anchor.isConnected) return;
-        this.addOtherFace(zoom, c, other);
+        this.addOtherFace(zoom, c, otherFaceUrl(c));
         this.placeHoverZoom(zoom, anchor);
       });
     }
@@ -6160,10 +6171,11 @@ export class Board {
       left corner on the card's bottom right one (`at`: that corner, the card's width and tilt),
       turned a little further right from there. */
   private fanOtherFace(c: CardView, still: () => boolean, at: () => { x: number; y: number; w: number; tilt: number }): void {
-    const url = !c.isToken || c.isCopyOfRealCard ? imageUrl({ ...c, backFace: !c.backFace }, "large") : null;
-    if (!url) return;
+    if (c.isToken && !c.isCopyOfRealCard) return;
     const show = () => {
       if (!still() || this.zoomPinned) return;
+      const url = otherFaceUrl(c);
+      if (!url) return;
       const zoom = this.q(".zoom");
       zoom.innerHTML = `<div class="zcard"><img src="${esc(url)}" alt="${esc(`${c.name} (other face)`)}"></div>`;
       zoom.dataset.card = c.name;
@@ -6181,8 +6193,8 @@ export class Board {
     else if (known === undefined) void isDoubleFaced(c.name).then((two) => two && show());
   }
 
-  private addOtherFace(zoom: HTMLElement, c: CardView, url: string): void {
-    if (zoom.querySelector(".zback")) return;
+  private addOtherFace(zoom: HTMLElement, c: CardView, url: string | null): void {
+    if (!url || zoom.querySelector(".zback")) return;
     zoom.querySelector(".zcard")?.insertAdjacentHTML("afterend", `<div class="zcard zback"><img src="${esc(url)}" alt="${esc(`${c.name} (other face)`)}"></div>`);
   }
 
@@ -6754,6 +6766,12 @@ const ZC_ICONS = {
 
 /** A key typed into a text box (the chat, a card name search), wherever it sits: inside the
     board's shadow root the event's target is the host, so the first element of its path counts. */
+/** The picture of a double-faced card's other face, asked by that face's name: asked by the name
+    of the face shown, Endstep's image is always that face. */
+function otherFaceUrl(c: CardView): string | null {
+  return imageUrl({ ...c, ...(otherFace(c.name, !!c.backFace) ?? { backFace: !c.backFace }) }, "large");
+}
+
 function typingIn(e: KeyboardEvent): boolean {
   const t = e.composedPath()[0];
   return t instanceof HTMLElement && (t.matches("input, textarea, select") || t.isContentEditable);

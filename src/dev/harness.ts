@@ -1020,6 +1020,21 @@ const scenarios: Record<string, Scenario> = {
     (opp!.exile as Raw[]).push(
       card("Bonecrusher Giant", { typeLine: "Creature — Giant // Instant — Adventure", oracleText: "Whenever Bonecrusher Giant becomes the target of a spell, it deals 2 damage to that spell's controller." }));
   },
+  // The opponent's Wrenn's Resolve resolves: the two cards it exiles hang by their hand, lit up
+  // in front of the Faithless Looting they can flash back.
+  impulse: (s) => {
+    const [, opp] = players(s);
+    s.activePlayerId = "1"; s.turnNumber = 7;
+    (opp!.graveyard as Raw[]).push(card("Faithless Looting", { typeLine: "Sorcery", oracleText: "Draw two cards, then discard two cards.\nFlashback {2}{R}" }));
+    const wrenn = card("Wrenn's Resolve", { typeLine: "Sorcery", controllerId: "1", oracleText: "Exile the top two cards of your library. Until the end of your turn, you may play those cards." });
+    s.stack = [{ stackTargetId: wrenn.id, sourceCard: wrenn, controllerId: "1" }];
+    return (t) => {
+      const [, o] = players(t);
+      t.stack = [];
+      (o!.graveyard as Raw[]).push(wrenn);
+      (o!.exile as Raw[]).push(card("Bonecrusher Giant", { typeLine: "Creature — Giant // Instant — Adventure" }), card("Mountain", { typeLine: "Basic Land — Mountain" }));
+    };
+  },
   // Nine cards in hand on your turn: you'll discard two at the end of it.
   handlimit: (s) => {
     const [me] = players(s);

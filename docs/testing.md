@@ -180,3 +180,9 @@ Added on 2026-10-21:
 | Scenario | Shows |
 | --- | --- |
 | `yields` | An opponent's Arid Mesa and your Thragtusk's "you may" trigger on the stack: right-click either for *Auto-yield* (and *Always yes* / *Always no* on the trigger) |
+
+Added on 2026-10-28:
+
+| Scenario | Shows |
+| --- | --- |
+| `impulse` | The opponent's Wrenn's Resolve resolves: the two cards it exiles hang by their hand, lit in orange, in front of their flashback card |

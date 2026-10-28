@@ -7,6 +7,7 @@ import type { ReplayStatus } from "../ReplayPlayer";
 import { RingBuffer } from "../../shared/RingBuffer";
 import { normalize, toLogEntry, toReveal, type Raw } from "./normalize";
 import { MatchChat } from "./chat";
+import { applyReplayPatch } from "./replay";
 
 /** How many recent reveals are kept (for the popups and for cards known in a hand). */
 const MAX_REVEALS = 20;
@@ -305,6 +306,11 @@ export class EndstepAdapter {
   }
 }
 
+/** A player's zones that a `hashV` 3/4 delta patches (`patch.zones`). */
+const PUBLIC_ZONES = ["battlefield", "graveyard", "exile", "commandZone"];
+/** What only this viewer sees of a player (`patch.priv.players`), set or unset whole. */
+const PRIVATE_FIELDS = new Set(["hand", "libraryTop", "exilePeek", "battlefieldPeek"]);
+
 /** Mirror of Endstep's own merge: shallow state merge, players patched by index `i`. */
 export function applyDelta(prev: Raw, delta: Raw, patch: Raw): Raw {
   const next: Raw = { ...prev, ...(isObj(patch.state) ? patch.state : {}), pendingAction: delta.pendingAction };
@@ -318,5 +324,31 @@ export function applyDelta(prev: Raw, delta: Raw, patch: Raw): Raw {
       return { ...(player as Raw), ...fields };
     });
   }
+  if (delta.hashV === 3 || delta.hashV === 4) applyZonePatches(prev, next, patch);
   return next;
+}
+
+/** Since hashV 3 (2026-10), the stack, each player's zones and their private cards come as
+    patches of their own (the replay's `{ s } / { o } / { a }` form), applied after the merge. */
+function applyZonePatches(prev: Raw, next: Raw, patch: Raw): void {
+  if (isObj(patch.stack)) next.stack = applyReplayPatch(prev.stack, patch.stack);
+  const zones = new Map((Array.isArray(patch.zones) ? patch.zones.filter(isObj) : []).map((z) => [z.i, z]));
+  const priv = isObj(patch.priv) ? patch.priv : null;
+  const privs = new Map((Array.isArray(priv?.players) ? priv.players.filter(isObj) : []).map((p) => [p.i, p]));
+  if ((zones.size > 0 || privs.size > 0) && Array.isArray(next.players)) {
+    next.players = next.players.map((player, index) => {
+      const z = zones.get(index);
+      const p = privs.get(index);
+      if (!z && !p) return player;
+      const out: Raw = { ...(player as Raw) };
+      for (const key of PUBLIC_ZONES) if (isObj(z?.[key])) out[key] = applyReplayPatch(out[key], z[key] as Raw);
+      if (isObj(p?.set)) for (const key of Object.keys(p.set)) if (PRIVATE_FIELDS.has(key)) out[key] = p.set[key];
+      for (const key of Array.isArray(p?.unset) ? p.unset : []) if (PRIVATE_FIELDS.has(key)) delete out[key];
+      return out;
+    });
+  }
+  if (priv && "keywordReminders" in priv) {
+    if (priv.keywordReminders == null) delete next.keywordReminders;
+    else next.keywordReminders = priv.keywordReminders;
+  }
 }

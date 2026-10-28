@@ -962,6 +962,30 @@ button { font: inherit; color: inherit; cursor: pointer; }
   pointer-events: none;
 }
 .opp-side .card:hover::after { translate: -50% calc(var(--cw) * 0.9); }
+/* Exiled to be played for a while (Wrenn's Resolve…): only for now, so it stands out, lit in
+   red-orange and breathing, its label in the same color. */
+.opp-side .card.impulse {
+  /* Hanging lower than the rest: more of the card in view. */
+  top: calc(var(--cw) * -0.3 + var(--y, 0px) * 0.4);
+  filter: drop-shadow(0 0 9px rgba(255, 120, 50, 0.9));
+  animation: impulse-glow 1.6s ease-in-out infinite;
+}
+.opp-side .card.impulse:hover .face { translate: 0 calc(var(--cw) * 0.5); }
+.opp-side .card.impulse:hover::after { translate: -50% calc(var(--cw) * 0.5); }
+.opp-side .card.impulse.same-from:not(:hover)::after { display: none; }
+.opp-side .card.impulse .face { outline: 2px solid rgba(255, 140, 70, 0.95); outline-offset: -1px; }
+.opp-side .card.impulse::after {
+  max-width: calc(var(--cw) * 1.1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0;
+  color: #ffd2b0;
+  border-color: rgba(255, 140, 70, 0.9);
+  background: rgba(70, 22, 8, 0.95);
+}
+@keyframes impulse-glow {
+  50% { filter: drop-shadow(0 0 16px rgba(255, 120, 50, 1)); }
+}
 
 /* ---------- Player plates ---------- */
 /* In the left corners: the player's name and status chips (the avatar is on the life total).

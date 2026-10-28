@@ -97,6 +97,49 @@ test("delta merges state and patches players by index", () => {
   assert.equal(s.pending, null, "pendingAction is replaced wholesale, like Endstep does");
 });
 
+test("a hashV 3 delta patches the stack, the zones and the viewer's hand as Endstep does", () => {
+  const a = new EndstepAdapter();
+  a.setRoute("/game/m1");
+  a.handleFrame(fullState(10));
+  // A land played from hand, and the bears die: the hand comes whole, the zones as patches.
+  a.handleFrame({
+    type: "GAME_DELTA",
+    matchId: "m1",
+    seq: 11,
+    payload: {
+      baseSeq: 10, hashV: 3, stateHash: "x", privHash: "y", pendingAction: null,
+      patch: {
+        players: [{ i: 0, handSize: 6 }],
+        stack: { a: [{ v: { id: "s1", name: "Lightning Bolt" } }] },
+        zones: [
+          { i: 0, battlefield: { a: [{ v: { id: "l1", name: "Mountain" } }] } },
+          { i: 1, battlefield: { a: [] }, graveyard: { a: [{ v: { id: "b1", name: "Grizzly Bears" } }] } },
+        ],
+        priv: { players: [{ i: 0, set: { hand: [] } }] },
+      },
+    },
+  });
+  let s = a.getGameState()!;
+  assert.deepEqual(s.players[0]!.battlefield.map((c) => c.name), ["Mountain"]);
+  assert.deepEqual(s.players[0]!.hand, []);
+  assert.equal(s.players[1]!.battlefield.length, 0);
+  assert.deepEqual(s.players[1]!.graveyard.map((c) => c.name), ["Grizzly Bears"]);
+  assert.equal(s.stack.length, 1);
+  // The Mountain taps: the old card by id, patched.
+  a.handleFrame({
+    type: "GAME_DELTA",
+    matchId: "m1",
+    seq: 12,
+    payload: {
+      baseSeq: 11, hashV: 3, stateHash: "x", privHash: "y", pendingAction: null,
+      patch: { zones: [{ i: 0, battlefield: { a: [{ id: "l1", p: { o: { tapped: { s: true } } } }] } }] },
+    },
+  });
+  s = a.getGameState()!;
+  assert.equal(s.players[0]!.battlefield[0]!.name, "Mountain");
+  assert.equal(s.players[0]!.battlefield[0]!.tapped, true);
+});
+
 test("delta gap marks desync until the next full state", () => {
   const a = new EndstepAdapter();
   a.setRoute("/game/m1");

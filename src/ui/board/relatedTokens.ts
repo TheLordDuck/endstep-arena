@@ -13,7 +13,7 @@ export interface RelatedToken {
 interface ScryfallCard {
   name?: string;
   all_parts?: { component?: string; name?: string; type_line?: string; id?: string }[];
-  card_faces?: { image_uris?: unknown }[];
+  card_faces?: { name?: string; image_uris?: unknown }[];
 }
 
 const API = "https://api.scryfall.com";
@@ -49,6 +49,8 @@ export function hasTwoPictures(card: ScryfallCard): boolean {
 
 const cache = new Map<string, Promise<ScryfallCard | null>>();
 const twoFaced = new Map<string, boolean>();
+/** A double-faced card's face names, front then back, by the name it was asked by. */
+const faceNames = new Map<string, [string, string]>();
 
 function scryfallCard(name: string): Promise<ScryfallCard | null> {
   let found = cache.get(name);
@@ -56,7 +58,10 @@ function scryfallCard(name: string): Promise<ScryfallCard | null> {
     found = fetch(`${API}/cards/named?exact=${encodeURIComponent(name)}`, { headers: { Accept: "application/json" } })
       .then((r) => (r.ok ? r.json() : null))
       .then((card: ScryfallCard | null) => {
-        twoFaced.set(name, !!card && hasTwoPictures(card));
+        const two = !!card && hasTwoPictures(card);
+        twoFaced.set(name, two);
+        const [front, back] = card?.card_faces ?? [];
+        if (two && front?.name && back?.name) faceNames.set(name, [front.name, back.name]);
         return card;
       })
       // Not reachable now: asked again next time.
@@ -81,4 +86,14 @@ export async function isDoubleFaced(name: string): Promise<boolean> {
 /** The answer of isDoubleFaced when it's already known, without waiting. */
 export function knownDoubleFaced(name: string): boolean | undefined {
   return twoFaced.get(name);
+}
+
+/** The other face of a double-faced card, once isDoubleFaced has answered: its name, and whether
+    it's the back. Endstep names a transformed card by the face it shows, so the face shown is the
+    back when it says so or when its name is the back's. */
+export function otherFace(name: string, backFace: boolean): { name: string; backFace: boolean } | undefined {
+  const faces = faceNames.get(name);
+  if (!faces) return undefined;
+  const showingBack = backFace || name === faces[1];
+  return { name: faces[showingBack ? 0 : 1], backFace: !showingBack };
 }

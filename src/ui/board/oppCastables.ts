@@ -3,11 +3,14 @@
 // player who must decide, so for an opponent it's read from the cards themselves: the keyword
 // abilities that let a card be cast or used from there, and their commander.
 import type { CardView, PlayerView } from "../../game/GameState";
+import type { ImpulseCard } from "../../game/impulseExile";
 
 export interface OffHandCard {
   card: CardView;
   /** What lets them play it ("Flashback", "Adventure", "Commander"…). */
   how: string;
+  /** Exiled to be played for a while (Wrenn's Resolve…), see ImpulseExile. */
+  impulse?: boolean;
 }
 
 /** Keyword abilities, each at the start of a line of the card's text, as Oracle text has them
@@ -42,14 +45,19 @@ const how = (c: CardView, rules: [RegExp, string][]) => {
   return rules.find(([re]) => re.test(text))?.[1];
 };
 
-/** The cards `p` can play from outside their hand, by zone: command zone, graveyard, exile. */
-export function offHandCards(p: PlayerView | null | undefined): OffHandCard[] {
+/** The cards `p` can play from outside their hand: those exiled to be played (`impulse`) first,
+    then by zone: command zone, graveyard, exile. */
+export function offHandCards(p: PlayerView | null | undefined, impulse: ReadonlyMap<string, ImpulseCard> = new Map()): OffHandCard[] {
   if (!p) return [];
   const out: OffHandCard[] = [];
+  for (const card of p.exile) {
+    const i = impulse.get(card.id);
+    if (i) out.push({ card, how: i.source, impulse: true });
+  }
   for (const card of p.commandZone) if (card.isCommander) out.push({ card, how: "Commander" });
   for (const [zone, rules] of [[p.graveyard, FROM_GRAVEYARD], [p.exile, FROM_EXILE]] as const) {
     for (const card of zone) {
-      const h = how(card, rules);
+      const h = impulse.has(card.id) ? undefined : how(card, rules);
       if (h) out.push({ card, how: h });
     }
   }

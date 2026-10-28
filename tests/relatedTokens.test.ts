@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createsTokens, hasTwoPictures, tokensFromCard } from "../src/ui/board/relatedTokens";
+import { createsTokens, hasTwoPictures, isDoubleFaced, otherFace, tokensFromCard } from "../src/ui/board/relatedTokens";
 
 test("only cards whose text makes tokens are looked up", () => {
   assert.equal(createsTokens("Create two 1/1 white Soldier creature tokens."), true);
@@ -36,4 +36,25 @@ test("only cards with a picture on each side have another face to show", () => {
   // Split cards and adventures: two faces on one picture.
   assert.equal(hasTwoPictures({ name: "Fire // Ice", card_faces: [{}, {}] }), false);
   assert.equal(hasTwoPictures({ name: "Lightning Bolt" }), false);
+});
+
+test("a double-faced card's other face is named by the face it isn't showing", async () => {
+  const pic = { normal: "x" };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    name: "Delver of Secrets // Insectile Aberration",
+    card_faces: [{ name: "Delver of Secrets", image_uris: pic }, { name: "Insectile Aberration", image_uris: pic }],
+  }))) as typeof fetch;
+  try {
+    assert.equal(await isDoubleFaced("Insectile Aberration"), true);
+    assert.equal(await isDoubleFaced("Delver of Secrets"), true);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  // Transformed, named by its back face (with or without isTransformed): the other face is the front.
+  assert.deepEqual(otherFace("Insectile Aberration", false), { name: "Delver of Secrets", backFace: false });
+  assert.deepEqual(otherFace("Insectile Aberration", true), { name: "Delver of Secrets", backFace: false });
+  // Transformed but named by its front, or not transformed: the other face is the back.
+  assert.deepEqual(otherFace("Delver of Secrets", true), { name: "Delver of Secrets", backFace: false });
+  assert.deepEqual(otherFace("Delver of Secrets", false), { name: "Insectile Aberration", backFace: true });
 });

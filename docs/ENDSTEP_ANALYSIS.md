@@ -36,6 +36,13 @@ lobby/draft/tournament/social types.
   next.players = prev.players.map((p, i) => byIndex[i] ? { ...p, ...rest(byIndex[i]) } : p);
   ```
 
+  Since late October 2026 (`main-6IcZqsvm.js`) deltas may come with `hashV: 3` or `4` (plus a
+  `privHash`). After the merge above, those also apply, in the replay's `{ s } / { o, d } / { a }`
+  patch form: `patch.stack` to the stack, `patch.zones = [{ i, battlefield?, graveyard?, exile?,
+  commandZone? }]` to each player's zones, and `patch.priv = { players: [{ i, set?, unset? }],
+  keywordReminders? }`, where `set`/`unset` replace or drop `hand`, `libraryTop`, `exilePeek` and
+  `battlefieldPeek` whole. Zone changes no longer ride in `patch.players`.
+
   On gap or hash mismatch the page re-requests a full state, and that new `GAME_STATE`
   goes over the same socket, so a passive observer resyncs on its own.
 
