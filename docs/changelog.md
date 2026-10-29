@@ -1,5 +1,28 @@
 # Changelog
 
+## Release 0.10.4 (2026-10-29)
+
+On top of `bf8afa0`. All 196 tests pass. `package.json` and `public/manifest.json` at 0.10.4.
+
+1. **Endstep's per-match socket followed** (docs/ENDSTEP_ANALYSIS.md, section 13): since its
+   2026-10-29 deploy a match's states come on a socket of its own. The board follows it, so the
+   mulligan and the first turns respond again; the end of a game no longer stays stuck on the last
+   trigger (the main socket's GAME_OVER counts apart); a match's deltas and events coming on both
+   sockets count once.
+2. **Return to Lobby:** Endstep's button reloads the page, and the game just left came back with
+   its result after "Back to Endstep". A finished game no longer turns the board on, and isn't
+   picked up off a match's page.
+3. **Pass until… tagged as Endstep does** (section 14): the board's automatic passes carry
+   `autoPass`, and phase stops `autoPassUntil`.
+4. **Milled cards fly to the graveyard**, as in Arena: one after another, turning face up on the
+   way, in their own card frame; the graveyard shows each as it lands, the last one milled on top
+   (also when several come in one update). A `mill` sound can be added (public/sounds/README.md).
+5. **Card backs:** the real Magic card back for the library, hands and face-down cards, or another
+   design (Gold, Obsidian, Azure, Crimson) in the settings.
+6. **`pnpm check:endstep`**, and a daily GitHub run of it that opens an issue: the live Endstep
+   against everything the extension depends on (BROKEN / CHANGED), with the whole difference
+   between deploys; `tests/endstepContract.test.ts` holds our code to the last deploy checked.
+
 ## Release 0.10.3 (2026-10-28)
 
 On top of `d07a372`. All 183 tests pass. `package.json` and `public/manifest.json` at 0.10.3.
