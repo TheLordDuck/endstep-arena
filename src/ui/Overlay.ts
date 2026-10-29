@@ -144,12 +144,14 @@ export class Overlay {
     this.render();
   }
 
-  /** A state of a match: the board is made if it isn't yet, and a match starting turns it on. */
+  /** A state of a match: the board is made if it isn't yet, and a match starting turns it on.
+      A finished one doesn't: Endstep's "Return to Lobby" reloads the page, and the game just left
+      comes again on the new socket, which would bring back its result after "Back to Endstep". */
   private onMatch(state: GameState): void {
     this.ensureBoard();
     if (state.matchId === this.matchId) return;
     this.matchId = state.matchId;
-    if (!this.settings.enabled) this.setEnabled(true);
+    if (!this.settings.enabled && state.status !== "COMPLETE") this.setEnabled(true);
   }
 
   /** The board, with its stylesheet, put up the first time there's a match. */

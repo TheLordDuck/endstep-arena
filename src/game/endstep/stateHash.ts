@@ -4,15 +4,15 @@
 
 import type { Raw } from "./normalize";
 
-const STATE_FIELDS = ["phase", "step", "activePlayerId", "priorityPlayerId", "turnNumber", "priorityPromptVersion", "sequenceNumber",
+export const STATE_FIELDS = ["phase", "step", "activePlayerId", "priorityPlayerId", "turnNumber", "priorityPromptVersion", "sequenceNumber",
   "monarchPlayerId", "isDay", "isNight", "clock", "idleTimeout", "status", "winnerId"];
-const PLAYER_FIELDS = ["life", "poisonCounters", "librarySize", "handSize", "manaPool", "manaRestrictions", "energyCounters",
+export const PLAYER_FIELDS = ["life", "poisonCounters", "librarySize", "handSize", "manaPool", "manaRestrictions", "energyCounters",
   "experienceCounters", "radCounters", "ringTempts", "hasCitysBlessing", "hasInitiative", "hasMonarch", "hasEnduringStory",
   "hasLostGame", "hasConceded", "dungeonRoomId", "commanderTax", "commanderDamage"];
-const ZONES = ["battlefield", "graveyard", "exile", "commandZone"];
-const PRIVATE_FIELDS = ["hand", "libraryTop", "exilePeek", "battlefieldPeek"];
+export const ZONES = ["battlefield", "graveyard", "exile", "commandZone"];
+export const PRIVATE_FIELDS = ["hand", "libraryTop", "exilePeek", "battlefieldPeek"];
 /** Counted from hashV 4. */
-const EXTRA_FIELDS = ["stormCount"];
+export const EXTRA_FIELDS = ["stormCount"];
 
 /** The delta versions Endstep applies; any other makes it resync. */
 export const isKnownHashVersion = (v: unknown): boolean => v === 2 || v === 3 || v === 4;

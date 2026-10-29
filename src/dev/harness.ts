@@ -611,6 +611,26 @@ const scenarios: Record<string, Scenario> = {
   },
   // Several attackers at once, all unblocked: Tarmogoyf, Grizzly Bears and three Soldier tokens
   // (a pile of identical cards). Each strikes the opponent in turn.
+  // Milled, as in Arena: you mill three (they fly from your library to your graveyard one after
+  // another, the last one on top) and the opponent two. The update lists your three in another
+  // order than they were milled; the log's "Library -> Graveyard" events tell the real one. The
+  // events come a moment after the state, as they often do.
+  mill: (s) => {
+    s.pendingAction = null;
+    return (n) => {
+      const [me2, opp2] = players(n);
+      const mine = [card("Island"), card("Thought Scour", { typeLine: "Instant" }), card("Murktide Regent", { typeLine: "Creature — Dragon" })];
+      const theirs = [card("Plains"), card("Solitude", { typeLine: "Creature — Elemental Incarnation" })];
+      (me2!.graveyard as Raw[]).push(mine[2]!, mine[0]!, mine[1]!);
+      me2!.librarySize = (me2!.librarySize as number) - 3;
+      (opp2!.graveyard as Raw[]).push(...theirs);
+      opp2!.librarySize = (opp2!.librarySize as number) - 2;
+      const moved = (seq: number, c: Raw, who: string) => ({ type: "CARD_ZONE_CHANGE", sequenceNumber: seq, message: `${String(c.name)}: Library -> Graveyard`, cardId: c.id, cardName: c.name, playerName: who });
+      return (m) => {
+        m.__events = [...mine.map((c, i) => moved(80 + i, c, "Flavio")), ...theirs.map((c, i) => moved(83 + i, c, "Opponent"))];
+      };
+    };
+  },
   "strike-many": (s) => {
     const [me] = players(s);
     s.phase = "DECLARE_BLOCKERS";
@@ -1615,11 +1635,11 @@ pointAt();
 const play = new URLSearchParams(location.search).get("play");
 if (play) setTimeout(() => (board as unknown as { tryPlay(id: string): boolean }).tryPlay(play), 50);
 
-// Dev hook: `?open=menu|decklist|shortcuts|yields` opens the table menu (in the middle) or that
+// Dev hook: `?open=menu|decklist|settings|shortcuts|yields` opens the table menu (in the middle) or that
 // panel (auto-yields with a few abilities and trigger answers to forget).
 const open = new URLSearchParams(location.search).get("open");
 if (open) {
-  const b = board as unknown as { openTableMenu(x: number, y: number): Promise<void>; renderDecklist(): Promise<void>; renderShortcuts(): void; renderYields(): void };
+  const b = board as unknown as { openTableMenu(x: number, y: number): Promise<void>; renderDecklist(): Promise<void>; renderShortcuts(): void; renderSettings(): void; renderYields(): void };
   if (open === "yields") {
     yields.toggleAbility("{T}, Pay 1 life, Sacrifice Arid Mesa: Search your library for a Mountain or Plains card, put it onto the battlefield, then shuffle.");
     yields.toggleAbility("−1: Create a 3/3 green Beast creature token.");
@@ -1627,7 +1647,7 @@ if (open) {
     yields.toggleAnswer("Whenever a creature you control dies, you may draw a card.", false);
   }
   setTimeout(() => void Promise.resolve(open === "menu" ? b.openTableMenu(innerWidth / 2, innerHeight / 3) : open === "decklist" ? b.renderDecklist()
-    : open === "yields" ? b.renderYields() : b.renderShortcuts()).then(pointAt), 50);
+    : open === "yields" ? b.renderYields() : open === "settings" ? b.renderSettings() : b.renderShortcuts()).then(pointAt), 50);
 }
 
 // Dev hook: the board itself, to open its panels from a test script.

@@ -138,7 +138,7 @@ test("phase stops use Endstep's SET_PHASE_STOPS shape, unversioned", () => {
   const { controller, sent } = setup({ type: "PRIORITY", promptVersion: 4 });
   const stops = { myTurn: new Set(["DRAW", "UPKEEP"]), oppTurn: new Set(["END_STEP"]) };
   controller.setPhaseStops(stops);
-  assert.deepEqual(sent[0], { type: "SET_PHASE_STOPS", phaseStopsMyTurn: ["UPKEEP", "DRAW"], phaseStopsOppTurn: ["END_STEP"] });
+  assert.deepEqual(sent[0], { type: "SET_PHASE_STOPS", phaseStopsMyTurn: ["UPKEEP", "DRAW"], phaseStopsOppTurn: ["END_STEP"], autoPassUntil: { mode: "none" } });
   assert.equal(coversStops({ phaseStopsMyTurn: ["UPKEEP", "DRAW", "MAIN1"], phaseStopsOppTurn: ["END_STEP"] }, stops), true);
   assert.equal(coversStops({ phaseStopsMyTurn: ["MAIN1"], phaseStopsOppTurn: ["END_STEP"] }, stops), false);
 });

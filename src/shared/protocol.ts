@@ -87,6 +87,11 @@ export function isDamageSoundCommand(v: unknown): v is DamageSoundCommand {
  * Endstep's own UI offers, plus its phase-stop and auto-yield settings. No CHEAT. Conceding is only
  * sent after the player confirms it in the board's concede dialog.
  */
+/** A frame of our own (not Endstep's): a match's own socket closed, so the main one carries it again. */
+export const MATCH_SOCKET_CLOSED = "ARENA_MATCH_SOCKET_CLOSED";
+/** Ours too: a match's own socket was attached (ATTACHED), so it carries the match from now on. */
+export const MATCH_SOCKET_OPENED = "ARENA_MATCH_SOCKET_OPENED";
+
 export const ALLOWED_ACTIONS = new Set([
   "SET_PHASE_STOPS",
   // Auto-yields (the stack's right-click menu and the table menu's panel), and forgetting the

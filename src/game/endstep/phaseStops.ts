@@ -63,7 +63,8 @@ export function saveStops(stops: PhaseStops): void {
 /** The SET_PHASE_STOPS payload Endstep's client sends. */
 export function stopsAction(stops: PhaseStops) {
   const list = (s: StopSide) => STOP_STEPS.filter((k) => stops[s].has(k));
-  return { type: "SET_PHASE_STOPS", phaseStopsMyTurn: list("myTurn"), phaseStopsOppTurn: list("oppTurn") };
+  // Since 2026-10-29 Endstep also names its pass-until here; it sends "none" with every change of stops.
+  return { type: "SET_PHASE_STOPS", phaseStopsMyTurn: list("myTurn"), phaseStopsOppTurn: list("oppTurn"), autoPassUntil: { mode: "none" } };
 }
 
 /** True when an outgoing SET_PHASE_STOPS includes every stop we want (it may add temporary ones). */

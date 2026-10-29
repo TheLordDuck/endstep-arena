@@ -22,6 +22,7 @@ here, both play.
 | `turn` | Your turn starts |
 | `win` | You win the game |
 | `lose` | You lose the game |
+| `mill` | A card milled lands in a graveyard (one per card) |
 
 For example `public/sounds/cast.ogg`. Volume and on/off are in the table menu → Arena UI settings.
 

@@ -9,6 +9,7 @@ import { normalize, toLogEntry, toReveal, type Raw } from "./normalize";
 import { MatchChat } from "./chat";
 import { applyReplayPatch } from "./replay";
 import { deltaMatches, isKnownHashVersion } from "./stateHash";
+import { MATCH_SOCKET_CLOSED, MATCH_SOCKET_OPENED } from "../../shared/protocol";
 
 /** How many recent reveals are kept (for the popups and for cards known in a hand). */
 const MAX_REVEALS = 20;
@@ -21,6 +22,8 @@ interface Frame {
   matchId?: unknown;
   seq?: unknown;
   viewerSeat?: unknown;
+  /** "match": it came on the match's own socket (marked by wsTap), else on the main one. */
+  via?: unknown;
 }
 
 type Listener = (state: GameState | null) => void;
@@ -48,6 +51,14 @@ export class EndstepAdapter {
   private matchId: string | null = null;
   private viewerSeat = 0;
   private seq: number | undefined;
+  /** The socket the state's seq counts on (see wsTap): each socket numbers its frames its own way. */
+  private source: "main" | "match" = "main";
+  /** The match is on its own socket: Endstep then ignores the main one's states, until GAME_OVER
+      (which comes on the main one) or that socket closing. */
+  private onMatchSocket = false;
+  /** The game ended (GAME_OVER): Endstep stops listening to the match's socket right away, so
+      anything later on it is left out, until a match socket is attached again. */
+  private matchSocketOver = false;
   private desynced = false;
   /** The console was told this match's updates don't check out (once). */
   private warnedHash = false;
@@ -63,6 +74,8 @@ export class EndstepAdapter {
   private phase = "";
   private listeners = new Set<Listener>();
   readonly events = new RingBuffer<GameEventEntry>(200);
+  /** Sequence numbers of the game events received (see seenEvent). */
+  private eventSeqs = new Set<number>();
   private reveals: RevealView[] = [];
   /** Seat → its connection, from SEAT_CONNECTIVITY frames (deadline on the local clock). */
   private connectivity = new Map<number, { connected: boolean; deadline: number | null }>();
@@ -122,7 +135,7 @@ export class EndstepAdapter {
       case "GAME_DELTA":
         return this.onDelta(f);
       case "GAME_EVENT":
-        if (this.accepts(f.matchId) && isObj(f.payload)) {
+        if (this.accepts(f.matchId) && isObj(f.payload) && !this.seenEvent(f.payload)) {
           this.events.push({ t: Date.now(), type: String(f.payload.type ?? "?"), payload: f.payload });
           this.addToLog(f.matchId as string, f.payload);
           // Revealed cards stay listed (the last few) so the board can show them.
@@ -140,10 +153,29 @@ export class EndstepAdapter {
       case "CHAT_REFUSED":
       case "CHAT_MUTE":
         return this.onChat(frame);
+      case MATCH_SOCKET_CLOSED:
+        if (f.matchId === this.matchId) this.onMatchSocket = false;
+        return;
+      case MATCH_SOCKET_OPENED:
+        if (f.matchId === this.matchId) this.matchSocketOver = false;
+        return;
       case "GAME_GONE":
         if (isObj(f.payload) && f.payload.matchId === this.matchId) this.reset();
         return;
     }
+  }
+
+  /** An event that already came (by its sequence number): the main socket and a match's own one
+      carry the same events for a few seconds after the match moves (see wsTap). GAME_STARTED
+      starts the numbering again. */
+  private seenEvent(payload: Raw): boolean {
+    const n = payload.sequenceNumber;
+    if (payload.type === "GAME_STARTED") this.eventSeqs.clear();
+    if (typeof n !== "number") return false;
+    if (this.eventSeqs.has(n)) return true;
+    if (this.eventSeqs.size >= 4096) this.eventSeqs.clear();
+    this.eventSeqs.add(n);
+    return false;
   }
 
   /** A chat frame: kept when it's about the match being shown (or the one this page is for). */
@@ -213,7 +245,20 @@ export class EndstepAdapter {
     if (!this.accepts(f.matchId) || !isObj(f.payload) || !Array.isArray(f.payload.players)) return;
     const seq = typeof f.seq === "number" ? f.seq : undefined;
     const sameMatch = f.matchId === this.matchId;
-    if (sameMatch && seq !== undefined && this.seq !== undefined && seq < this.seq) return;
+    // Off a match's page, a game that's already over isn't picked up: Endstep's "Return to Lobby"
+    // reloads the page, and the new socket brings the game just left once more.
+    if (!sameMatch && !this.routeMatchId && f.payload.status === "COMPLETE") return;
+    const via = f.via === "match" ? "match" : "main";
+    const over = f.type === "GAME_OVER";
+    if (sameMatch && via === "main" && this.onMatchSocket && !over) return;
+    if (sameMatch && via === "match" && this.matchSocketOver) return;
+    // A state from the other socket starts a new count, and the end of a game always counts:
+    // compared with the match socket's seq, the main socket's GAME_OVER could look old.
+    const fresh = !sameMatch || via !== this.source || over;
+    if (!fresh && seq !== undefined && this.seq !== undefined && seq < this.seq) return;
+    this.source = via;
+    this.onMatchSocket = via === "match" && !over;
+    if (over) this.matchSocketOver = true;
     if (!sameMatch && this.matchId) {
       this.connectivity.clear();
       this.log = [];
@@ -229,6 +274,12 @@ export class EndstepAdapter {
 
   private onDelta(f: Frame): void {
     if (!this.raw || f.matchId !== this.matchId || !isObj(f.payload)) return;
+    // A delta counts on the socket it came on: one from the other socket waits for that socket's
+    // full state (Endstep drops the main socket's while the match has its own).
+    if ((f.via === "match" ? "match" : "main") !== this.source) return;
+    // While a match moves to its own socket both sockets carry it for a few seconds: a delta
+    // already applied comes twice.
+    if (typeof f.seq === "number" && this.seq !== undefined && f.seq <= this.seq) return;
     const d = f.payload;
     const patch = isObj(d.patch) ? d.patch : null;
     if (!patch || typeof d.baseSeq !== "number" || d.baseSeq !== this.seq) {
@@ -254,11 +305,15 @@ export class EndstepAdapter {
     this.raw = null;
     this.matchId = null;
     this.seq = undefined;
+    this.source = "main";
+    this.onMatchSocket = false;
+    this.matchSocketOver = false;
     this.desynced = false;
     this.warnedHash = false;
     this.state = null;
     this.reveals = [];
     this.log = [];
+    this.eventSeqs.clear();
     this.chat.clear();
     this.connectivity.clear();
     this.serverSkew = undefined;

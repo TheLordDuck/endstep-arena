@@ -22,7 +22,19 @@ export interface BoardPrefs {
   tableImage: string;
   /** A new chat message shows for a moment in a bubble by its writer's picture. */
   chatBubbles: boolean;
+  /** The back of every card the board draws face down: Magic's own, or a design of the board's. */
+  cardBack: CardBack;
 }
+
+export type CardBack = "magic" | "gold" | "obsidian" | "azure" | "crimson";
+
+export const CARD_BACKS: { value: CardBack; label: string }[] = [
+  { value: "magic", label: "Magic" },
+  { value: "gold", label: "Gold" },
+  { value: "obsidian", label: "Obsidian" },
+  { value: "azure", label: "Azure" },
+  { value: "crimson", label: "Crimson" },
+];
 
 export type TableChoice = "random" | "auto" | "academy" | "glacier" | "cathedral" | "forge" | "garden" | "plain" | "none" | "custom";
 
@@ -54,6 +66,7 @@ export const DEFAULT_PREFS: BoardPrefs = {
   table: "random",
   tableImage: "",
   chatBubbles: true,
+  cardBack: "magic",
 };
 
 export const ANIM_SPEEDS: { value: number; label: string }[] = [
@@ -82,6 +95,7 @@ export function cleanPrefs(stored: Partial<Record<keyof BoardPrefs, unknown>> | 
   p.volume = num(stored.volume, 0, 1) ?? p.volume;
   if (typeof stored.logOpen === "boolean") p.logOpen = stored.logOpen;
   if (typeof stored.chatBubbles === "boolean") p.chatBubbles = stored.chatBubbles;
+  if (CARD_BACKS.some((b) => b.value === stored.cardBack)) p.cardBack = stored.cardBack as CardBack;
   const table = (stored as { table?: unknown }).table;
   if (TABLES.some((t) => t.value === table)) p.table = table as TableChoice;
   if (validTableImage(stored.tableImage)) p.tableImage = stored.tableImage;

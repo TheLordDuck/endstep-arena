@@ -4,6 +4,17 @@ Snapshot taken 2026-09-25 from the public bundles (`/assets/main-CiaJw071.js`,
 `/assets/GameView-COOLPVf3.js`). Bundle hashes change on every deploy; the
 *protocol* below is what matters and is what `EndstepAdapter` depends on.
 
+**After an Endstep deploy, run `pnpm check:endstep`.** It downloads the live client, reads from it
+everything the extension depends on (`tools/endstep-contract.mjs`) and reports what disagrees with
+our code (BROKEN) or changed since the deploy last checked (CHANGED, against
+`tests/endstep-contract.json`), with the whole difference in `.endstep-cache/diff-<old>-<new>.txt`.
+Once the extension is adapted, `pnpm check:endstep --update` keeps the new deploy as the reference,
+and `pnpm test` (`tests/endstepContract.test.ts`) holds our code to it.
+GitHub runs the check every day (`.github/workflows/endstep-check.yml`, or by hand from the Actions
+tab): when something changed it opens an issue labelled `endstep-change` with the report, the whole
+difference attached to the run; a later deploy while it's open is a comment on it. Close it after
+the `--update`.
+
 ## 1. Page architecture
 
 | Aspect | Finding |
@@ -272,3 +283,46 @@ All on the game socket; a frame's chat is a match's when `payload.matchId` (or t
 * **Unchanged:** every outbound action type, every prompt type, the frame types, the card, player
   and state fields the adapter reads, the avatar and card image URLs. New fields not used yet:
   `stormCount`, `isPrepared`, `manaRestrictions`, `keywordReminders`.
+
+## 13. Each match on a socket of its own (from `main-CyKvEtqn.js` / `dialog-DXsUFJSe.js`, 2026-10-29)
+
+* **Attaching:** when the main socket (`/ws`) brings a `GAME_STATE` or `GAME_DELTA` of the match
+  being viewed, the client sends `GAME_ATTACH { matchId }`. The server answers on the main socket
+  with `GAME_ATTACH_TICKET { matchId, path, ticket }` (or `{ matchId, refused }`). The client opens
+  `<origin><path>` (a same-origin path), sends `ATTACH { ticket }` and gets `ATTACHED { matchId?,
+  audience }`, where `audience` is the viewer's seat as a string. Then it tells the main socket
+  `GAME_ATTACH_STATE { matchId, attached: true }`, and on leaving or on `GAME_OVER`, `attached: false`.
+* **Frames on the match's socket:** `GAME_STATE`, `GAME_DELTA` (same delta format and hash check;
+  on a mismatch it sends `RESYNC`, not `PING`), `GAME_EVENT`, and `PONG` to its `PING { n }`. They
+  may leave out `matchId` and `viewerSeat`; the client fills them in (the seat from `audience`).
+* **The overlap:** for 5 s after attaching both sockets may carry the match; once attached the
+  client drops the main socket's states and deltas, and keeps events it hasn't seen (by
+  `sequenceNumber`). `GAME_OVER`, chat and actions stay on the main socket: `GAME_ACTION` goes out
+  on `/ws` as before (`actionId` added when missing).
+* **The flag** that turns this on is a constant `true` in the bundle, so every match uses it. The
+  main socket also announces `cap=…,delta2,delta4,direct1` and sends `HELLO { resume }` on open.
+* **The extension:** `wsTap` remembers each ticket, taps the socket that sends `ATTACH` with it,
+  and forwards its game frames with the match and seat filled in; its sends still use `/ws`.
+  The adapter ignores a delta it already applied and an event it already got.
+* **Everything else, against the 2026-10-28 deploy** (both bundles diffed, names normalized):
+  unchanged. The game view, every action and prompt, the delta format and its hashes (still
+  `hashV` 2/3/4), the frame types, the HTTP paths the extension calls and the replay decoder are
+  the same. The macro panel moved to a lazy chunk, and the replay header's `wireSchemaHash` that
+  Endstep compares (only to show "Recorded on an older version" in a report) is now
+  `1a08e7ca5265430b`.
+* **Seen while diffing, not new:** Endstep answers `CHOOSE_ABILITY` with `{ type: "CHOOSE_ABILITY",
+  numberValue }` (or `orderedCards` when several can be picked) and backs out with `CANCEL`; the
+  board sends `CHOOSE_MODE` and `NO`, as it did before this deploy.
+* **The end of a game:** `GAME_OVER` comes on the main socket. Endstep then closes the match's
+  socket and goes back to the main one for the rest of the match (sideboarding, the next game).
+  The states it got from the match's socket carry no seq for it, so the main socket's counting goes
+  on untouched; the adapter keeps each socket's count apart (`via: "match"`, marked by wsTap) and
+  always takes a `GAME_OVER`, or the end of a game could look older than the last trigger.
+
+## 14. Pass-until told to the server (`main-yuXmmm6n.js`, build `24b5c8b3a`, 2026-10-29 08:30)
+
+* `SET_PHASE_STOPS` carries `autoPassUntil: { mode: "none" }` on every change of stops.
+* A pass the client makes on its own is `PASS_PRIORITY { promptVersion, autoPass, autoPassUntil? }`,
+  `autoPass` being why: `"yield"` (yield to the end of turn / all), `"passUntil"` (its pass-until
+  modes, with `autoPassUntil: { mode, startTurn, startPhase, … }`) or `"yieldUntil"`. A pass you
+  click is still a plain `PASS_PRIORITY`. The board's pass-until sends `autoPass: "passUntil"`.

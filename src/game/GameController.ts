@@ -75,8 +75,10 @@ export class GameController {
     this.send({ type: "CLEAR_REMEMBERED_ORDERS" });
   }
 
-  passPriority(): void {
-    this.send({ type: "PASS_PRIORITY" });
+  /** `auto`: a pass the board makes on its own (pass until…), tagged as Endstep tags its own
+      since 2026-10-29 ("passUntil", "yield"…). */
+  passPriority(auto?: string): void {
+    this.send(auto ? { type: "PASS_PRIORITY", autoPass: auto } : { type: "PASS_PRIORITY" });
   }
 
   /** Pass until the stack is empty (Endstep's "resolve all"). */

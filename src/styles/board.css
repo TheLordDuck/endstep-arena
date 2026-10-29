@@ -418,18 +418,24 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .fallback .fcost, .fallback .ftype { color: var(--muted); font-size: 0.85em; }
 .fallback .ftext { font-size: 0.8em; color: #cfc6b4; }
 
-.card.back .face {
-  background:
-    radial-gradient(circle at 50% 50%, rgba(232, 198, 120, 0.2), transparent 45%),
-    repeating-linear-gradient(135deg, rgba(232, 198, 120, 0.06) 0 3px, transparent 3px 9px),
-    linear-gradient(160deg, #3a2a1a, #1a120c);
-  border: 1px solid rgba(232, 198, 120, 0.35);
-}
-/* A face-down card (hideaway, foretell, morph…) shows the real Magic card back. */
-.card.facedown .face {
+/* Card backs (the library, hands, face-down cards, milled cards on their way): the real Magic card
+   back, or one of the board's own designs, picked in the settings (data-back on the board). */
+.card.back .face, .card.facedown .face {
   background: #1a120c url("https://backs.scryfall.io/large/0/a/0aeebaf5-8c7d-4636-9e82-8c27447861f7.jpg") center / cover no-repeat;
+  border: 1px solid rgba(0, 0, 0, 0.6);
 }
-.card.back .face::before {
+[data-back="gold"] { --bk-a: #3a2a1a; --bk-b: #1a120c; --bk-tint: 232, 198, 120; }
+[data-back="obsidian"] { --bk-a: #2b2d33; --bk-b: #0d0e11; --bk-tint: 196, 204, 218; }
+[data-back="azure"] { --bk-a: #17345a; --bk-b: #08142a; --bk-tint: 120, 190, 255; }
+[data-back="crimson"] { --bk-a: #4a1616; --bk-b: #1a0707; --bk-tint: 255, 150, 120; }
+[data-back]:not([data-back="magic"]) :is(.card.back, .card.facedown) .face {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(var(--bk-tint), 0.2), transparent 45%),
+    repeating-linear-gradient(135deg, rgba(var(--bk-tint), 0.06) 0 3px, transparent 3px 9px),
+    linear-gradient(160deg, var(--bk-a), var(--bk-b));
+  border: 1px solid rgba(var(--bk-tint), 0.35);
+}
+[data-back]:not([data-back="magic"]) :is(.card.back, .card.facedown) .face::before {
   content: "";
   position: absolute;
   left: 50%;
@@ -438,8 +444,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
   aspect-ratio: 1;
   translate: -50% -50%;
   rotate: 45deg;
-  border: 2px solid rgba(232, 198, 120, 0.7);
-  box-shadow: 0 0 12px rgba(232, 198, 120, 0.35);
+  border: 2px solid rgba(var(--bk-tint), 0.7);
+  box-shadow: 0 0 12px rgba(var(--bk-tint), 0.35);
 }
 
 .badges {
@@ -4048,3 +4054,16 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .yl-orders div { display: flex; flex-direction: column; gap: 3px; flex: 1; }
 .yl-orders b { font: 600 14px var(--font); color: var(--text); }
 .yl-orders small { font: 400 12px/1.35 var(--font); color: var(--muted); }
+
+/* A milled card flying from the library to the graveyard (see Board.flyMill): a card back and its
+   face, back to back, turned over on the way. */
+.mill-fly { position: absolute; z-index: 36; pointer-events: none; perspective: 900px; }
+.mill-fly .mill-flip { position: absolute; inset: 0; transform-style: preserve-3d; }
+.mill-fly .card { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; backface-visibility: hidden; border-radius: 6px; }
+.mill-fly .mill-front { transform: rotateY(180deg); }
+.mill-fly .card .face { border: 2px solid rgba(20, 16, 12, 0.95); box-shadow: 0 14px 30px rgba(0, 0, 0, 0.6), 0 0 22px 3px rgba(140, 200, 120, 0.35); }
+.mill-fly.theirs .card .face { box-shadow: 0 14px 30px rgba(0, 0, 0, 0.6), 0 0 22px 3px rgba(255, 90, 60, 0.35); }
+.mill-fly .img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 0; }
+/* Shown big, the milled card is the whole printed card: its own black border, a real card's corners. */
+.mill-fly .mill-front .face { border: 0; border-radius: 4.6% / 3.3%; }
+.mill-fly .card { border-radius: 4.6% / 3.3%; }

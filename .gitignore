@@ -13,3 +13,5 @@ releases/
 /*.txt
 # Visual regression screenshots (tools/visual.mjs): kept on this machine only.
 .visual/
+# Endstep scripts downloaded by tools/check-endstep.mjs.
+.endstep-cache/

@@ -8,6 +8,8 @@
 import {
   ALLOWED_ACTIONS,
   BRIDGE_TAG,
+  MATCH_SOCKET_CLOSED,
+  MATCH_SOCKET_OPENED,
   CHAT_MAX,
   isChatCommand,
   isSendActionCommand,
@@ -50,15 +52,78 @@ declare global {
   const tapped = new WeakSet<WebSocket>();
   const NativeWebSocket = window.WebSocket;
   let current: WebSocket | null = null;
+  /** The main socket before `current` (should a match's socket ever be opened at /ws too). */
+  let previous: WebSocket | null = null;
+  /** Sockets of a single match (see tapAttached). */
+  const attached = new WeakSet<WebSocket>();
+  /** Attach tickets the main socket handed out → their match (see tapAttached). */
+  const tickets = new Map<string, string>();
 
   function tap(ws: WebSocket, url: string) {
     tapped.add(ws);
+    previous = current;
     current = ws;
     post({ kind: "ws-open", url });
     ws.addEventListener("message", (ev) => {
-      if (typeof ev.data === "string" && isGameFrame(ev.data)) post({ kind: "ws-in", data: ev.data });
+      if (attached.has(ws) || typeof ev.data !== "string" || !isGameFrame(ev.data)) return;
+      if (ev.data.includes('"GAME_ATTACH_TICKET"')) noteTicket(ev.data);
+      post({ kind: "ws-in", data: ev.data });
     });
     ws.addEventListener("close", (ev) => post({ kind: "ws-close", code: ev.code }));
+  }
+
+  function noteTicket(data: string) {
+    try {
+      const f = JSON.parse(data);
+      // It may also come inside an ATTACH batch (a reconnect).
+      const frames = f?.type === "ATTACH" && Array.isArray(f.payload?.frames) ? f.payload.frames : [f];
+      for (const frame of frames) {
+        const p = frame?.type === "GAME_ATTACH_TICKET" ? frame.payload : null;
+        if (typeof p?.ticket === "string" && typeof p.matchId === "string") {
+          tickets.set(p.ticket, p.matchId);
+          if (tickets.size > 16) tickets.delete(tickets.keys().next().value!);
+        }
+      }
+    } catch {
+      /* observation only */
+    }
+  }
+
+  // Since late October 2026 a match's states, deltas and events move to a socket of its own once
+  // it starts: the main socket gets a GAME_ATTACH_TICKET { matchId, path, ticket }, Endstep opens
+  // `path` and sends ATTACH { ticket }, the server answers ATTACHED { audience } and the game's
+  // frames follow there (actions still go out on the main socket). Those frames may leave out the
+  // match and the seat, which Endstep's client adds as it delivers them; the same is done here.
+  // Each is marked `via: "match"`: its seq doesn't follow the main socket's (see EndstepAdapter).
+  // When the socket closes Endstep goes back to the main one, which the adapter is told.
+  function tapAttached(ws: WebSocket, ticket: string) {
+    tapped.add(ws);
+    attached.add(ws);
+    if (ws === current) current = previous;
+    const matchId = tickets.get(ticket);
+    let viewerSeat: number | undefined;
+    ws.addEventListener("message", (ev) => {
+      if (typeof ev.data !== "string") return;
+      try {
+        const f = JSON.parse(ev.data);
+        if (f?.type === "ATTACHED") {
+          const a = f.payload?.audience;
+          if (typeof a === "string" && /^(0|[1-9][0-9]{0,3})$/.test(a)) viewerSeat = Number(a);
+          if (matchId) post({ kind: "ws-in", data: JSON.stringify({ type: MATCH_SOCKET_OPENED, matchId }) });
+          return;
+        }
+        if (f?.type !== "GAME_STATE" && f?.type !== "GAME_DELTA" && f?.type !== "GAME_EVENT") return;
+        if (f.matchId === undefined && matchId) f.matchId = matchId;
+        if (f.type !== "GAME_EVENT" && f.viewerSeat === undefined && viewerSeat !== undefined) f.viewerSeat = viewerSeat;
+        f.via = "match";
+        post({ kind: "ws-in", data: JSON.stringify(f) });
+      } catch {
+        /* observation only */
+      }
+    });
+    ws.addEventListener("close", () => {
+      if (matchId) post({ kind: "ws-in", data: JSON.stringify({ type: MATCH_SOCKET_CLOSED, matchId }) });
+    });
   }
 
   // A Proxy keeps statics (WebSocket.OPEN…), the prototype chain and
@@ -82,6 +147,9 @@ declare global {
     try {
       if (tapped.has(this) && typeof data === "string" && data.includes('"GAME_ACTION"')) {
         post({ kind: "ws-out", data });
+      } else if (!attached.has(this) && typeof data === "string" && data.startsWith('{"type":"ATTACH"')) {
+        const ticket = JSON.parse(data)?.payload?.ticket;
+        if (typeof ticket === "string" && tickets.has(ticket)) tapAttached(this, ticket);
       }
     } catch {
       /* observation only */

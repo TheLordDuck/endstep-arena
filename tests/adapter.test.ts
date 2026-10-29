@@ -151,6 +151,74 @@ test("delta gap marks desync until the next full state", () => {
   assert.equal(a.getGameState()!.desynced, false);
 });
 
+test("a delta or an event that comes on both sockets (the match moving to its own) counts once", () => {
+  const a = new EndstepAdapter();
+  a.setRoute("/game/m1");
+  a.handleFrame(fullState(10));
+  const delta = { type: "GAME_DELTA", matchId: "m1", seq: 11, payload: { baseSeq: 10, patch: { players: [{ i: 0, life: 18 }] } } };
+  a.handleFrame(delta);
+  const once = a.getGameState();
+  a.handleFrame(delta);
+  assert.equal(a.getGameState(), once, "the second copy changes nothing (it isn't a gap)");
+  assert.equal(once!.players[0]!.life, 18);
+  assert.equal(once!.seq, 11);
+  const event = { type: "GAME_EVENT", matchId: "m1", payload: { type: "SPELL_CAST", sequenceNumber: 40, message: "Me cast [[Lightning Bolt]]." } };
+  a.handleFrame(event);
+  a.handleFrame(event);
+  assert.equal(a.events.toArray().filter((e) => e.type === "SPELL_CAST").length, 1);
+});
+
+test("a match on its own socket: the main socket's GAME_OVER ends the game whatever its seq", () => {
+  const a = new EndstepAdapter();
+  a.setRoute("/game/m1");
+  a.handleFrame(fullState(5));
+  // The match moves to its own socket, which counts its frames its own way.
+  a.handleFrame({ type: "ARENA_MATCH_SOCKET_OPENED", matchId: "m1" });
+  a.handleFrame({ ...fullState(900), via: "match" });
+  a.handleFrame({ type: "GAME_DELTA", matchId: "m1", seq: 901, via: "match", payload: { baseSeq: 900, patch: { players: [{ i: 1, life: 3 }] } } });
+  assert.equal(a.getGameState()!.players[1]!.life, 3);
+  // Meanwhile the main socket's copies are left out, as Endstep does.
+  a.handleFrame({ type: "GAME_DELTA", matchId: "m1", seq: 6, payload: { baseSeq: 5, patch: { players: [{ i: 1, life: 20 }] } } });
+  a.handleFrame(fullState(7));
+  assert.equal(a.getGameState()!.players[1]!.life, 3);
+  // The last trigger is up when the game ends: GAME_OVER comes on the main socket, with its count.
+  const over = fullState(8);
+  over.type = "GAME_OVER";
+  Object.assign(over.payload, { status: "COMPLETE", winnerId: "0", pendingAction: null });
+  a.handleFrame(over);
+  assert.equal(a.getGameState()!.status, "COMPLETE");
+  assert.equal(a.getGameState()!.pending, null, "the trigger's prompt is gone");
+  // A late frame on the match's socket doesn't bring the trigger back…
+  a.handleFrame({ ...fullState(902), via: "match" });
+  assert.equal(a.getGameState()!.status, "COMPLETE");
+  // …and the next game comes on the main socket.
+  a.handleFrame(fullState(9));
+  assert.equal(a.getGameState()!.seq, 9);
+  assert.notEqual(a.getGameState()!.status, "COMPLETE");
+});
+
+test("in the lobby, a game that's already over isn't picked up (Return to Lobby reloads the page)", () => {
+  const a = new EndstepAdapter();
+  a.setRoute("/");
+  const over = fullState(50);
+  Object.assign(over.payload, { status: "COMPLETE", winnerId: "0", pendingAction: null });
+  a.handleFrame(over);
+  assert.equal(a.getGameState(), null);
+  // A game going on still is (a match found from the lobby).
+  a.handleFrame(fullState(51, "m2"));
+  assert.equal(a.getGameState()?.matchId, "m2");
+});
+
+test("when a match's socket closes, the main socket carries the match again", () => {
+  const a = new EndstepAdapter();
+  a.setRoute("/game/m1");
+  a.handleFrame({ type: "ARENA_MATCH_SOCKET_OPENED", matchId: "m1" });
+  a.handleFrame({ ...fullState(900), via: "match" });
+  a.handleFrame({ type: "ARENA_MATCH_SOCKET_CLOSED", matchId: "m1" });
+  a.handleFrame(fullState(40));
+  assert.equal(a.getGameState()!.seq, 40);
+});
+
 test("ATTACH frames are unwrapped; other matches are ignored on a game route", () => {
   const a = new EndstepAdapter();
   a.setRoute("/game/m1");

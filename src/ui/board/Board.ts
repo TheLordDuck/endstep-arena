@@ -28,7 +28,7 @@ import { endstepKeyRows } from "./endstepKeys";
 import type { DeckCard, Decklist } from "../../game/endstep/decklist";
 import { lifeGainSource } from "./lifeGain";
 import { bestLine, chosenModes, frameColor, loyaltyCost, loyaltyLines, loyaltyNeeded, modeLines, withoutCost } from "./abilityText";
-import { ANIM_SPEEDS, CARD_SCALES, TABLES, validTableImage, type BoardPrefs, type TableChoice } from "./prefs";
+import { ANIM_SPEEDS, CARD_BACKS, CARD_SCALES, TABLES, validTableImage, type BoardPrefs, type TableChoice } from "./prefs";
 import type { Battlefield3D, SceneLayout } from "./scene/Battlefield3D";
 import { THEME_FOR_LAND, THEME_NAMES, type ThemeName } from "./scene/themeNames";
 import { loadScene } from "./scene/loadScene";
@@ -37,12 +37,15 @@ import { Sounds, type Sfx } from "./sounds";
 import { damageDealt } from "../../game/spellDamage";
 import { blowsOf, toldFight, trampleExcess, turnLog, type ToldFight } from "../../game/combatEvents";
 import { waitingFor, type Waiting } from "../../game/waiting";
+import { graveyardArrivals, graveyardOrder, milledCards, type Arrival } from "./mill";
 import { PASS_TARGETS, passLabel, passUntilStep, passUntilStops, startPassUntil, type PassTarget, type PassUntil } from "../../game/passUntil";
 import { REPORT_MAX_IMAGES, REPORT_MAX_TEXT, type Report, type ReportImage, type ReportKind, type ReportSubject } from "../../game/endstep/reports";
 
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 /** Animations turned off in the board's settings (as "reduce motion" does). */
 let motionOff = false;
+/** How long a card that turned up in a graveyard waits for the log to say it was milled. */
+const MILL_WAIT_MS = 500;
 const reducedMotion = () => motionOff || matchMedia("(prefers-reduced-motion: reduce)").matches;
 /** Where the player moved the replay bar, kept across games. */
 const REPLAY_BAR_KEY = "endstepArena.replayBar";
@@ -347,6 +350,12 @@ export class Board {
   private portraits = new Map<string, string>();
   /** The turn each card was put into a graveyard, as seen from here (see cardStateNotes). */
   private graveTurn = new Map<string, number>();
+  /** Each card's latest move into a graveyard, from the log (see mill.ts). */
+  private arrivals = new Map<string, Arrival>();
+  /** Milled cards still flying to their graveyard: the pile shows them as they land. */
+  private millPending = new Set<string>();
+  /** Cards that turned up in a graveyard before the log said where from: until when they wait. */
+  private millWait = new Map<string, number>();
   /** The scene drawn for the match on screen (see randomScene). */
   private sceneFor: { matchId: string; theme: ThemeName } | null = null;
 
@@ -487,7 +496,7 @@ export class Board {
     const step = passUntilStep(pu, state);
     if (step === "stop") return this.stopPassing();
     if (step === "wait" || state.seq === this.passSeq) return;
-    if (step === "pass") this.controller.passPriority();
+    if (step === "pass") this.controller.passPriority("passUntil");
     else this.controller.declareAttackers(new Map(), false);
     this.passSeq = state.seq;
     this.setAwaiting(true);
@@ -535,6 +544,7 @@ export class Board {
     motionOff = !p.animations;
     this.el.classList.toggle("still", !p.animations);
     this.el.style.setProperty("--cs", String(p.cardScale));
+    this.el.dataset.back = p.cardBack;
     // At another speed, every animation that starts is set to it (CSS ones start as classes
     // change or elements come in, so the board is watched for those).
     const other = this.speed !== 1;
@@ -629,6 +639,7 @@ export class Board {
           <label class="set-file">Choose image…<input type="file" accept="image/*" data-pref-file="tableImage" hidden></label>
           <input type="url" class="set-url" placeholder="…or paste an image link" data-pref-url="tableImage" value="${esc(p.tableImage.startsWith("data:") ? "" : p.tableImage)}">
         </div></div>` : ""}
+        <div class="set-row"><span>Card backs</span>${seg("cardBack", CARD_BACKS)}</div>
         <div class="set-row"><span>Chat bubbles</span>${seg("chatBubbles", onOff)}</div>
         <div class="set-row"><span>Sounds</span>${seg("sound", onOff)}</div>
         <div class="set-row"><span>Volume</span><input type="range" class="vol" min="0" max="100" step="5" value="${Math.round(p.volume * 100)}" data-pref-range="volume"${p.sound ? "" : " disabled"}></div>
@@ -840,6 +851,12 @@ export class Board {
       const before = new Set(prev.players.flatMap((p) => p.graveyard.map((c) => c.id)));
       for (const p of state.players) for (const c of p.graveyard) if (!before.has(c.id)) this.graveTurn.set(c.id, state.turnNumber);
     }
+    this.arrivals = graveyardArrivals(state.log ?? []);
+    if (prev?.matchId !== state.matchId) {
+      this.millPending.clear();
+      this.millWait.clear();
+    }
+    const milled = this.captureMilled(prev, state);
     const fight = this.fightBefore(prev, state);
     this.captureFallen(fight, state);
     const casts = this.captureCasts();
@@ -914,6 +931,7 @@ export class Board {
     this.renderStack(casting ? [casting, ...state.stack] : state.stack, z.me?.id);
     this.renderPiles(this.q(".me-piles"), z.me);
     this.renderPiles(this.q(".opp-piles"), z.opp);
+    this.flyMilled(milled);
 
     // Drop elements for cards that left every rendered zone (library, hidden…).
     for (const [id, el] of this.cardEls) if (!this.used.has(id)) { el.remove(); this.cardEls.delete(id); }
@@ -2568,12 +2586,140 @@ export class Board {
     return chosen ? { ...lines, chosen } : null;
   }
 
+  /** A graveyard bottom to top as shown: the last card milled (or put there) on top. */
+  private graveyard(p: PlayerView): CardView[] {
+    return graveyardOrder(p.graveyard, this.arrivals);
+  }
+
+  /**
+   * Before an update: the cards it mills, by player, in the order they were milled. They're held
+   * off the graveyard pile until each has flown there (flyMilled).
+   * The log's "Library -> Graveyard" often comes a moment after the state that puts the card in
+   * the graveyard, so a card that turns up there out of nowhere (not on the table, the stack or a
+   * hand seen before) waits off the pile for it, at most MILL_WAIT_MS: then it flies if it was
+   * milled, or just shows.
+   */
+  private captureMilled(prev: GameState | null, state: GameState): { playerId: string; cards: CardView[] }[] {
+    const now = performance.now();
+    if (!prev || prev.matchId !== state.matchId || reducedMotion()) {
+      this.millWait.clear();
+      return [];
+    }
+    // this.cardData still holds what the last update showed.
+    const seen = (id: string) => this.cardData.has(id) || prev.stack.some((s) => s.id === id || s.sourceCardId === id);
+    const out: { playerId: string; cards: CardView[] }[] = [];
+    for (const p of state.players) {
+      const before = new Set(prev.players.find((o) => o.id === p.id)?.graveyard.map((c) => c.id) ?? []);
+      for (const c of p.graveyard) {
+        if (before.has(c.id) || this.arrivals.has(c.id) || this.millWait.has(c.id) || seen(c.id)) continue;
+        this.millWait.set(c.id, now + MILL_WAIT_MS);
+        this.later(() => this.refreshPiles(), MILL_WAIT_MS + 20);
+      }
+      // Waiting ones whose move is now known (or that waited long enough) are let go.
+      const waited = new Set<string>();
+      for (const c of p.graveyard) {
+        const until = this.millWait.get(c.id);
+        if (until === undefined) continue;
+        if (this.arrivals.has(c.id)) {
+          this.millWait.delete(c.id);
+          waited.add(c.id);
+        } else if (now >= until) this.millWait.delete(c.id);
+      }
+      const fresh = new Set([...before].filter((id) => !waited.has(id)));
+      const cards = milledCards(fresh, this.graveyard(p), this.arrivals)
+        .filter((c) => !this.millPending.has(c.id) && !this.millWait.has(c.id) && (!before.has(c.id) || waited.has(c.id)));
+      if (!cards.length) continue;
+      for (const c of cards) this.millPending.add(c.id);
+      out.push({ playerId: p.id, cards });
+    }
+    // Cards no longer in a graveyard stop waiting.
+    const inGraveyards = new Set(state.players.flatMap((p) => p.graveyard.map((c) => c.id)));
+    for (const id of this.millWait.keys()) if (!inGraveyards.has(id)) this.millWait.delete(id);
+    return out;
+  }
+
+  /** The piles again, between updates (a milled card landed, or stopped waiting). */
+  private refreshPiles(): void {
+    if (!this.state) return;
+    const z = this.zones(this.state);
+    this.renderPiles(this.q(".me-piles"), z.me);
+    this.renderPiles(this.q(".opp-piles"), z.opp);
+  }
+
+  /**
+   * Milled cards, as in Arena: one after another each leaves the library face down, turns over in
+   * an arc and drops face up onto the graveyard, which shows it as it lands (the last one milled
+   * ends on top).
+   */
+  private flyMilled(groups: { playerId: string; cards: CardView[] }[]): void {
+    const DURATION = 560;
+    for (const { playerId, cards } of groups) {
+      // A big mill goes faster, so it doesn't drag on.
+      const stagger = Math.max(60, Math.min(170, 1400 / cards.length));
+      this.busyFor(DURATION + stagger * (cards.length - 1));
+      cards.forEach((c, i) => {
+        if (i === 0) this.flyMill(playerId, c, DURATION);
+        else this.later(() => this.flyMill(playerId, c, DURATION), stagger * i);
+      });
+    }
+  }
+
+  private flyMill(playerId: string, c: CardView, duration: number): void {
+    const land = () => {
+      if (!this.millPending.delete(c.id) || !this.state) return;
+      this.refreshPiles();
+      this.sfx("mill");
+      const top = this.el.querySelector<HTMLElement>(`.pile[data-zone="graveyard"][data-player="${CSS.escape(playerId)}"] .pile-card`);
+      top?.animate([{ scale: "1.14" }, { scale: "1" }], { duration: 240, easing: "cubic-bezier(.2,.8,.3,1)" });
+    };
+    const spot = (zone: string) => this.el.querySelector<HTMLElement>(`.pile[data-zone="${zone}"][data-player="${CSS.escape(playerId)}"] .pile-card`);
+    const from = spot("library");
+    const to = spot("graveyard");
+    if (!from || !to || !from.getClientRects().length || !to.getClientRects().length) return land();
+    const box = this.el.getBoundingClientRect();
+    const a = from.getBoundingClientRect();
+    const b = to.getBoundingClientRect();
+    const ghost = document.createElement("div");
+    ghost.className = `mill-fly${this.state?.players.find((p) => p.id === playerId)?.isViewer ? "" : " theirs"}`;
+    // The whole card, in its own frame.
+    const url = imageUrl(c);
+    const front = url ? `<img class="img" alt="" draggable="false" src="${esc(url)}">` : `<div class="fallback"><b class="fname">${esc(c.name)}</b></div>`;
+    ghost.innerHTML = `<div class="mill-flip"><div class="card back"><div class="face"></div></div><div class="card mill-front${url ? " has-img" : ""}"><div class="face">${front}</div></div></div>`;
+    ghost.style.setProperty("--cw", `${b.width}px`);
+    this.el.appendChild(ghost);
+    // A rect `t` of the way from the library to the graveyard, raised by `lift` px.
+    const at = (t: number, lift = 0): Keyframe => ({
+      left: `${a.left + (b.left - a.left) * t - box.left}px`,
+      top: `${a.top + (b.top - a.top) * t - box.top - lift}px`,
+      width: `${a.width + (b.width - a.width) * t}px`,
+      height: `${a.height + (b.height - a.height) * t}px`,
+    });
+    // The piles sit side by side: a high arc, so the card is seen turning over.
+    const lift = Math.max(90, Math.abs(b.left - a.left) * 0.35);
+    const turn = b.left < a.left ? -10 : 10;
+    const anim = ghost.animate([
+      { ...at(0), rotate: "0deg", offset: 0 },
+      { ...at(0.5, lift), rotate: `${turn}deg`, offset: 0.5, easing: "cubic-bezier(.3,0,.5,1)" },
+      { ...at(1), rotate: "0deg", offset: 1 },
+    ], { duration, easing: "cubic-bezier(.4,0,.2,1)" });
+    // It turns face up on the way.
+    ghost.querySelector<HTMLElement>(".mill-flip")!.animate(
+      [{ transform: "rotateY(0deg)" }, { transform: "rotateY(0deg)", offset: 0.08 }, { transform: "rotateY(180deg)", offset: 0.48 }, { transform: "rotateY(180deg)" }],
+      { duration, easing: "ease-in-out", fill: "forwards" });
+    void anim.finished.catch(() => {}).then(() => {
+      ghost.remove();
+      land();
+    });
+  }
+
   private renderPiles(box: HTMLElement, player: PlayerView | null): void {
     if (!player) {
       box.innerHTML = "";
       return;
     }
     const piles: HTMLElement[] = [];
+    const now = performance.now();
+    const graveyard = this.graveyard(player).filter((c) => !this.millPending.has(c.id) && !((this.millWait.get(c.id) ?? 0) > now));
     const pile = (zone: string, label: string, count: number | undefined, top?: CardView) => {
       let el = box.querySelector<HTMLElement>(`.pile[data-zone="${zone}"]`);
       if (!el) {
@@ -2597,7 +2743,7 @@ export class Board {
       el.style.setProperty("--edge", pileEdge(thick));
       const under = el.querySelector<HTMLElement>(".pile-under");
       if (under) {
-        const below = player.graveyard.slice(-3, -1).reverse();
+        const below = graveyard.slice(-3, -1).reverse();
         const sig = below.map((c) => c.id).join(",");
         if (under.dataset.sig !== sig) {
           under.dataset.sig = sig;
@@ -2619,7 +2765,7 @@ export class Board {
       piles.push(el);
     };
     pile("library", "Library", player.librarySize);
-    pile("graveyard", "Graveyard", player.graveyard.length, player.graveyard.at(-1));
+    pile("graveyard", "Graveyard", graveyard.length, graveyard.at(-1));
     pile("exile", "Exile", player.exile.length, player.exile.at(-1));
     if (player.commandZone.length) pile("command", "Command", player.commandZone.length, player.commandZone[0]);
     box.classList.toggle("has-cmd", player.commandZone.length > 0);
@@ -6660,7 +6806,7 @@ export class Board {
     if (v?.zone === "attached") return this.refreshAttachedViewer(box, v.player);
     const p = this.state?.players.find((pl) => pl.id === v?.player);
     if (!v || !p) return this.closeViewer();
-    const cards = v.zone === "graveyard" ? p.graveyard : v.zone === "exile" ? p.exile : p.commandZone;
+    const cards = v.zone === "graveyard" ? this.graveyard(p) : v.zone === "exile" ? p.exile : p.commandZone;
     const playable = new Set(this.state?.pending?.type === "PRIORITY" ? this.state.pending.playable.map((o) => o.cardId) : []);
     const html = `<div class="phead"><h2>${esc(humanize(v.zone))}</h2><p>${esc(p.name)} · ${cards.length} card${cards.length === 1 ? "" : "s"}</p></div>
       ${this.fanHtml(`view:${v.player}:${v.zone}`, cards.slice().reverse(), (c) => `data-vplay="${esc(c.id)}"`, (c) => (playable.has(c.id) ? "playable" : ""))}

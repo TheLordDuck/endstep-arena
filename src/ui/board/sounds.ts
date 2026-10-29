@@ -4,7 +4,7 @@
 // sounds (casting, lands, combat, damage, draws, winning…), so without files those are what you
 // hear. Nothing plays at volume 0.
 
-export const SFX = ["cast", "resolve", "land", "pass", "attack", "hit", "zap", "exile", "token", "counter", "turn", "win", "lose"] as const;
+export const SFX = ["cast", "resolve", "land", "pass", "attack", "hit", "zap", "exile", "token", "counter", "turn", "win", "lose", "mill"] as const;
 export type Sfx = (typeof SFX)[number];
 
 /** The same sound isn't played again sooner than this (ms): a burst of changes makes one sound. */

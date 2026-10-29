@@ -1,0 +1,77 @@
+name: Endstep check
+
+# Every day, the live endstep.cc against what the extension depends on (pnpm check:endstep, see
+# docs/ENDSTEP_ANALYSIS.md). When something broke or changed, an issue labelled endstep-change
+# says what, with the whole difference attached to the run. One issue at a time: while it's open,
+# each new Endstep deploy is a comment on it. Close it after `pnpm check:endstep --update`.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Check Endstep
+        id: check
+        run: |
+          set +e
+          pnpm -s check:endstep > report.txt 2>&1
+          code=$?
+          cat report.txt
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          sha=$(sed -n 's/^Endstep \([0-9a-z]*\) .*/\1/p' report.txt | head -1)
+          # No build named: endstep.cc couldn't be read (the report says why).
+          echo "sha=${sha:-unreachable}" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the whole difference
+        if: steps.check.outputs.code != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: endstep-diff-${{ steps.check.outputs.sha }}
+          path: .endstep-cache/diff-*.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Open or update the issue
+        if: steps.check.outputs.code != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.check.outputs.sha }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create endstep-change --color D93F0B --description "Endstep deployed something the extension depends on" 2>/dev/null || true
+          {
+            echo "<!-- endstep-sha:$SHA -->"
+            echo "\`pnpm check:endstep\` found that Endstep (build \`$SHA\`) differs from what the extension expects."
+            echo
+            echo '```'
+            head -c 60000 report.txt
+            echo '```'
+            echo
+            echo "The whole difference between the two deploys: the \`endstep-diff-$SHA\` artifact of [this run]($RUN)."
+            echo
+            echo "**BROKEN**: Endstep disagrees with our code. **CHANGED**: differs from the deploy last checked (tests/endstep-contract.json). Once the extension is adapted, run \`pnpm check:endstep --update\`, commit, and close this issue."
+          } > body.md
+          issue=$(gh issue list --label endstep-change --state open --json number --jq '.[0].number')
+          if [ -z "$issue" ]; then
+            gh issue create --title "Endstep changed (build $SHA)" --label endstep-change --body-file body.md
+          elif ! gh issue view "$issue" --json body,comments --jq '.body, .comments[].body' | grep -q "endstep-sha:$SHA"; then
+            gh issue comment "$issue" --body-file body.md
+          else
+            echo "Issue #$issue already reports build $SHA."
+          fi
