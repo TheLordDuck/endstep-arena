@@ -8,7 +8,7 @@ import { winsNeeded } from "../../game/GameState";
 import type { AbilityOption, CardView, ChatMessage, CombatLink, DivideOption, DivideView,GameState, LogEntry, PendingActionView, PileView, PlayerView, SideboardView, StackItemView } from "../../game/GameState";
 import { playerTargetKey, type GameController } from "../../game/GameController";
 import { createsTokens, isDoubleFaced, knownDoubleFaced, otherFace, relatedTokens } from "./relatedTokens";
-import { CARD_BACK_URL, chosenLabels, createBackEl, createCardEl, imageUrl, isFrontRow, isFullCard, isLand, lostKeywords, updateCardEl } from "./cards";
+import { CARD_BACK_URL, chosenLabels, createBackEl, createCardEl, imageUrl, isBattleFront, isFrontRow, isFullCard, isLand, isWideCard, lostKeywords, unlockedDoors, updateCardEl } from "./cards";
 import { arrangeMove, canConfirm, clickInMode, deckColumns, defenderForKey, deriveMode, discardInHand, isProliferate, divideLeft, splitAsk, divideLocked, divideReady, divideShort, divideStart, divideStep, humanize, keyForDefender, learnStep, manaValue, promptKey, sideboardChanged, sideboardCheck, sideboardMove, sideboardStacks, stepNumber, type Mode, type SideboardStack } from "./modes";
 import { wheelFromAbilities, wheelFromStrings, wheelSvg, type WheelOption } from "./manaWheel";
 import { currentStep, stepIndex, stepLabel, TURN_STEPS } from "./phases";
@@ -80,6 +80,14 @@ const STOP_NAMES: Record<string, string> = {
 const KW_GAP = 10;
 /** Space between a hovered double-faced card and its other face (px, as in the CSS). */
 const ZBACK_GAP = 10;
+/** A Room's or battle's width on the battlefield, in card widths: the whole card at full size,
+    lying sideways (as in the CSS). */
+const WIDE_UNITS = 88 / 63;
+/** A Room's classes for its locked doors (none when not known). */
+const doorClasses = (open: [boolean, boolean] | undefined) =>
+  open ? ` room${open[0] ? "" : " left-locked"}${open[1] ? "" : " right-locked"}` : "";
+/** An enlarged sideways card's width, in the width of an upright one. */
+const ZOOM_WIDE = 88 / 63;
 /** How much a card of the opening hand grows when hovered (as in the CSS, .mcard:hover). */
 const MCARD_HOVER_SCALE = 1.06;
 /** How much further right a double-faced card's other face turns, fanned out from it (deg). */
@@ -918,8 +926,9 @@ export class Board {
       for (const t of aimed.keys) note(t, `target:${aimed.source}`);
     }
     if (this.mode.kind === "divide") for (const o of p?.divide?.options ?? []) note(o.id, "divided");
-    this.renderBattlefield(this.q(".side.me"), this.withLingering(z.me), attachedTo);
-    this.renderBattlefield(this.q(".side.opp"), this.withLingering(z.opp), attachedTo);
+    const [me, opp] = [this.withLingering(z.me), this.withLingering(z.opp)];
+    this.renderBattlefield(this.q(".side.me"), me, opp, attachedTo);
+    this.renderBattlefield(this.q(".side.opp"), opp, me, attachedTo);
     this.renderEmblems(this.q(".side.me .emblems"), z.me);
     this.renderEmblems(this.q(".side.opp .emblems"), z.opp);
     this.renderHand(z.me);
@@ -2039,10 +2048,11 @@ export class Board {
     return el;
   }
 
-  private renderBattlefield(side: HTMLElement, player: PlayerView | null, attachedTo: Map<string, string>): void {
+  /** A side's permanents: the player's own, but battles on their protector's side (the other's). */
+  private renderBattlefield(side: HTMLElement, player: PlayerView | null, other: PlayerView | null, attachedTo: Map<string, string>): void {
     const front: HTMLElement[] = [];
     const back: HTMLElement[] = [];
-    const cards = player?.battlefield ?? [];
+    const cards = [...(player?.battlefield ?? []).filter((c) => !isBattleFront(c)), ...(other?.battlefield ?? []).filter(isBattleFront)];
 
     const lands: HTMLElement[] = [];
     const fullCards: HTMLElement[] = [];
@@ -2127,6 +2137,8 @@ export class Board {
       // then land, then Sagas/Classes/planeswalkers, then the rest.
       const full = isFullCard(c);
       slot.classList.toggle("full", full);
+      // Rooms and battles lie sideways, as printed.
+      slot.classList.toggle("wide", isWideCard(c));
       if (isFrontRow(c)) front.push(slot);
       else if (isLand(c)) lands.push(slot);
       else if (full) fullCards.push(slot);
@@ -4631,7 +4643,8 @@ export class Board {
     const unitsOf = (slot: Element) => {
       const s = slot as HTMLElement;
       if (s.classList.contains("group")) return 1 + (Number(s.style.getPropertyValue("--gn")) - 1) * 0.3;
-      return s.classList.contains("tapped") ? 1.1 : 1;
+      const w = s.classList.contains("wide") ? WIDE_UNITS : 1;
+      return s.classList.contains("tapped") ? w * 1.1 : w;
     };
     // A zone's cards at a scale of their full size (set as its own --bf-w, which every card and
     // slot size inside follows).
@@ -4742,8 +4755,10 @@ export class Board {
       // arrows. Artifacts and enchantments get the rest, and lands the left side: one line,
       // shrinking a little, then two rows of small cards, paged too.
       const sideKey = side.classList.contains("me") ? "me" : "opp";
-      const fullLine = line(full, rightSpace * 0.6, 0.8);
-      const wf = fullLine.fits ? fullLine.width : grid(full, rightSpace * 0.6, 0.5, 2, 3, `${sideKey}:full`, "grid");
+      // (With no artifacts or enchantments, the whole right side: Rooms and battles lie wide.)
+      const fullShare = rightSpace * (others.children.length ? 0.6 : 1);
+      const fullLine = line(full, fullShare, 0.8);
+      const wf = fullLine.fits ? fullLine.width : grid(full, fullShare, 0.5, 2, 3, `${sideKey}:full`, "grid");
       const availO = Math.max(0, rightSpace - (wf ? wf + 16 : 0));
       const othersLine = line(others, availO, 0.75);
       const othersW = Math.floor(othersLine.fits ? othersLine.width : grid(others, availO, 0.48, 2, Infinity, `${sideKey}:others`, "two-rows"));
@@ -6350,7 +6365,8 @@ export class Board {
     const zw = width ?? Math.min(300, (box.height * 0.6) / 1.397);
     zoom.style.setProperty("--zw", `${zw}px`);
     // Both faces side by side take the room of two cards.
-    const w = zoom.querySelector(".zback") ? zw * 2 + ZBACK_GAP : zw;
+    const front = zoom.querySelector(".zcard.wide") ? zw * ZOOM_WIDE : zw;
+    const w = zoom.querySelector(".zback") ? front + zw + ZBACK_GAP : front;
     const zh = zoom.offsetHeight;
     const gap = 14;
     const right = r.right - box.left + gap;
@@ -6361,7 +6377,7 @@ export class Board {
     zoom.style.top = `${y}px`;
     // The keyword boxes go on the far side from the card hovered, where there's room.
     const kw = zoom.querySelector<HTMLElement>(".zkw");
-    if (kw) zoom.classList.toggle("kw-left", x === left || x + zw + KW_GAP + kw.offsetWidth > box.width - 8);
+    if (kw) zoom.classList.toggle("kw-left", x === left || x + front + KW_GAP + kw.offsetWidth > box.width - 8);
   }
 
   /** `bare` (hovering) shows only the card; its boxes (state, counters, keywords, effects,
@@ -6390,7 +6406,7 @@ export class Board {
       holder ? `<span>Exiled by ${esc(holder.name)}</span>` : "",
     ].filter(Boolean);
     zoom.innerHTML = `
-      <div class="zcard">${url ? `<img src="${esc(url)}" alt="${esc(c.name)}">` : `<div class="ztext"><b>${esc(c.name)}</b><i>${esc(c.typeLine ?? "")}</i><p>${esc(c.oracleText ?? "")}</p></div>`}</div>
+      <div class="zcard${isWideCard(c) ? " wide" : ""}${doorClasses(unlockedDoors(c))}">${url ? `<img src="${esc(url)}" alt="${esc(c.name)}"><div class="doors"><i></i><i></i></div>` : `<div class="ztext"><b>${esc(c.name)}</b><i>${esc(c.typeLine ?? "")}</i><p>${esc(c.oracleText ?? "")}</p></div>`}</div>
       ${extra ? `<div class="zextra">${esc(extra)}</div>` : ""}
       ${c.damage && !bare ? `<div class="zextra"><span class="dmg">${c.damage} damage</span></div>` : ""}
       ${notes.length ? `<div class="zextra col">${notes.join("")}</div>` : ""}

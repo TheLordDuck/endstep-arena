@@ -186,3 +186,9 @@ Added on 2026-10-28:
 | Scenario | Shows |
 | --- | --- |
 | `impulse` | The opponent's Wrenn's Resolve resolves: the two cards it exiles hang by their hand, lit in orange, in front of their flashback card |
+
+Added on 2026-11-20:
+
+| Scenario | Shows |
+| --- | --- |
+| `rooms` | Rooms and battles as Arena lays them out: whole cards lying sideways, with the Sagas and planeswalkers. Your Bottomless Pool // Locker Room (both doors unlocked), Dazzling Theater (its right door locked: dark, with a padlock) and Defaced Gallery (its left door locked); each battle on its protector's side, with its defense in a shield: the opponent's Invasion of Zendikar (3) on yours, your Invasion of Tarkir (5) on theirs. Hover one for it enlarged, sideways too (a battle with its other face) |

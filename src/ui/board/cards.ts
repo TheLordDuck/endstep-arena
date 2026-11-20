@@ -6,6 +6,7 @@ import type { CardView } from "../../game/GameState";
 import { frameColor } from "./abilityText";
 import { keywordIconsHtml } from "./keywordIcons";
 import { printedKeywords } from "./keywords";
+import { knownRoomDoors, roomDoors } from "./relatedTokens";
 
 export type ImageVersion = "normal" | "large" | "art_crop";
 
@@ -57,6 +58,7 @@ export function createCardEl(id: string): HTMLElement {
   el.innerHTML = `<div class="face">
       <div class="fallback"><b class="fname"></b><span class="fcost"></span><span class="ftype"></span><span class="ftext"></span></div>
       <img class="img" alt="" draggable="false" decoding="async">
+      <div class="doors"><i></i><i></i></div>
     </div>
     <div class="kicons"></div>
     <div class="kws"></div>
@@ -117,6 +119,9 @@ export function updateCardEl(el: HTMLElement, c: CardView, showStats: boolean): 
 
   const saga = !c.faceDown && hasSubtype(c, "saga");
   const klass = !c.faceDown && hasSubtype(c, "class");
+  const battle = !c.faceDown && hasType(c, "battle");
+  el.classList.toggle("wide", isWideCard(c));
+  showDoors(el, c);
   // Face down but known to the viewer: its front, dimmed, with an eye mark.
   const peeked = c.faceDown && !!c.peeked;
   el.classList.toggle("facedown", c.faceDown && !peeked);
@@ -140,7 +145,7 @@ export function updateCardEl(el: HTMLElement, c: CardView, showStats: boolean): 
   const pins: string[] = [];
   if (showStats) {
     // Sagas show their chapter (lore counters), Classes their level, instead of raw counters.
-    const hidden = new Set(["loyalty", ...(saga ? ["lore"] : []), ...(klass ? ["level"] : [])]);
+    const hidden = new Set(["loyalty", ...(saga ? ["lore"] : []), ...(klass ? ["level"] : []), ...(battle ? ["defense"] : [])]);
     if (saga) {
       const lore = counterCount(c, "lore");
       if (lore) badges.push(`<span class="b chap" title="Chapter ${lore}">${roman(lore)}</span>`);
@@ -156,6 +161,11 @@ export function updateCardEl(el: HTMLElement, c: CardView, showStats: boolean): 
     // A creature's damage shows in its toughness (below); anything else gets its own badge.
     if (c.damage && !(pt && typeof c.toughness === "number")) badges.push(`<span class="b dmg" title="Damage">${c.damage}</span>`);
     // Endstep sends 0/0 (and loyalty 0) for every card, so stats follow the card's type.
+    // A battle's defense (its defense counters) in a shield, where a planeswalker has its loyalty.
+    if (battle) {
+      const defense = counterCount(c, "defense");
+      badges.push(`<span class="b def" title="Defense ${defense}">${defense}</span>`);
+    }
     if (c.loyalty !== undefined && hasType(c, "planeswalker")) badges.push(`<span class="b loy">${attr(c.loyalty)}</span>`);
     // Power or toughness that isn't the printed value is blue.
     // (+1/+1, -1/-1… counters change it too, even when Endstep's base values don't show it.)
@@ -277,8 +287,53 @@ const hasSubtype = (c: CardView, subtype: string) =>
 /** Sagas, Classes and planeswalkers: shown as whole cards, in their own group after artifacts and
     enchantments. A creature or land stays with the creatures or lands, shown like them. */
 export function isFullCard(c: CardView): boolean {
+  // (Rooms and battles too, lying sideways.)
   return !c.faceDown && !isFrontRow(c) && !isLand(c)
-    && (hasSubtype(c, "saga") || hasSubtype(c, "class") || hasType(c, "planeswalker"));
+    && (hasSubtype(c, "saga") || hasSubtype(c, "class") || hasType(c, "planeswalker") || isWideCard(c));
+}
+
+/** Printed sideways: Rooms (two doors side by side) and a battle's front face. Scryfall's picture
+    of them is upright with the card turned, so the board shows it turned back, landscape. */
+export function isWideCard(c: CardView): boolean {
+  if (c.faceDown) return false;
+  return isRoom(c) || isBattleFront(c);
+}
+
+/** A battle (its front face: once defeated and cast transformed, it's an ordinary permanent). Its
+    protector attacks it, so Arena lays it on the protector's side: with two players, the opponent
+    of whoever controls it (Endstep lists it on its controller's battlefield, naming no protector). */
+export function isBattleFront(c: CardView): boolean {
+  return !c.faceDown && hasType(c, "battle") && !c.backFace;
+}
+
+export function isRoom(c: CardView): boolean {
+  return !c.faceDown && (hasSubtype(c, "room") || c.types.some((t) => t.toLowerCase() === "room"));
+}
+
+/** Which of a Room's doors are unlocked, left and right, from the name Endstep gives it (the
+    unlocked doors' names). Undefined until its doors are known, or when the name says neither. */
+export function unlockedDoors(c: CardView): [boolean, boolean] | undefined {
+  if (!isRoom(c)) return undefined;
+  const doors = c.name.includes(" // ") ? c.name.split(" // ") as [string, string] : knownRoomDoors(c.name);
+  if (!doors) return undefined;
+  const open = new Set(c.name.split(" // ").map((n) => n.trim().toLowerCase()));
+  const state: [boolean, boolean] = [open.has(doors[0].toLowerCase()), open.has(doors[1].toLowerCase())];
+  return state[0] || state[1] ? state : undefined;
+}
+
+/** A Room's locked door darkened, with a padlock, as Arena shows it. Its doors are asked of
+    Scryfall the first time a Room shows only one door's name. */
+export function showDoors(el: HTMLElement, c: CardView): void {
+  el.dataset.room = c.name;
+  const state = unlockedDoors(c);
+  el.classList.toggle("room", !!state);
+  el.classList.toggle("left-locked", !!state && !state[0]);
+  el.classList.toggle("right-locked", !!state && !state[1]);
+  if (!state && isRoom(c) && !c.name.includes(" // ") && knownRoomDoors(c.name) === undefined) {
+    const name = c.name;
+    // (Still that card by then: a Room whose doors changed meanwhile was shown again.)
+    void roomDoors(name).then((doors) => { if (doors && el.dataset.room === name) showDoors(el, c); });
+  }
 }
 
 /** Creatures go in the front row (as Endstep buckets them: Creature, then Land, then the rest). */

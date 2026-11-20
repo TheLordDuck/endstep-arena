@@ -13,6 +13,7 @@ export interface RelatedToken {
 interface ScryfallCard {
   name?: string;
   all_parts?: { component?: string; name?: string; type_line?: string; id?: string }[];
+  type_line?: string;
   card_faces?: { name?: string; image_uris?: unknown }[];
 }
 
@@ -51,6 +52,8 @@ const cache = new Map<string, Promise<ScryfallCard | null>>();
 const twoFaced = new Map<string, boolean>();
 /** A double-faced card's face names, front then back, by the name it was asked by. */
 const faceNames = new Map<string, [string, string]>();
+/** A Room's two doors, left then right (null: not a Room), by the name it was asked by. */
+const doorNames = new Map<string, [string, string] | null>();
 
 function scryfallCard(name: string): Promise<ScryfallCard | null> {
   let found = cache.get(name);
@@ -62,6 +65,7 @@ function scryfallCard(name: string): Promise<ScryfallCard | null> {
         twoFaced.set(name, two);
         const [front, back] = card?.card_faces ?? [];
         if (two && front?.name && back?.name) faceNames.set(name, [front.name, back.name]);
+        if (card) doorNames.set(name, /\bRoom\b/.test(card.type_line ?? "") && front?.name && back?.name ? [front.name, back.name] : null);
         return card;
       })
       // Not reachable now: asked again next time.
@@ -96,4 +100,17 @@ export function otherFace(name: string, backFace: boolean): { name: string; back
   if (!faces) return undefined;
   const showingBack = backFace || name === faces[1];
   return { name: faces[showingBack ? 0 : 1], backFace: !showingBack };
+}
+
+/** A Room's doors, left then right (null when it isn't one, or Scryfall can't be reached). Endstep
+    names a Room by its unlocked doors (one door's name, or both as "Left // Right"); Scryfall finds
+    the card by either. */
+export async function roomDoors(name: string): Promise<[string, string] | null> {
+  await scryfallCard(name);
+  return doorNames.get(name) ?? null;
+}
+
+/** The answer of roomDoors when it's already known, without waiting. */
+export function knownRoomDoors(name: string): [string, string] | null | undefined {
+  return doorNames.get(name);
 }

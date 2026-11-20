@@ -428,6 +428,28 @@ const scenarios: Record<string, Scenario> = {
     s.pendingAction = { type: "DECLARE_ATTACKERS", promptVersion: 5, message: "Declare attackers",
       cardOptions: [{ id: byName(me!, "Tarmogoyf").id }, { id: byName(me!, "Grizzly Bears").id }], modeOptions: [] };
   },
+  // Rooms and battles, as Arena lays them out: sideways and whole, with the Sagas and
+  // planeswalkers. Ours: Bottomless Pool // Locker Room (both doors unlocked), Dazzling Theater (its
+  // left door only) and Defaced Gallery (the right door of Painter's Studio). The opponent's
+  // Invasion of Zendikar (3 defense), which we protect, lies on our side; our Invasion of Tarkir on theirs.
+  rooms: (s) => {
+    const [me, opp] = players(s);
+    const room = (name: string, oracleText: string) => card(name, { types: ["Enchantment"], typeLine: "Enchantment — Room // Enchantment — Room", oracleText });
+    me!.battlefield = [...bf(me!).filter((c) => /Land/.test(String(c.typeLine))),
+      creature("Grizzly Bears", 2, 2),
+      room("Bottomless Pool // Locker Room", "When you unlock this door, return up to one target creature to its owner's hand.\n(You may cast either half. That door unlocks on the battlefield. As a sorcery, you may pay the mana cost of a locked door to unlock it.)"),
+      // One door unlocked: Endstep names it by that door alone (the other is asked of Scryfall).
+      room("Dazzling Theater", "Creature spells you cast have convoke."),
+      room("Defaced Gallery", "Whenever you attack, attacking creatures you control get +1/+0 until end of turn."),
+    ];
+    // As Endstep sends them: each battle on its caster's battlefield. Ours (Invasion of Tarkir, 5
+    // defense) lies on the opponent's side, theirs on ours.
+    bf(me!).push(card("Invasion of Tarkir", { types: ["Battle"], typeLine: "Battle — Siege", counters: { DEFENSE: 5 },
+      oracleText: "(As a Siege enters, choose an opponent to protect it. You and others can attack it. When it's defeated, exile it, then cast it transformed.)\nWhen Invasion of Tarkir enters the battlefield, reveal any number of Dragon cards from your hand. When you do, Invasion of Tarkir deals X damage to any target, where X is 2 plus the number of Dragon cards revealed this way." }));
+    opp!.battlefield = [...bf(opp!).filter((c) => /Land/.test(String(c.typeLine)))];
+    bf(opp!).push(card("Invasion of Zendikar", { types: ["Battle"], typeLine: "Battle — Siege", counters: { DEFENSE: 3 }, setCode: "mom", collectorNumber: "207",
+      oracleText: "(As a Siege enters, choose an opponent to protect it. You and others can attack it. When it's defeated, exile it, then cast it transformed.)\nWhen Invasion of Zendikar enters the battlefield, search your library for up to two basic land cards, put them onto the battlefield tapped, then shuffle." }));
+  },
   // A horde, as in Arena: 18 identical Soldier tokens make one pile (×18, four drawn) and nine
   // Mountains another; declaring attackers, the ×18 sends them all (a click on one, just it).
   horde: (s) => {

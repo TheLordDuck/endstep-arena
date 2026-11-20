@@ -530,6 +530,48 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .side .card .b.loy { background: linear-gradient(180deg, #4a3d6a, #1f1830); }
 
+/* Rooms and battles, printed sideways: the whole card at full size, frame and all, lying down
+   with the whole cards. Scryfall's picture is upright with the card turned, so it is turned back a
+   quarter. A card a width tall rises a little above the row (below it for the opponent). */
+.side .slot.wide { width: calc(var(--bf-w) * 88 / 63); }
+.side .slot.wide.tapped { width: calc(var(--bf-w) * 88 / 63 * 1.1); }
+.side.me .slot.full.wide { margin-top: calc(var(--bf-w) * -0.2); }
+.side.opp .slot.full.wide { margin-bottom: calc(var(--bf-w) * -0.2); }
+.side .card.wide, .side .card.full.wide { width: calc(var(--cw) * 88 / 63); aspect-ratio: 88 / 63; }
+.side .card.wide .img {
+  inset: auto;
+  left: 50%;
+  top: 50%;
+  width: var(--cw);
+  height: calc(var(--cw) * 88 / 63);
+  translate: -50% -50%;
+  rotate: 90deg;
+  object-fit: fill;
+}
+/* A Room's locked door: darkened, with a padlock on it, as in Arena (the card lies sideways, so
+   its left door is the left half). */
+.doors { display: none; }
+.side .card.room .doors, .zcard.room .doors { position: absolute; inset: 0; display: flex; pointer-events: none; }
+.doors i { flex: 1; }
+.card.left-locked .doors i:first-child, .card.right-locked .doors i:last-child,
+.zcard.left-locked .doors i:first-child, .zcard.right-locked .doors i:last-child {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 10V7a5 5 0 0 1 10 0v3' fill='none' stroke='%23e8c678' stroke-width='2.4'/%3E%3Crect x='4' y='10' width='16' height='12' rx='2.5' fill='%23e8c678'/%3E%3Ccircle cx='12' cy='15.5' r='1.8' fill='%231a140c'/%3E%3C/svg%3E") center / 34% auto no-repeat,
+    rgba(8, 6, 4, 0.66);
+  backdrop-filter: grayscale(1);
+}
+
+/* A battle's defense: a steel-blue shield, as on the printed card. */
+.side .card .b.def {
+  padding: 1px 8px 3px;
+  border-radius: 4px 4px 50% 50% / 4px 4px 40% 40%;
+  font: 800 calc(var(--cw) * 0.2) / 1.1 "Cinzel", Georgia, serif;
+  color: #fff;
+  background: linear-gradient(180deg, #5f7398, #26334d);
+  border: 2px solid rgba(200, 215, 240, 0.85);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.7);
+}
+
 /* Tokens in Arena's token frame: a dark card body with its top corners well rounded; in it a window
    arched on top with the token's art (its art crop), edged in a bright line of the token's color
    (silvery white, blue, green…); power/toughness in a pale box at the bottom right. No name: the
@@ -2721,6 +2763,11 @@ button.mpip { padding: 0; border: 0; cursor: pointer; }
 .zoom.fanned { transform-origin: 0 100%; }
 .zcard { width: var(--zw); aspect-ratio: 63 / 88; border-radius: calc(var(--zw) * 0.05); overflow: hidden; background: #1b1712; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7); }
 .zcard img { width: 100%; height: 100%; object-fit: cover; }
+/* A Room or battle enlarged: lying down, its upright picture turned back a quarter. */
+.zoom:has(> .zcard.wide) { width: calc(var(--zw) * 88 / 63); }
+.zcard.wide { width: calc(var(--zw) * 88 / 63); aspect-ratio: 88 / 63; position: relative; }
+.zcard.wide img { position: absolute; left: 50%; top: 50%; width: var(--zw); height: calc(var(--zw) * 88 / 63); translate: -50% -50%; rotate: 90deg; object-fit: fill; }
+.zcard.wide ~ .zcard.zback { left: calc(var(--zw) * 88 / 63 + 10px); }
 /* A double-faced card's other face, to the right of the one hovered. */
 .zcard.zback { position: absolute; top: 0; left: calc(var(--zw) + 10px); }
 .ztext { padding: 16px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
