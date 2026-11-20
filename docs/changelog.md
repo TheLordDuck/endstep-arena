@@ -1,5 +1,21 @@
 # Changelog
 
+## Release 0.10.5 (2026-11-20)
+
+On top of `abc6043`. All 196 tests pass. `package.json` and `public/manifest.json` at 0.10.5.
+
+1. **Rooms and battles as in Arena:** they're printed sideways, and the board showed the top of
+   an upright picture with the card turned, so neither could be read. Now each is the whole card,
+   frame and all, lying sideways at full size with the Sagas and planeswalkers (with no artifacts
+   or enchantments, that group takes the whole right side). Hovering one enlarges it sideways too.
+2. **A Room's locked door** is darkened, with a padlock, as in Arena. Endstep names a Room by its
+   unlocked doors ("Bottomless Pool" with one, "Bottomless Pool // Locker Room" with both); which
+   side that door is on is asked of Scryfall, once per card, by its name only.
+3. **Battles on their protector's side,** where Arena lays them and where they're attacked: with
+   two players, the opponent of whoever cast it (Endstep lists it on its caster's battlefield). Its
+   defense shows in a steel-blue shield instead of a "defense" counter pin.
+4. Harness scenario `rooms` (docs/testing.md).
+
 ## Release 0.10.4 (2026-10-29)
 
 On top of `bf8afa0`. All 196 tests pass. `package.json` and `public/manifest.json` at 0.10.4.
