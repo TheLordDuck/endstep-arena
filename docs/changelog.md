@@ -1,5 +1,22 @@
 # Changelog
 
+## Release 0.10.6 (2026-11-27)
+
+On top of `740d22b`. All 196 tests pass. `package.json` and `public/manifest.json` at 0.10.6.
+
+1. **Endstep's cells followed:** Endstep's server can now move the main socket to one of its cells
+   (a `MOVE` frame; the client reconnects to `wss://c<N>.endstep.cc/ws`). The tap only watched
+   sockets on endstep.cc itself, so after a move no match was seen and the board never came up
+   (the pill said ON with nothing to show). Cell hosts now count as the main socket.
+2. **The idle timer in the middle of the table:** the time left to act before forfeiting ("Act
+   now", or "<name> is deciding") sits on the midline by the turn, whoever it is, instead of by
+   the opponent's picture. The match clock stays by each picture.
+3. **The debug panel above the board:** the board's own layers (the hand, hovered cards, menus)
+   covered it and took its clicks.
+4. `check:endstep` against Endstep `f472450a1` (2026-11-27): its socket markers follow the new
+   code (`/ws?`, `ATTACH { ticket, sinceSeq? }`, the matchId check), plus one for the cell hosts.
+5. Known issue: Space may not pass priority while the board is up; the cause isn't found yet.
+
 ## Release 0.10.5 (2026-11-20)
 
 On top of `abc6043`. All 196 tests pass. `package.json` and `public/manifest.json` at 0.10.5.
