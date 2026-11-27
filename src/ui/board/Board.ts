@@ -385,6 +385,7 @@ export class Board {
       </section>
       <div class="midline">
         <div class="turn-label"></div>
+        <div class="center-idle"><span class="idle" role="timer" hidden></span></div>
         <div class="daynight" hidden></div>
       </div>
       <section class="side me">
@@ -949,6 +950,7 @@ export class Board {
     this.waiting = waitingFor(state, z.me);
     this.renderRope(this.q(".me-rope"), z.me, state);
     this.renderRope(this.q(".opp-rope"), z.opp, state);
+    this.renderIdle(state);
     this.renderFelt(state, z.me);
     this.renderPlate(this.q(".me-plate"), this.q(".me-life"), z.me, state);
     this.renderPlate(this.q(".opp-plate"), this.q(".opp-life"), z.opp, state);
@@ -3096,10 +3098,9 @@ export class Board {
       time they have left to act before forfeiting: by their picture, like Arena's timer. */
   private renderTimers(orb: HTMLElement, p: PlayerView, state: GameState): void {
     const clock = state.clock;
-    const idle = state.idle?.playerId === p.id && !p.hasLost && !p.hasConceded ? state.idle : undefined;
     const hasClock = !!clock && (clock.left[p.id] !== undefined || clock.running === p.id);
     let box = orb.querySelector<HTMLElement>(".timers");
-    if (!hasClock && !idle) {
+    if (!hasClock) {
       box?.remove();
       orb.classList.remove("has-timers");
       return;
@@ -3107,7 +3108,7 @@ export class Board {
     if (!box) {
       box = document.createElement("div");
       box.className = "timers";
-      box.innerHTML = '<span class="mclock" role="timer"></span><span class="idle" role="timer"></span>';
+      box.innerHTML = '<span class="mclock" role="timer"></span>';
       orb.appendChild(box);
     }
     orb.classList.add("has-timers");
@@ -3123,16 +3124,23 @@ export class Board {
       mclock.title = clock.timedOut === p.id ? `${who} time ran out` : `${who} time left in the match${running ? " (running)" : ""}`;
       updateTimer(mclock);
     }
-    const idleEl = box.querySelector<HTMLElement>(".idle")!;
-    idleEl.hidden = !idle;
-    if (idle) {
-      idleEl.dataset.deadline = String(idle.deadline);
-      idleEl.dataset.grace = String(idle.graceMs);
-      idleEl.dataset.label = p.isViewer ? (idle.away ? "You're away" : "Act now") : idle.away ? "Away" : "Deciding";
-      idleEl.title = p.isViewer ? "Take an action before the timer ends, or you forfeit the match."
-        : `Waiting for ${p.name} to act. They forfeit the match if the timer ends.`;
-      updateTimer(idleEl);
-    }
+  }
+
+  /** While someone is taking too long to act, the time they have left before forfeiting: one
+      timer in the middle of the screen, whoever it is. */
+  private renderIdle(state: GameState): void {
+    const p = state.idle ? state.players.find((x) => x.id === state.idle!.playerId) : undefined;
+    const idle = p && !p.hasLost && !p.hasConceded ? state.idle : undefined;
+    const el = this.q(".center-idle .idle");
+    el.hidden = !idle;
+    if (!idle || !p) return;
+    el.dataset.deadline = String(idle.deadline);
+    el.dataset.grace = String(idle.graceMs);
+    el.dataset.label = p.isViewer ? (idle.away ? "You're away" : "Act now") : idle.away ? `${p.name} is away` : `${p.name} is deciding`;
+    el.title = p.isViewer ? "Take an action before the timer ends, or you forfeit the match."
+      : `Waiting for ${p.name} to act. They forfeit the match if the timer ends.`;
+    updateTimer(el);
+    this.startTimerTicker();
   }
 
   /** The match chat: the panel (its messages, who's typing, a refusal or mute notice), the Chat
@@ -6958,7 +6966,7 @@ function sessionStore(): Storage | undefined {
 
 /** "Lost connection · concedes in 1:23", or "· waiting to reconnect" with no deadline (as Endstep says it). */
 /** The countdowns the timer ticker keeps up to date. */
-const TIMERS = ".conn, .timers .mclock:not([hidden]), .timers .idle:not([hidden]), .sb-timer, .rope.on";
+const TIMERS = ".conn, .timers .mclock:not([hidden]), .center-idle .idle:not([hidden]), .sb-timer, .rope.on";
 
 /** m:ss (h:mm:ss from an hour), rounded down as Endstep's clock shows it. */
 export function clockText(ms: number): string {

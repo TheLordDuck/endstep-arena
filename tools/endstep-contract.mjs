@@ -61,15 +61,16 @@ function topLevelKeys(code, at) {
 
 /** Things the extension's socket tap and the adapter rely on, each as a pattern that must be found. */
 const MARKERS = {
-  "main socket at /ws": /\$\{\w+\.origin\}\/ws\$\{/,
+  "main socket at /ws": /\$\{\w+\.origin\}\/ws\??\$\{/,
+  "the main socket may MOVE to a cell host c<N>.<host>": /\/\^c\[0-9\]\{1,3\}\$\//,
   "actions go out as GAME_ACTION { ...action, matchId }": /\{type:`GAME_ACTION`,payload:\{\.\.\.\w+,matchId:\w+\}\}/,
   "actionId added to GAME_ACTION": /typeof \w+\.actionId==`string`&&\w+\.actionId\.length>0\?\w+:\{\.\.\.\w+,payload:\{\.\.\.\w+\?\?\{\},actionId:/,
   "a match is attached with GAME_ATTACH { matchId }": /\{type:`GAME_ATTACH`,payload:\{matchId:\w+\.matchId\}\}/,
   "GAME_ATTACH_TICKET gives { path, ticket }": /let\{path:\w+,ticket:\w+\}=\w+/,
-  "the match socket opens with ATTACH { ticket }": /\{type:`ATTACH`,payload:\{ticket:\w+\}\}/,
+  "the match socket opens with ATTACH { ticket }": /\{type:`ATTACH`,payload:(?:\w+\?\{ticket:\w+,sinceSeq:\w+\}:)?\{ticket:\w+\}\}/,
   "ATTACHED gives the seat as `audience`": /\w+\(\w+\?\.audience\)/,
   "the match socket carries GAME_STATE / GAME_DELTA / GAME_EVENT": /\.type===`ATTACHED`\?.*?\.type===`GAME_STATE`\?.*?\.type===`GAME_DELTA`\?.*?\.type===`GAME_EVENT`\?/,
-  "match socket frames may leave matchId out": /\w+\.matchId===void 0\|\|\w+\.matchId===\w+\.matchId/,
+  "match socket frames may leave matchId out": /\w+\.matchId===void 0\|\|\w+\.matchId===\w+\.matchId|\w+\.matchId!==void 0&&\w+\.matchId!==\w+\.matchId/,
   "deltas apply only on baseSeq === last seq": /\.baseSeq===\w+\.lastSeq/,
   "delta merge: { ...prev, ...patch.state, pendingAction }": /\{\.\.\.\w+,\.\.\.\w+\.patch\.state\?\?\{\},pendingAction:\w+\.pendingAction\}/,
   "player patches are { i, ...fields }": /let\{i(?::\w+)?,\.\.\.\w+\}=\w+;return\{\.\.\.\w+,\.\.\.\w+\}/,

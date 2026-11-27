@@ -1153,10 +1153,26 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .timers .mclock.running { color: var(--gold-hi); border-color: rgba(232, 198, 120, 0.6); box-shadow: 0 0 12px rgba(232, 198, 120, 0.25); }
 .timers .mclock.low, .timers .mclock.flagged { color: #ffd2c8; border-color: rgba(255, 90, 60, 0.7); box-shadow: 0 0 12px rgba(255, 90, 60, 0.35); }
 .timers .mclock.low { animation: conn-blink 1s ease-in-out infinite; }
-/* Taking too long to act: gold, then red in the last stretch. */
-.timers .idle { color: var(--gold-hi); border-color: rgba(232, 198, 120, 0.6); }
-.timers .idle.low { color: #ffd2c8; border-color: rgba(255, 90, 60, 0.55); }
-.timers .idle.urgent { background: rgba(120, 24, 12, 0.9); border-color: rgba(255, 90, 60, 0.9); animation: conn-blink 1s ease-in-out infinite; }
+/* Taking too long to act: one timer in the middle of the table, by the turn, gold, then red in
+   the last stretch. */
+.center-idle { display: contents; }
+.center-idle .idle {
+  position: relative;
+  display: block;
+  padding: 1px 14px;
+  border-radius: 999px;
+  font: 700 14px/1.4 var(--font);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--gold-hi);
+  background: rgba(14, 11, 9, 0.9);
+  border: 1px solid rgba(232, 198, 120, 0.6);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+  text-shadow: none;
+}
+.center-idle .idle[hidden] { display: none; }
+.center-idle .idle.low { color: #ffd2c8; border-color: rgba(255, 90, 60, 0.55); }
+.center-idle .idle.urgent { background: rgba(120, 24, 12, 0.92); border-color: rgba(255, 90, 60, 0.9); animation: conn-blink 1s ease-in-out infinite; }
 /* Life totals: centered on the table, just above each player's cards
    (yours above your hand, the opponent's below their hand). */
 .life-orb {

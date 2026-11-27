@@ -40,10 +40,15 @@ declare global {
   // (CHAT, CHAT_TYPING, CHAT_REFUSED, CHAT_MUTE: the board keeps only its match's chat.)
   const isGameFrame = (data: string) => data.includes('"GAME_') || data.includes('"ATTACH"') || data.includes('"SEAT_CONNECTIVITY"') || data.includes('"CHAT');
 
+  // Endstep's server can MOVE the main socket to one of its cells (c<N>.endstep.cc), which the
+  // client then opens as wss://c<N>.<host>/ws: those count as the main socket too.
+  const isEndstepHost = (host: string) =>
+    host === location.host || (/^c[0-9]{1,3}\./.test(host) && host.slice(host.indexOf(".") + 1) === location.hostname);
+
   const isGameSocket = (url: string) => {
     try {
       const u = new URL(url, location.href);
-      return u.host === location.host && u.pathname === "/ws";
+      return isEndstepHost(u.host) && u.pathname === "/ws";
     } catch {
       return false;
     }

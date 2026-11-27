@@ -79,6 +79,8 @@ button {
   right: 16px;
   bottom: 16px;
   width: min(440px, calc(100vw - 32px));
+  /* Above every piece of the board (its own layers go up to 200 and aren't isolated). */
+  z-index: 1000;
   display: none;
   flex-direction: column;
   border: 1px solid var(--line);
